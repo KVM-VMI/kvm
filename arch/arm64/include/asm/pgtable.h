@@ -25,8 +25,8 @@
  * Software defined PTE bits definition.
  */
 #define PTE_VALID		(_AT(pteval_t, 1) << 0)
-#define PTE_PROT_NONE		(_AT(pteval_t, 1) << 1)	/* only when !PTE_VALID */
-#define PTE_FILE		(_AT(pteval_t, 1) << 2)	/* only when !pte_present() */
+#define PTE_FILE		(_AT(pteval_t, 1) << 1)	/* only when !pte_present() */
+#define PTE_PROT_NONE		(_AT(pteval_t, 1) << 2)	/* only when !PTE_VALID */
 #define PTE_DIRTY		(_AT(pteval_t, 1) << 55)
 #define PTE_SPECIAL		(_AT(pteval_t, 1) << 56)
 
@@ -281,8 +281,8 @@ extern pgd_t idmap_pg_dir[PTRS_PER_PGD];
 
 /*
  * Encode and decode a swap entry:
- *	bits 0-1:	present (must be zero)
- *	bit  2:		PTE_FILE
+ *	bits 0, 2:	present (must both be zero)
+ *	bit  1:		PTE_FILE
  *	bits 3-8:	swap type
  *	bits 9-63:	swap offset
  */
@@ -306,8 +306,8 @@ extern pgd_t idmap_pg_dir[PTRS_PER_PGD];
 
 /*
  * Encode and decode a file entry:
- *	bits 0-1:	present (must be zero)
- *	bit  2:		PTE_FILE
+ *	bits 0, 2:	present (must both be zero)
+ *	bit  1:		PTE_FILE
  *	bits 3-63:	file offset / PAGE_SIZE
  */
 #define pte_file(pte)		(pte_val(pte) & PTE_FILE)
