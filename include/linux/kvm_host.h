@@ -35,6 +35,8 @@
 
 #include <asm/kvm_host.h>
 
+#include <linux/nitro_main.h>
+
 /*
  * The bit 16 ~ bit 31 of kvm_memory_region::flags are internally used
  * in kvm, other bits are visible for userspace which are defined in
@@ -407,6 +409,8 @@ struct kvm {
 #endif
 	long tlbs_dirty;
 	struct list_head devices;
+	
+	struct nitro_kvm_s *nitro_kvm;
 };
 
 #define kvm_err(fmt, ...) \

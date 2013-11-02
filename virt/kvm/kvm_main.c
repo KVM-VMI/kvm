@@ -63,6 +63,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/kvm.h>
 
+#include <linux/nitro.h>
+#include <linux/nitro_main.h>
+
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
 
@@ -646,6 +649,8 @@ static void kvm_destroy_vm(struct kvm *kvm)
 {
 	int i;
 	struct mm_struct *mm = kvm->mm;
+	
+	nitro_destroy_vm_hook(kvm);
 
 	kvm_arch_sync_events(kvm);
 	spin_lock(&kvm_lock);
@@ -2259,7 +2264,7 @@ static struct file_operations kvm_vcpu_fops = {
 /*
  * Allocates an inode for the vcpu.
  */
-static int create_vcpu_fd(struct kvm_vcpu *vcpu)
+int create_vcpu_fd(struct kvm_vcpu *vcpu)
 {
 	return anon_inode_getfd("kvm-vcpu", &kvm_vcpu_fops, vcpu, O_RDWR | O_CLOEXEC);
 }
@@ -2759,8 +2764,8 @@ static long kvm_vm_ioctl(struct file *filp,
 	void __user *argp = (void __user *)arg;
 	int r;
 
-	if (kvm->mm != current->mm)
-		return -EIO;
+	//if (kvm->mm != current->mm)
+	//	return -EIO;
 	switch (ioctl) {
 	case KVM_CREATE_VCPU:
 		r = kvm_vm_ioctl_create_vcpu(kvm, arg);
@@ -2909,6 +2914,24 @@ out_free_irq_routing:
 	case KVM_CHECK_EXTENSION:
 		r = kvm_vm_ioctl_check_extension_generic(kvm, arg);
 		break;
+	case KVM_NITRO_ATTACH_VCPUS: {
+		struct nitro_vcpus nvcpus;
+
+		r = -EFAULT;
+		if (copy_from_user(&nvcpus, argp, sizeof(nvcpus)))
+			goto out;
+
+		r = nitro_iotcl_attach_vcpus(kvm,&nvcpus);
+		if (r)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_to_user(argp, &nvcpus, sizeof(nvcpus)))
+			goto out;
+
+		r = 0;
+		break;
+	}
 	default:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
@@ -2984,7 +3007,11 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 		return r;
 	}
 #endif
-	r = anon_inode_getfd("kvm-vm", &kvm_vm_fops, kvm, O_RDWR | O_CLOEXEC);
+
+	nitro_create_vm_hook(kvm);
+
+	r = anon_inode_getfd("kvm-vm", &kvm_vm_fops, kvm, O_RDWR);
+
 	if (r < 0)
 		kvm_put_kvm(kvm);
 
@@ -2994,6 +3021,7 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 static long kvm_dev_ioctl(struct file *filp,
 			  unsigned int ioctl, unsigned long arg)
 {
+	void __user *argp = (void __user *)arg;
 	long r = -EINVAL;
 
 	switch (ioctl) {
@@ -3024,6 +3052,24 @@ static long kvm_dev_ioctl(struct file *filp,
 	case KVM_TRACE_DISABLE:
 		r = -EOPNOTSUPP;
 		break;
+	case KVM_NITRO_NUM_VMS:
+		r = nitro_iotcl_num_vms();
+		break;
+	case KVM_NITRO_ATTACH_VM: {
+		pid_t creator;
+		struct nitro_kvm_s *nitro_kvm;
+		
+		r = -EFAULT;
+		if (copy_from_user(&creator, argp, sizeof(pid_t)))
+			goto out;
+		
+		nitro_kvm = nitro_get_vm_by_creator(creator);
+		kvm_get_kvm(nitro_kvm->kvm);
+		r = anon_inode_getfd("kvm-vm", &kvm_vm_fops, nitro_kvm->kvm, O_RDWR);
+		if(r<0)
+			kvm_put_kvm(nitro_kvm->kvm);
+		break;
+	}
 	default:
 		return kvm_arch_dev_ioctl(filp, ioctl, arg);
 	}
