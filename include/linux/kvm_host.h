@@ -270,6 +270,8 @@ struct kvm_vcpu {
 #endif
 	bool preempted;
 	struct kvm_vcpu_arch arch;
+	
+	struct nitro_vcpu nitro;
 };
 
 static inline int kvm_vcpu_exiting_guest_mode(struct kvm_vcpu *vcpu)
@@ -398,7 +400,7 @@ struct kvm {
 	long tlbs_dirty;
 	struct list_head devices;
 	
-	struct nitro_kvm_s *nitro_kvm;
+	struct nitro nitro;
 };
 
 #define kvm_err(fmt, ...) \

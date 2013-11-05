@@ -65,6 +65,10 @@
 #include <asm/pvclock.h>
 #include <asm/div64.h>
 
+#include <linux/nitro.h>
+#include <linux/nitro_main.h>
+#include "nitro_x86.h"
+
 #define MAX_IO_MSRS 256
 #define KVM_MAX_MCE_BANKS 32
 #define KVM_MCE_CAP_SUPPORTED (MCG_CTL_P | MCG_SER_P)
@@ -4077,6 +4081,14 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		r = 0;
 		break;
 	}
+	case KVM_NITRO_SET_SYSCALL_TRAP: {
+		r = nitro_set_syscall_trap(kvm);
+		break;
+	}
+	case KVM_NITRO_UNSET_SYSCALL_TRAP: {
+		r = nitro_unset_syscall_trap(kvm);
+		break;
+	}
 
 	default:
 		r = kvm_vm_ioctl_assigned_device(kvm, ioctl, arg);
@@ -6407,6 +6419,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		kvm_lapic_sync_from_vapic(vcpu);
 
 	r = kvm_x86_ops->handle_exit(vcpu);
+	
 	return r;
 
 cancel_injection:
@@ -6455,7 +6468,11 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 	for (;;) {
 		if (vcpu->arch.mp_state == KVM_MP_STATE_RUNNABLE &&
 		    !vcpu->arch.apf.halted)
+        {
 			r = vcpu_enter_guest(vcpu);
+            if(r > 0 && vcpu->nitro.trap_syscall_hit)
+                r = nitro_handle_syscall_trap(vcpu);
+        }
 		else
 			r = vcpu_block(kvm, vcpu);
 		if (r <= 0)
@@ -7104,6 +7121,8 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 	kvm_mmu_unload(vcpu);
 	vcpu_put(vcpu);
 
+	nitro_destroy_vcpu_hook(vcpu);
+	
 	fx_free(vcpu);
 	kvm_x86_ops->vcpu_free(vcpu);
 }
