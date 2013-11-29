@@ -13,6 +13,9 @@ struct nitro{
 
 struct nitro_vcpu{
   int trap_syscall_hit;
+  struct completion k_wait_cv;
+  struct semaphore n_wait_sem;
+  int event;
 };
   
 
@@ -26,5 +29,8 @@ void nitro_create_vm_hook(struct kvm*);
 void nitro_destroy_vm_hook(struct kvm*);
 void nitro_create_vcpu_hook(struct kvm_vcpu*);
 void nitro_destroy_vcpu_hook(struct kvm_vcpu*);
+
+int nitro_ioctl_get_event(struct kvm_vcpu*);
+int nitro_ioctl_continue(struct kvm_vcpu*);
 
 #endif //NITRO_MAIN_H_

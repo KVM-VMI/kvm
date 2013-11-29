@@ -52,21 +52,29 @@ int nitro_unset_syscall_trap(struct kvm *kvm){
     msr_info.data = efer | EFER_SCE;
     msr_info.host_initiated = true;
     kvm_set_msr_common(vcpu, &msr_info);
+    //if waiters, wake up
+    if(completion_done(&(vcpu->nitro.k_wait_cv)) == 0)
+      complete_all(&(vcpu->nitro.k_wait_cv));
     vcpu_put(vcpu);
   }
   
   mutex_unlock(&kvm->lock);
-  
+
   return 0;
 }
 
 int nitro_handle_syscall_trap(struct kvm_vcpu *vcpu){
-  printk(KERN_INFO "nitro: syscall trap\n");
+  //printk(KERN_INFO "nitro: syscall trap\n");
   
-  //vcpu->run->exit_reason = KVM_EXIT_DEBUG;
   vcpu->nitro.trap_syscall_hit = 0;
+  vcpu->nitro.event = KVM_NITRO_SYSCALL_TRAPPED;
+  
+  up(&(vcpu->nitro.n_wait_sem));
+  vcpu_put(vcpu);
+  wait_for_completion_killable(&(vcpu->nitro.k_wait_cv));
+  vcpu_load(vcpu);
 
-  //return 0;//returning 0 will give control back to qemu
+  //returning 0 will give control back to qemu
   return 1;
 }
 
