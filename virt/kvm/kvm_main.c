@@ -2371,7 +2371,6 @@ static long kvm_vcpu_ioctl(struct file *filp,
 		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 #endif
 
-
 	r = vcpu_load(vcpu);
 	if (r)
 		return r;
@@ -2540,6 +2539,15 @@ out_free1:
 		r = kvm_arch_vcpu_ioctl_set_fpu(vcpu, fpu);
 		break;
 	}
+	case KVM_NITRO_GET_EVENT: 
+		r = nitro_ioctl_get_event(vcpu);
+		kfree(fpu);
+		kfree(kvm_sregs);
+		return r;
+		break;
+	case KVM_NITRO_CONTINUE: 
+		r = nitro_ioctl_continue(vcpu);
+		break;
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
