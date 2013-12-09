@@ -6,12 +6,26 @@
 #include <linux/compiler.h>
 #include <asm/current.h>
 #include <asm-generic/errno-base.h>
+#include <linux/preempt.h>
 
 #include <linux/kvm_host.h>
 
 #include <linux/nitro_main.h>
 
 extern int create_vcpu_fd(struct kvm_vcpu*);
+
+int nitro_vcpu_load(struct kvm_vcpu *vcpu)
+{
+	int cpu;
+
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
+	cpu = get_cpu();
+	preempt_notifier_register(&vcpu->preempt_notifier);
+	kvm_arch_vcpu_load(vcpu, cpu);
+	put_cpu();
+	return 0;
+}
 
 struct kvm* nitro_get_vm_by_creator(pid_t creator){
   struct kvm *rv;
@@ -39,12 +53,19 @@ void nitro_create_vm_hook(struct kvm *kvm){
   
   //init nitro
   kvm->nitro.trap_syscall = 0;
+  kvm->nitro.syscall_bitmap = NULL;
+  kvm->nitro.max_syscall = 0;
 }
 
 void nitro_destroy_vm_hook(struct kvm *kvm){
   
   //deinit nitro
   kvm->nitro.trap_syscall = 0;
+  if(kvm->nitro.syscall_bitmap != NULL){
+    kfree(kvm->nitro.syscall_bitmap);
+    kvm->nitro.syscall_bitmap = NULL;
+  }
+  kvm->nitro.max_syscall = 0;
   
 }
 
@@ -106,9 +127,15 @@ error_out:
 }
 
 int nitro_ioctl_get_event(struct kvm_vcpu *vcpu){
-  vcpu_put(vcpu);
-  down_killable(&(vcpu->nitro.n_wait_sem));
-  return vcpu->nitro.event;
+  int rv;
+  
+  //vcpu_put(vcpu);
+  rv = down_interruptible(&(vcpu->nitro.n_wait_sem));
+  
+  if (rv == 0)
+    rv = vcpu->nitro.event;
+  
+  return rv;
 }
 
 int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
