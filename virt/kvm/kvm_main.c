@@ -2362,14 +2362,38 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	if (unlikely(_IOC_TYPE(ioctl) != KVMIO))
 		return -EINVAL;
 
+	//asynchronous calls that dont require vcpu_load()
+	switch(ioctl){
+	case KVM_NITRO_GET_EVENT:
+		return nitro_ioctl_get_event(vcpu);
+		break;
+	case KVM_NITRO_CONTINUE:
+		return nitro_ioctl_continue(vcpu);
+		break;
 #if defined(CONFIG_S390) || defined(CONFIG_PPC) || defined(CONFIG_MIPS)
-	/*
+	case KVM_S390_INTERRUPT:
+	case KVM_INTERRUPT:
+		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
+		break;
+#endif
+	}
+/*
+#if defined(CONFIG_S390) || defined(CONFIG_PPC) || defined(CONFIG_MIPS)
+	*
 	 * Special cases: vcpu ioctls that are asynchronous to vcpu execution,
 	 * so vcpu_load() would break it.
 	 */
 	if (ioctl == KVM_S390_INTERRUPT || ioctl == KVM_S390_IRQ || ioctl == KVM_INTERRUPT)
 		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 #endif
+	
+	//asynchronous nitro calls
+	if (ioctl == KVM_NITRO_GET_EVENT)
+		return nitro_ioctl_get_event(vcpu);
+	else if(ioctl == KVM_NITRO_CONTINUE)
+		return nitro_ioctl_continue(vcpu);
+*/
+	
 
 	r = vcpu_load(vcpu);
 	if (r)
@@ -2539,15 +2563,6 @@ out_free1:
 		r = kvm_arch_vcpu_ioctl_set_fpu(vcpu, fpu);
 		break;
 	}
-	case KVM_NITRO_GET_EVENT: 
-		r = nitro_ioctl_get_event(vcpu);
-		kfree(fpu);
-		kfree(kvm_sregs);
-		return r;
-		break;
-	case KVM_NITRO_CONTINUE: 
-		r = nitro_ioctl_continue(vcpu);
-		break;
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}

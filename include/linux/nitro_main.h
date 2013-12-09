@@ -9,6 +9,8 @@
 
 struct nitro{
   int trap_syscall; //determines whether the syscall trap is globally set
+  unsigned long *syscall_bitmap;
+  unsigned int max_syscall;
 };
 
 struct nitro_vcpu{
@@ -18,6 +20,7 @@ struct nitro_vcpu{
   int event;
 };
   
+int nitro_vcpu_load(struct kvm_vcpu*);
 
 struct kvm* nitro_get_vm_by_creator(pid_t);
 
