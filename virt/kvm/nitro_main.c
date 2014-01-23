@@ -33,13 +33,13 @@ struct kvm* nitro_get_vm_by_creator(pid_t creator){
   
   rv = NULL;
   
-  raw_spin_lock(&kvm_lock);
+  spin_lock(&kvm_lock);
   list_for_each_entry(kvm,&vm_list,vm_list)
     if(kvm->mm->owner->pid == creator){
       rv = kvm;
       break;
     }
-  raw_spin_unlock(&kvm_lock);
+  spin_unlock(&kvm_lock);
   
   return rv;
 }
@@ -85,10 +85,10 @@ int nitro_iotcl_num_vms(void){
   struct kvm *kvm;
   int rv = 0;
   
-  raw_spin_lock(&kvm_lock);
+  spin_lock(&kvm_lock);
   list_for_each_entry(kvm, &vm_list, vm_list)
     rv++;
-  raw_spin_unlock(&kvm_lock);
+  spin_unlock(&kvm_lock);
   
   return rv;
 }

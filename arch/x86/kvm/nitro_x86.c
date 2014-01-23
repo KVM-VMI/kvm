@@ -4,6 +4,7 @@
 
 #include <linux/nitro_main.h>
 #include <linux/kernel.h>
+#include <linux/completion.h>
 
 extern int kvm_set_msr_common(struct kvm_vcpu*, struct msr_data*);
 
@@ -30,7 +31,7 @@ int nitro_set_syscall_trap(struct kvm *kvm,unsigned long *bitmap,int max_syscall
     msr_info.host_initiated = true;
     kvm_set_msr_common(vcpu, &msr_info);
     
-    INIT_COMPLETION(vcpu->nitro.k_wait_cv);
+    init_completion(&vcpu->nitro.k_wait_cv);
     
     vcpu_put(vcpu);
   }
