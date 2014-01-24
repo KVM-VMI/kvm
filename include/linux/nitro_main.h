@@ -14,7 +14,6 @@ struct nitro{
 };
 
 struct nitro_vcpu{
-  int trap_syscall_hit;
   struct completion k_wait_cv;
   struct semaphore n_wait_sem;
   int event;

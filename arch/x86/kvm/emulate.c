@@ -2690,7 +2690,7 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 	}
 
 	if(vcpu->kvm->nitro.trap_syscall)
-	  vcpu->nitro.trap_syscall_hit = 1;
+	  vcpu->nitro.event = KVM_NITRO_EVENT_SYSCALL;
 	
 	return X86EMUL_CONTINUE;
 }
