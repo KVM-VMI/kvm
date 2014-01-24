@@ -2365,11 +2365,66 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	//asynchronous calls that dont require vcpu_load()
 	switch(ioctl){
 	case KVM_NITRO_GET_EVENT:
-		return nitro_ioctl_get_event(vcpu);
-		break;
+		r = nitro_ioctl_get_event(vcpu);
+		goto out_no_put;
 	case KVM_NITRO_CONTINUE:
-		return nitro_ioctl_continue(vcpu);
-		break;
+		r = nitro_ioctl_continue(vcpu);
+		goto out_no_put;
+	case KVM_NITRO_GET_REGS: {
+		struct kvm_regs *kvm_regs;
+
+		r = -ENOMEM;
+		kvm_regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL);
+		if (!kvm_regs)
+			goto out_no_put;
+		r = kvm_arch_vcpu_ioctl_get_regs(vcpu, kvm_regs);
+		if (r)
+			goto out_free2;
+		r = -EFAULT;
+		if (copy_to_user(argp, kvm_regs, sizeof(struct kvm_regs)))
+			goto out_free2;
+		r = 0;
+out_free2:
+		kfree(kvm_regs);
+		goto out_no_put;
+	}
+	case KVM_NITRO_SET_REGS: {
+		struct kvm_regs *kvm_regs;
+
+		r = -ENOMEM;
+		kvm_regs = memdup_user(argp, sizeof(*kvm_regs));
+		if (IS_ERR(kvm_regs)) {
+			r = PTR_ERR(kvm_regs);
+			goto out_no_put;
+		}
+		r = kvm_arch_vcpu_ioctl_set_regs(vcpu, kvm_regs);
+		kfree(kvm_regs);
+		goto out_no_put;
+	}
+	case KVM_NITRO_GET_SREGS: {
+		kvm_sregs = kzalloc(sizeof(struct kvm_sregs), GFP_KERNEL);
+		r = -ENOMEM;
+		if (!kvm_sregs)
+			goto out_no_put;
+		r = kvm_arch_vcpu_ioctl_get_sregs(vcpu, kvm_sregs);
+		if (r)
+			goto out_no_put;
+		r = -EFAULT;
+		if (copy_to_user(argp, kvm_sregs, sizeof(struct kvm_sregs)))
+			goto out_no_put;
+		r = 0;
+		goto out_no_put;
+	}
+	case KVM_NITRO_SET_SREGS: {
+		kvm_sregs = memdup_user(argp, sizeof(*kvm_sregs));
+		if (IS_ERR(kvm_sregs)) {
+			r = PTR_ERR(kvm_sregs);
+			kvm_sregs = NULL;
+			goto out_no_put;
+		}
+		r = kvm_arch_vcpu_ioctl_set_sregs(vcpu, kvm_sregs);
+		goto out_no_put;
+	}
 #if defined(CONFIG_S390) || defined(CONFIG_PPC) || defined(CONFIG_MIPS)
 	case KVM_S390_INTERRUPT:
 	case KVM_INTERRUPT:
@@ -2568,6 +2623,7 @@ out_free1:
 	}
 out:
 	vcpu_put(vcpu);
+out_no_put:
 	kfree(fpu);
 	kfree(kvm_sregs);
 	return r;
