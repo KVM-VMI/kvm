@@ -70,14 +70,12 @@ void nitro_destroy_vm_hook(struct kvm *kvm){
 }
 
 void nitro_create_vcpu_hook(struct kvm_vcpu *vcpu){
-  vcpu->nitro.trap_syscall_hit = 0;
+  vcpu->nitro.event = 0;
   init_completion(&(vcpu->nitro.k_wait_cv));
   sema_init(&(vcpu->nitro.n_wait_sem),0);
-  vcpu->nitro.event = 0;
 }
 
 void nitro_destroy_vcpu_hook(struct kvm_vcpu *vcpu){
-  vcpu->nitro.trap_syscall_hit = 0;
   vcpu->nitro.event = 0;
 }
 
@@ -129,7 +127,6 @@ error_out:
 int nitro_ioctl_get_event(struct kvm_vcpu *vcpu){
   int rv;
   
-  //vcpu_put(vcpu);
   rv = down_interruptible(&(vcpu->nitro.n_wait_sem));
   
   if (rv == 0)

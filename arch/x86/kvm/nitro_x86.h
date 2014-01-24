@@ -6,6 +6,7 @@
 int nitro_set_syscall_trap(struct kvm*,unsigned long*,int);
 int nitro_unset_syscall_trap(struct kvm*);
 
-int nitro_handle_syscall_trap(struct kvm_vcpu*);
-
+void nitro_wait(struct kvm_vcpu*);
+int nitro_report_syscall(struct kvm_vcpu*);
+int nitro_report_event(struct kvm_vcpu*);
 #endif //NITRO_X86_H_

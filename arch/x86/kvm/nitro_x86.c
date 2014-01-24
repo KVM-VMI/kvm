@@ -50,7 +50,7 @@ int nitro_unset_syscall_trap(struct kvm *kvm){
   kvm_for_each_vcpu(i, vcpu, kvm){
     //vcpu_load(vcpu);
     
-    vcpu->nitro.trap_syscall_hit = 0;
+    vcpu->nitro.event = 0;
     //if waiters, wake up
     //if(completion_done(&(vcpu->nitro.k_wait_cv)) == 0)
     complete_all(&(vcpu->nitro.k_wait_cv));
@@ -79,27 +79,10 @@ int nitro_unset_syscall_trap(struct kvm *kvm){
   return 0;
 }
 
-int nitro_handle_syscall_trap(struct kvm_vcpu *vcpu){
-  unsigned long syscall_nr;
+void nitro_wait(struct kvm_vcpu *vcpu){
   long rv;
-  struct kvm *kvm;
-  
-  kvm = vcpu->kvm;
-  
-  vcpu->nitro.trap_syscall_hit = 0;
-  
-  if(kvm->nitro.max_syscall > 0){
-    syscall_nr = kvm_register_read(vcpu, VCPU_REGS_RAX);
-    
-    if(syscall_nr > INT_MAX || syscall_nr > kvm->nitro.max_syscall || !test_bit((int)syscall_nr,kvm->nitro.syscall_bitmap))
-      return 1;
-  }
-  
-  
-  vcpu->nitro.event = KVM_NITRO_SYSCALL_TRAPPED;
   
   up(&(vcpu->nitro.n_wait_sem));
-  //vcpu_put(vcpu);
   rv = wait_for_completion_interruptible_timeout(&(vcpu->nitro.k_wait_cv),msecs_to_jiffies(30000));
   
   if (rv == 0)
@@ -107,9 +90,43 @@ int nitro_handle_syscall_trap(struct kvm_vcpu *vcpu){
   else if (rv < 0)
     printk(KERN_INFO "nitro: %s: wait interrupted\n",__FUNCTION__);
   
-  //vcpu_load(vcpu);
+  return;
+}
 
-  //returning 0 will give control back to qemu
-  return 1;
+int nitro_report_syscall(struct kvm_vcpu *vcpu){
+  unsigned long syscall_nr;
+  struct kvm *kvm;
+  
+  kvm = vcpu->kvm;
+  
+  if(kvm->nitro.max_syscall > 0){
+    syscall_nr = kvm_register_read(vcpu, VCPU_REGS_RAX);
+    
+    if(syscall_nr > INT_MAX || syscall_nr > kvm->nitro.max_syscall || !test_bit((int)syscall_nr,kvm->nitro.syscall_bitmap))
+      return 0;
+  }
+
+  nitro_wait(vcpu);
+  
+  return 0;
+}
+
+int nitro_report_event(struct kvm_vcpu *vcpu){
+  int r;
+  
+  r = 0;
+  
+  switch(vcpu->nitro.event){
+    case KVM_NITRO_EVENT_ERROR:
+      nitro_wait(vcpu);
+      break;
+    case KVM_NITRO_EVENT_SYSCALL:
+      r = nitro_report_syscall(vcpu);
+      break;
+    default:
+      printk(KERN_INFO "nitro: %s: unknown event encountered (%d)\n",__FUNCTION__,vcpu->nitro.event);
+  }
+  vcpu->nitro.event = 0;
+  return r;
 }
 
