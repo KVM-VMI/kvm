@@ -4046,7 +4046,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	case KVM_NITRO_SET_SYSCALL_TRAP: {
 		struct nitro_syscall_trap user_sct;
 		int *syscalls;
-		int max_syscall, i, bm_size;
+		int system_call_max, i, bm_size;
 		long unsigned *bitmap;
 
 		r = -EFAULT;
@@ -4065,12 +4065,12 @@ long kvm_arch_vm_ioctl(struct file *filp,
 				goto out;
 			}
 			
-			max_syscall = 0;
+			system_call_max = 0;
 			for(i=0;i<user_sct.size;i++)
-				if(syscalls[i] > max_syscall)
-					max_syscall = syscalls[i];
+				if(syscalls[i] > system_call_max)
+					system_call_max = syscalls[i];
 				
-			bm_size = ((max_syscall / (sizeof(unsigned long) * 8)) + 1) * (sizeof(unsigned long) * 8);
+			bm_size = ((system_call_max / (sizeof(unsigned long) * 8)) + 1) * (sizeof(unsigned long) * 8);
   
 			r = -ENOMEM;
 			bitmap = kmalloc(bm_size / 8, GFP_KERNEL);
@@ -4088,10 +4088,10 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		}
 		else{
 			bitmap = NULL;
-			max_syscall = 0;
+			system_call_max = 0;
 		}
 	  
-		r = nitro_set_syscall_trap(kvm,bitmap,max_syscall);
+		r = nitro_set_syscall_trap(kvm,bitmap,system_call_max);
 		break;
 	}
 	case KVM_NITRO_UNSET_SYSCALL_TRAP: {

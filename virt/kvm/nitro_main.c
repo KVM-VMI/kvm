@@ -7,6 +7,7 @@
 #include <asm/current.h>
 #include <asm-generic/errno-base.h>
 #include <linux/preempt.h>
+#include <linux/hashtable.h>
 
 #include <linux/kvm_host.h>
 
@@ -52,20 +53,21 @@ void nitro_create_vm_hook(struct kvm *kvm){
   printk(KERN_INFO "nitro: new VM created, creating process: %d\n", pid);
   
   //init nitro
-  kvm->nitro.trap_syscall = 0;
-  kvm->nitro.syscall_bitmap = NULL;
-  kvm->nitro.max_syscall = 0;
+  kvm->nitro.traps = 0;
+  kvm->nitro.system_call_bm = NULL;
+  kvm->nitro.system_call_max = 0;
+  hash_init(kvm->nitro.system_call_rsp_ht);
 }
 
 void nitro_destroy_vm_hook(struct kvm *kvm){
   
   //deinit nitro
-  kvm->nitro.trap_syscall = 0;
-  if(kvm->nitro.syscall_bitmap != NULL){
-    kfree(kvm->nitro.syscall_bitmap);
-    kvm->nitro.syscall_bitmap = NULL;
+  kvm->nitro.traps = 0;
+  if(kvm->nitro.system_call_bm != NULL){
+    kfree(kvm->nitro.system_call_bm);
+    kvm->nitro.system_call_bm = NULL;
   }
-  kvm->nitro.max_syscall = 0;
+  kvm->nitro.system_call_max = 0;
   
 }
 

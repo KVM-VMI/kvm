@@ -5,18 +5,31 @@
 #include <linux/types.h>
 #include <linux/kvm_host.h>
 #include <linux/nitro.h>
+#include <linux/hashtable.h>
 
+#define NITRO_TRAP_SYSCALL 1UL
+//#define NITRO_TRAP_XYZ  (1UL << 1)
 
 struct nitro{
-  int trap_syscall; //determines whether the syscall trap is globally set
-  unsigned long *syscall_bitmap;
-  unsigned int max_syscall;
+  uint32_t traps; //determines whether the syscall trap is globally set
+  unsigned long *system_call_bm;
+  unsigned int system_call_max;
+  DECLARE_HASHTABLE(system_call_rsp_ht,7);
+};
+
+struct nitro_syscall_event_ht{
+  ulong rsp;
+  ulong cr3;
+  struct hlist_node ht;
 };
 
 struct nitro_vcpu{
   struct completion k_wait_cv;
   struct semaphore n_wait_sem;
   int event;
+  union event_data event_data;
+  ulong syscall_event_rsp;
+  ulong syscall_event_cr3;
 };
   
 int nitro_vcpu_load(struct kvm_vcpu*);

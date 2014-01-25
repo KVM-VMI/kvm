@@ -2366,6 +2366,8 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	switch(ioctl){
 	case KVM_NITRO_GET_EVENT:
 		r = nitro_ioctl_get_event(vcpu);
+		if (copy_to_user(argp, &vcpu->nitro.event_data, sizeof(union event_data)))
+			r = -EFAULT;
 		goto out_no_put;
 	case KVM_NITRO_CONTINUE:
 		r = nitro_ioctl_continue(vcpu);
