@@ -8,7 +8,7 @@
 
 extern int kvm_set_msr_common(struct kvm_vcpu*, struct msr_data*);
 
-int nitro_set_syscall_trap(struct kvm *kvm,unsigned long *bitmap,int max_syscall){
+int nitro_set_syscall_trap(struct kvm *kvm,unsigned long *bitmap,int system_call_max){
   int i;
   struct kvm_vcpu *vcpu;
   u64 efer;
@@ -16,10 +16,10 @@ int nitro_set_syscall_trap(struct kvm *kvm,unsigned long *bitmap,int max_syscall
   
   printk(KERN_INFO "nitro: set syscall trap\n");
   
-  kvm->nitro.syscall_bitmap = bitmap;
-  kvm->nitro.max_syscall = max_syscall;
+  kvm->nitro.system_call_bm = bitmap;
+  kvm->nitro.system_call_max = system_call_max;
   
-  kvm->nitro.trap_syscall = 1;
+  kvm->nitro.traps |= NITRO_TRAP_SYSCALL;
   
   kvm_for_each_vcpu(i, vcpu, kvm){
     //vcpu_load(vcpu);
@@ -69,12 +69,12 @@ int nitro_unset_syscall_trap(struct kvm *kvm){
     vcpu_put(vcpu);
   }
   
-  kvm->nitro.trap_syscall = 0;
-  if(kvm->nitro.syscall_bitmap != NULL){
-    kfree(kvm->nitro.syscall_bitmap);
-    kvm->nitro.syscall_bitmap = NULL;
+  kvm->nitro.traps &= ~(NITRO_TRAP_SYSCALL);
+  if(kvm->nitro.system_call_bm != NULL){
+    kfree(kvm->nitro.system_call_bm);
+    kvm->nitro.system_call_bm = NULL;
   }
-  kvm->nitro.max_syscall = 0;
+  kvm->nitro.system_call_max = 0;
 
   return 0;
 }
@@ -96,17 +96,48 @@ void nitro_wait(struct kvm_vcpu *vcpu){
 int nitro_report_syscall(struct kvm_vcpu *vcpu){
   unsigned long syscall_nr;
   struct kvm *kvm;
+  struct nitro_syscall_event_ht *ed;
   
   kvm = vcpu->kvm;
   
-  if(kvm->nitro.max_syscall > 0){
+  if(kvm->nitro.system_call_max > 0){
     syscall_nr = kvm_register_read(vcpu, VCPU_REGS_RAX);
     
-    if(syscall_nr > INT_MAX || syscall_nr > kvm->nitro.max_syscall || !test_bit((int)syscall_nr,kvm->nitro.syscall_bitmap))
+    if(syscall_nr > INT_MAX || syscall_nr > kvm->nitro.system_call_max || !test_bit((int)syscall_nr,kvm->nitro.system_call_bm))
       return 0;
   }
+  
+  ed = kzalloc(sizeof(struct nitro_syscall_event_ht),GFP_KERNEL);
+  ed->rsp = vcpu->nitro.syscall_event_rsp;
+  ed->cr3 = vcpu->nitro.syscall_event_cr3;
+  hash_add(kvm->nitro.system_call_rsp_ht,&ed->ht,ed->rsp);
+  
+  memset(&vcpu->nitro.event_data,0,sizeof(union event_data));
+  vcpu->nitro.event_data.syscall = ed->rsp;
 
   nitro_wait(vcpu);
+  
+  return 0;
+}
+
+int nitro_report_sysret(struct kvm_vcpu *vcpu){
+  struct kvm *kvm;
+  struct nitro_syscall_event_ht *ed;
+  
+  kvm = vcpu->kvm;
+  
+  hash_for_each_possible(kvm->nitro.system_call_rsp_ht, ed, ht, vcpu->nitro.syscall_event_rsp){
+    if((ed->rsp == vcpu->nitro.syscall_event_rsp) && (ed->cr3 == vcpu->nitro.syscall_event_cr3)){
+      hash_del(&ed->ht);
+      kfree(ed);
+      
+      memset(&vcpu->nitro.event_data,0,sizeof(union event_data));
+      vcpu->nitro.event_data.syscall = vcpu->nitro.syscall_event_rsp;
+      
+      nitro_wait(vcpu);
+      break;
+    }
+  }
   
   return 0;
 }
@@ -122,6 +153,9 @@ int nitro_report_event(struct kvm_vcpu *vcpu){
       break;
     case KVM_NITRO_EVENT_SYSCALL:
       r = nitro_report_syscall(vcpu);
+      break;
+    case KVM_NITRO_EVENT_SYSRET:
+      r = nitro_report_sysret(vcpu);
       break;
     default:
       printk(KERN_INFO "nitro: %s: unknown event encountered (%d)\n",__FUNCTION__,vcpu->nitro.event);
