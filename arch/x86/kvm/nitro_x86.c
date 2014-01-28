@@ -165,6 +165,6 @@ int nitro_report_event(struct kvm_vcpu *vcpu){
 }
 
 inline u64 nitro_get_efer(struct kvm_vcpu *vcpu){
-  return (vcpu->kvm->nitro.traps & NITRO_TRAP_SYSCALL) ? (vcpu->arch.efer | EFER_SCE) : vcpu->arch.efer;
+  return nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL) ? (vcpu->arch.efer | EFER_SCE) : vcpu->arch.efer;
 }
 
