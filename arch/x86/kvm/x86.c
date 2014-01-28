@@ -2375,7 +2375,8 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		msr_info->data |= (((uint64_t)4ULL) << 40);
 		break;
 	case MSR_EFER:
-		msr_info->data = vcpu->arch.efer;
+		//msr_info->data = vcpu->arch.efer;
+		msr_info->data = nitro_get_efer(vcpu);
 		break;
 	case MSR_KVM_WALL_CLOCK:
 	case MSR_KVM_WALL_CLOCK_NEW:
