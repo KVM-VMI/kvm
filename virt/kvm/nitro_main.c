@@ -146,3 +146,7 @@ int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
   complete(&(vcpu->nitro.k_wait_cv));
   return 0;
 }
+
+inline int nitro_is_trap_set(struct kvm *kvm, uint32_t trap){
+  return kvm->nitro.traps & trap;
+}
