@@ -10,4 +10,5 @@ void nitro_wait(struct kvm_vcpu*);
 int nitro_report_syscall(struct kvm_vcpu*);
 int nitro_report_sysret(struct kvm_vcpu*);
 int nitro_report_event(struct kvm_vcpu*);
+inline u64 nitro_get_efer(struct kvm_vcpu*);
 #endif //NITRO_X86_H_
