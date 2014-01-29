@@ -44,6 +44,7 @@ int nitro_unset_syscall_trap(struct kvm *kvm){
   struct kvm_vcpu *vcpu;
   u64 efer;
   struct msr_data msr_info;
+  struct nitro_syscall_event_ht *ed;
   
   printk(KERN_INFO "nitro: unset syscall trap\n");
   
@@ -75,6 +76,11 @@ int nitro_unset_syscall_trap(struct kvm *kvm){
     kvm->nitro.system_call_bm = NULL;
   }
   kvm->nitro.system_call_max = 0;
+  
+  
+  hash_for_each(kvm->nitro.system_call_rsp_ht,i,ed,ht){
+    kfree(ed);
+  }
 
   return 0;
 }
@@ -110,10 +116,11 @@ int nitro_report_syscall(struct kvm_vcpu *vcpu){
   ed = kzalloc(sizeof(struct nitro_syscall_event_ht),GFP_KERNEL);
   ed->rsp = vcpu->nitro.syscall_event_rsp;
   ed->cr3 = vcpu->nitro.syscall_event_cr3;
-  hash_add(kvm->nitro.system_call_rsp_ht,&ed->ht,ed->rsp);
+  //hash_add(kvm->nitro.system_call_rsp_ht,&ed->ht,ed->rsp);
+  nitro_hash_add(kvm,&ed,ed->rsp);
   
   memset(&vcpu->nitro.event_data,0,sizeof(union event_data));
-  vcpu->nitro.event_data.syscall = ed->rsp;
+  vcpu->nitro.event_data.syscall = vcpu->nitro.syscall_event_rsp;
 
   nitro_wait(vcpu);
   

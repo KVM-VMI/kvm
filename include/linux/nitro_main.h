@@ -31,6 +31,9 @@ struct nitro_vcpu{
   ulong syscall_event_rsp;
   ulong syscall_event_cr3;
 };
+
+
+void nitro_hash_add(struct kvm*, struct nitro_syscall_event_ht**, ulong);
   
 int nitro_vcpu_load(struct kvm_vcpu*);
 
@@ -49,5 +52,6 @@ int nitro_ioctl_get_event(struct kvm_vcpu*);
 int nitro_ioctl_continue(struct kvm_vcpu*);
 
 inline int nitro_is_trap_set(struct kvm*, uint32_t);
+
 
 #endif //NITRO_MAIN_H_
