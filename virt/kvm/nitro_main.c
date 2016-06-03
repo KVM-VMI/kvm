@@ -71,19 +71,12 @@ void nitro_create_vm_hook(struct kvm *kvm){
   
   //init nitro
   kvm->nitro.traps = 0;
-  kvm->nitro.system_call_bm = NULL;
-  kvm->nitro.system_call_max = 0;
   hash_init(kvm->nitro.system_call_rsp_ht);
 }
 
 void nitro_destroy_vm_hook(struct kvm *kvm){
   //deinit nitro
   kvm->nitro.traps = 0;
-  if(kvm->nitro.system_call_bm != NULL){
-    kfree(kvm->nitro.system_call_bm);
-    kvm->nitro.system_call_bm = NULL;
-  }
-  kvm->nitro.system_call_max = 0;
 }
 
 void nitro_create_vcpu_hook(struct kvm_vcpu *vcpu){

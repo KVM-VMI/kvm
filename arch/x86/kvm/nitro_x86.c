@@ -8,80 +8,51 @@
 
 extern int kvm_set_msr_common(struct kvm_vcpu*, struct msr_data*);
 
-int nitro_set_syscall_trap(struct kvm *kvm,unsigned long *bitmap,int system_call_max){
+static void nitro_set_trap_efer(struct kvm_vcpu* vcpu, bool enabled)
+{
+    u64 efer;
+    struct msr_data msr_info;
+
+    kvm_get_msr_common(vcpu, MSR_EFER, &efer);
+    msr_info.index = MSR_EFER;
+    if (enabled)
+        msr_info.data = efer & ~EFER_SCE;
+    else
+        msr_info.data = efer | EFER_SCE;
+    msr_info.host_initiated = true;
+    kvm_set_msr_common(vcpu, &msr_info);
+
+}
+
+int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   int i;
   struct kvm_vcpu *vcpu;
-  u64 efer;
-  struct msr_data msr_info;
+
   
   printk(KERN_INFO "nitro: set syscall trap\n");
   
-  kvm->nitro.system_call_bm = bitmap;
-  kvm->nitro.system_call_max = system_call_max;
-  
-  kvm->nitro.traps |= NITRO_TRAP_SYSCALL;
-  
   kvm_for_each_vcpu(i, vcpu, kvm){
     //vcpu_load(vcpu);
     nitro_vcpu_load(vcpu);
-    
-    kvm_get_msr_common(vcpu, MSR_EFER, &efer);
-    msr_info.index = MSR_EFER;
-    msr_info.data = efer & ~EFER_SCE;
-    msr_info.host_initiated = true;
-    kvm_set_msr_common(vcpu, &msr_info);
-    
-    init_completion(&vcpu->nitro.k_wait_cv);
-    
+
+    nitro_set_trap_efer(vcpu, enabled);
+
+    if (enabled)
+    {
+        kvm->nitro.traps |= NITRO_TRAP_SYSCALL;
+        init_completion(&vcpu->nitro.k_wait_cv);
+    }
+    else
+    {
+        vcpu->nitro.event = 0;
+        kvm->nitro.traps &= ~(NITRO_TRAP_SYSCALL);
+        complete_all(&(vcpu->nitro.k_wait_cv));
+    }
+
+
     vcpu_put(vcpu);
   }
   
-  return 0;
-}
-
-int nitro_unset_syscall_trap(struct kvm *kvm){
-  int i;
-  struct kvm_vcpu *vcpu;
-  u64 efer;
-  struct msr_data msr_info;
-  struct nitro_syscall_event_ht *ed;
-  
-  printk(KERN_INFO "nitro: unset syscall trap\n");
-  
-  kvm_for_each_vcpu(i, vcpu, kvm){
-    //vcpu_load(vcpu);
-    
-    vcpu->nitro.event = 0;
-    //if waiters, wake up
-    //if(completion_done(&(vcpu->nitro.k_wait_cv)) == 0)
-    complete_all(&(vcpu->nitro.k_wait_cv));
-    
-    
-    nitro_vcpu_load(vcpu);
-    
-    kvm_get_msr_common(vcpu, MSR_EFER, &efer);
-    msr_info.index = MSR_EFER;
-    msr_info.data = efer | EFER_SCE;
-    msr_info.host_initiated = true;
-    kvm_set_msr_common(vcpu, &msr_info);
-    
-
-    
-    vcpu_put(vcpu);
-  }
-  
-  kvm->nitro.traps &= ~(NITRO_TRAP_SYSCALL);
-  if(kvm->nitro.system_call_bm != NULL){
-    kfree(kvm->nitro.system_call_bm);
-    kvm->nitro.system_call_bm = NULL;
-  }
-  kvm->nitro.system_call_max = 0;
-  
-  
-  hash_for_each(kvm->nitro.system_call_rsp_ht,i,ed,ht){
-    kfree(ed);
-  }
-
   return 0;
 }
 
@@ -106,12 +77,7 @@ int nitro_report_syscall(struct kvm_vcpu *vcpu){
   
   kvm = vcpu->kvm;
   
-  if(kvm->nitro.system_call_max > 0){
-    syscall_nr = kvm_register_read(vcpu, VCPU_REGS_RAX);
-    
-    if(syscall_nr > INT_MAX || syscall_nr > kvm->nitro.system_call_max || !test_bit((int)syscall_nr,kvm->nitro.system_call_bm))
-      return 0;
-  }
+  syscall_nr = kvm_register_read(vcpu, VCPU_REGS_RAX);
   
   ed = kzalloc(sizeof(struct nitro_syscall_event_ht),GFP_KERNEL);
   ed->rsp = vcpu->nitro.syscall_event_rsp;

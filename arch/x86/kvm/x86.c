@@ -4044,66 +4044,24 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	}
 	case KVM_ENABLE_CAP: {
 		struct kvm_enable_cap cap;
-	case KVM_NITRO_SET_SYSCALL_TRAP: {
-		struct nitro_syscall_trap user_sct;
-		int *syscalls;
-		int system_call_max, i, bm_size;
-		long unsigned *bitmap;
-
-		r = -EFAULT;
-		if (copy_from_user(&user_sct, argp, sizeof(struct nitro_syscall_trap)))
-			goto out;
-		
-		if(user_sct.size > 0){
-			r = -ENOMEM;
-			syscalls = kmalloc(user_sct.size * sizeof(int), GFP_KERNEL);
-			if (syscalls == NULL)
-				goto out;
-			
-			r = -EFAULT;
-			if (copy_from_user(syscalls, user_sct.syscalls, user_sct.size * sizeof(int))){
-				kfree(syscalls);
-				goto out;
-			}
-			
-			system_call_max = 0;
-			for(i=0;i<user_sct.size;i++)
-				if(syscalls[i] > system_call_max)
-					system_call_max = syscalls[i];
-				
-			bm_size = ((system_call_max / (sizeof(unsigned long) * 8)) + 1) * (sizeof(unsigned long) * 8);
-  
-			r = -ENOMEM;
-			bitmap = kmalloc(bm_size / 8, GFP_KERNEL);
-			if (bitmap == NULL){
-				kfree(syscalls);
-				goto out;
-			}
-			
-			bitmap_zero(bitmap,bm_size);
-			
-			for(i=0;i<user_sct.size;i++)
-			  set_bit(syscalls[i],bitmap);
-			
-			kfree(syscalls);
-		}
-		else{
-			bitmap = NULL;
-			system_call_max = 0;
-		}
-	  
-		r = nitro_set_syscall_trap(kvm,bitmap,system_call_max);
-		break;
-	}
-	case KVM_NITRO_UNSET_SYSCALL_TRAP: {
-		r = nitro_unset_syscall_trap(kvm);
-		break;
-	}
-
 		r = -EFAULT;
 		if (copy_from_user(&cap, argp, sizeof(cap)))
 			goto out;
 		r = kvm_vm_ioctl_enable_cap(kvm, &cap);
+		break;
+	}
+	case KVM_NITRO_SET_SYSCALL_TRAP: {
+        bool enabled;
+        r = -EFAULT;
+        if (copy_from_user(&enabled, argp, sizeof(bool)))
+            goto out;
+
+        printk(KERN_DEBUG "Enabled : %d\n", enabled);
+        r = nitro_set_syscall_trap(kvm, enabled);
+        break;
+	}
+	case KVM_NITRO_UNSET_SYSCALL_TRAP: {
+		r = nitro_unset_syscall_trap(kvm);
 		break;
 	}
 	default:
@@ -6839,6 +6797,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 		if (r <= 0)
 			break;
 		
+
 		if(vcpu->nitro.event)
 			nitro_report_event(vcpu);
 

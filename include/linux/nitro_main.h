@@ -12,8 +12,6 @@
 
 struct nitro{
   uint32_t traps; //determines whether the syscall trap is globally set
-  unsigned long *system_call_bm;
-  unsigned int system_call_max;
   DECLARE_HASHTABLE(system_call_rsp_ht,7);
 };
 
