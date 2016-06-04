@@ -16,22 +16,6 @@
 
 extern int create_vcpu_fd(struct kvm_vcpu*);
 
-void nitro_hash_add(struct kvm *kvm, struct nitro_syscall_event_ht **hnode, ulong key){
-  struct nitro_syscall_event_ht *ed;
-  
-  
-  hash_for_each_possible(kvm->nitro.system_call_rsp_ht, ed, ht, key){
-    if((ed->rsp == (*hnode)->rsp) && (ed->cr3 == (*hnode)->cr3)){
-      kfree(*hnode);
-      hnode = &ed;
-      return;
-    }
-  }
-  
-  hash_add(kvm->nitro.system_call_rsp_ht,&((*hnode)->ht),key);
-  return;
-}
-
 int nitro_vcpu_load(struct kvm_vcpu *vcpu)
 {
 	int cpu;
@@ -71,7 +55,6 @@ void nitro_create_vm_hook(struct kvm *kvm){
   
   //init nitro
   kvm->nitro.traps = 0;
-  hash_init(kvm->nitro.system_call_rsp_ht);
 }
 
 void nitro_destroy_vm_hook(struct kvm *kvm){
