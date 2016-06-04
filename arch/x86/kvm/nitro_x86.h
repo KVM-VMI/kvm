@@ -4,8 +4,6 @@
 #include <linux/kvm_host.h>
 
 int nitro_set_syscall_trap(struct kvm*, bool enabled);
-int nitro_unset_syscall_trap(struct kvm*);
-
 void nitro_wait(struct kvm_vcpu*);
 int nitro_report_syscall(struct kvm_vcpu*);
 int nitro_report_sysret(struct kvm_vcpu*);
