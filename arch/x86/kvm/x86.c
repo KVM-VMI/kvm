@@ -6784,11 +6784,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 =======
 		if (vcpu->arch.mp_state == KVM_MP_STATE_RUNNABLE &&
 		    !vcpu->arch.apf.halted)
-        {
 			r = vcpu_enter_guest(vcpu);
-            if(r > 0 && vcpu->nitro.trap_syscall_hit)
-                r = nitro_handle_syscall_trap(vcpu);
-        }
 		else
 >>>>>>> syscall trap
 			r = vcpu_block(kvm, vcpu);

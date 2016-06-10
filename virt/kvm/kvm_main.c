@@ -2427,15 +2427,9 @@ out_free2:
 		r = kvm_arch_vcpu_ioctl_set_sregs(vcpu, kvm_sregs);
 		goto out_no_put;
 	}
-#if defined(CONFIG_S390) || defined(CONFIG_PPC) || defined(CONFIG_MIPS)
-	case KVM_S390_INTERRUPT:
-	case KVM_INTERRUPT:
-		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
-		break;
-#endif
 	}
-/*
 #if defined(CONFIG_S390) || defined(CONFIG_PPC) || defined(CONFIG_MIPS)
+    /*
 	*
 	 * Special cases: vcpu ioctls that are asynchronous to vcpu execution,
 	 * so vcpu_load() would break it.
@@ -2449,8 +2443,6 @@ out_free2:
 		return nitro_ioctl_get_event(vcpu);
 	else if(ioctl == KVM_NITRO_CONTINUE)
 		return nitro_ioctl_continue(vcpu);
-*/
-	
 
 	r = vcpu_load(vcpu);
 	if (r)
