@@ -17,9 +17,6 @@ struct nitro_vcpu{
   struct completion k_wait_cv;
   struct semaphore n_wait_sem;
   int event;
-  union event_data event_data;
-  ulong syscall_event_rsp;
-  ulong syscall_event_cr3;
 };
   
 int nitro_vcpu_load(struct kvm_vcpu*);
