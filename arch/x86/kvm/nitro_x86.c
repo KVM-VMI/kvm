@@ -71,28 +71,12 @@ void nitro_wait(struct kvm_vcpu *vcpu){
 }
 
 int nitro_report_syscall(struct kvm_vcpu *vcpu){
-  unsigned long syscall_nr;
-  struct kvm *kvm;
-  
-  kvm = vcpu->kvm;
-  
-  syscall_nr = kvm_register_read(vcpu, VCPU_REGS_RAX);
-
-  memset(&vcpu->nitro.event_data,0,sizeof(union event_data));
-  vcpu->nitro.event_data.syscall = vcpu->nitro.syscall_event_rsp;
-
   nitro_wait(vcpu);
   
   return 0;
 }
 
 int nitro_report_sysret(struct kvm_vcpu *vcpu){
-  struct kvm *kvm;
-  
-  kvm = vcpu->kvm;
-  
-  memset(&vcpu->nitro.event_data,0,sizeof(union event_data));
-  vcpu->nitro.event_data.syscall = vcpu->nitro.syscall_event_rsp;
 
   nitro_wait(vcpu);
 

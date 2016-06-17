@@ -2643,8 +2643,6 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 	
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
 		vcpu->nitro.event = KVM_NITRO_EVENT_SYSCALL;
-		vcpu->nitro.syscall_event_rsp = reg_read(ctxt, VCPU_REGS_RSP);
-		vcpu->nitro.syscall_event_cr3 = ctxt->ops->get_cr(ctxt, 3);
 	}
 
 
@@ -2767,8 +2765,6 @@ static int em_sysret(struct x86_emulate_ctxt *ctxt)
 	
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
 		vcpu->nitro.event = KVM_NITRO_EVENT_SYSRET;
-		vcpu->nitro.syscall_event_rsp = reg_read(ctxt, VCPU_REGS_RSP);
-		vcpu->nitro.syscall_event_cr3 = ctxt->ops->get_cr(ctxt, 3);
 	}
 
 	return X86EMUL_CONTINUE;
