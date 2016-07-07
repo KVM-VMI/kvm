@@ -13,6 +13,7 @@ static void nitro_set_trap_efer(struct kvm_vcpu* vcpu, bool enabled)
     u64 efer;
     struct msr_data msr_info;
 
+    printk(KERN_INFO "setting trap on efer to %d\n", enabled);
     kvm_get_msr_common(vcpu, MSR_EFER, &efer);
     msr_info.index = MSR_EFER;
     if (enabled)
@@ -32,11 +33,7 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   printk(KERN_INFO "nitro: set syscall trap\n");
   
   kvm_for_each_vcpu(i, vcpu, kvm){
-    //vcpu_load(vcpu);
-    nitro_vcpu_load(vcpu);
-
-    nitro_set_trap_efer(vcpu, enabled);
-
+    vcpu->nitro.event = 0;
     if (enabled)
     {
         kvm->nitro.traps |= NITRO_TRAP_SYSCALL;
@@ -44,11 +41,13 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
     }
     else
     {
-        vcpu->nitro.event = 0;
         kvm->nitro.traps &= ~(NITRO_TRAP_SYSCALL);
         complete_all(&(vcpu->nitro.k_wait_cv));
     }
 
+    nitro_vcpu_load(vcpu);
+
+    nitro_set_trap_efer(vcpu, enabled);
 
     vcpu_put(vcpu);
   }
