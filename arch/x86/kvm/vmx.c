@@ -1011,6 +1011,13 @@ static inline bool is_machine_check(u32 intr_info)
 		(INTR_TYPE_HARD_EXCEPTION | MC_VECTOR | INTR_INFO_VALID_MASK);
 }
 
+static inline bool is_general_protection(u32 intr_info)
+{
+    return (intr_info & (INTR_INFO_INTR_TYPE_MASK | INTR_INFO_VECTOR_MASK |
+                 INTR_INFO_VALID_MASK)) ==
+        (INTR_TYPE_HARD_EXCEPTION | GP_VECTOR | INTR_INFO_VALID_MASK);
+}
+
 static inline bool cpu_has_vmx_msr_bitmap(void)
 {
 	return vmcs_config.cpu_based_exec_ctrl & CPU_BASED_USE_MSR_BITMAPS;
@@ -1721,6 +1728,13 @@ static void update_exception_bitmap(struct kvm_vcpu *vcpu)
 
 	eb = (1u << PF_VECTOR) | (1u << UD_VECTOR) | (1u << MC_VECTOR) |
 	     (1u << NM_VECTOR) | (1u << DB_VECTOR) | (1u << AC_VECTOR);
+
+    if (vcpu->kvm->nitro.traps)
+    {
+        eb |= 1u << GP_VECTOR;
+        eb |= 1u << UD_VECTOR;
+    }
+
 	if ((vcpu->guest_debug &
 	     (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP)) ==
 	    (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP))
@@ -5319,6 +5333,7 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	u32 vect_info;
 	enum emulation_result er;
 
+
 	vect_info = vmx->idt_vectoring_info;
 	intr_info = vmx->exit_intr_info;
 
@@ -5331,7 +5346,18 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	if (is_no_device(intr_info)) {
 		vmx_fpu_activate(vcpu);
 		return 1;
-	}
+    }
+
+    if (is_general_protection(intr_info)) {
+        if (vcpu->kvm->nitro.traps)
+        {
+            er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+            if (er != EMULATE_DONE)
+                kvm_queue_exception(vcpu, UD_VECTOR);
+            return 1;
+        }
+
+    }
 
 	if (is_invalid_opcode(intr_info)) {
 		if (is_guest_mode(vcpu)) {
@@ -5752,8 +5778,8 @@ static int handle_wrmsr(struct kvm_vcpu *vcpu)
 
 	msr.data = data;
 	msr.index = ecx;
-	msr.host_initiated = false;
-	if (kvm_set_msr(vcpu, &msr) != 0) {
+    msr.host_initiated = false;
+    if (kvm_set_msr(vcpu, &msr) != 0) {
 		trace_kvm_msr_write_ex(ecx, data);
 		kvm_inject_gp(vcpu, 0);
 		return 1;
