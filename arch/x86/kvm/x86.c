@@ -71,6 +71,7 @@
 #include <linux/nitro.h>
 #include <linux/nitro_main.h>
 #include "nitro_x86.h"
+#include "emulate.h"
 
 #define MAX_IO_MSRS 256
 #define KVM_MAX_MCE_BANKS 32
@@ -6777,16 +6778,9 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
 
 	for (;;) {
-<<<<<<< HEAD
 		if (kvm_vcpu_running(vcpu)) {
 			r = vcpu_enter_guest(vcpu);
 		} else {
-=======
-		if (vcpu->arch.mp_state == KVM_MP_STATE_RUNNABLE &&
-		    !vcpu->arch.apf.halted)
-			r = vcpu_enter_guest(vcpu);
-		else
->>>>>>> syscall trap
 			r = vcpu_block(kvm, vcpu);
 		}
 
@@ -8466,4 +8460,23 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_intercepts);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_write_tsc_offset);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_ple_window);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pml_full);
+<<<<<<< HEAD
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pi_irte_update);
+=======
+
+int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
+{
+    struct x86_emulate_ctxt *ctxt;
+
+    init_emulate_ctxt(vcpu);
+    ctxt = &vcpu->arch.emulate_ctxt;
+
+    do_insn_fetch_bytes(ctxt, 8);
+
+    if (ctxt->b == 0x34 || ctxt->b == 0x35)
+        return 1;
+    else
+        return 0;
+}
+EXPORT_SYMBOL_GPL(is_sysenter_sysexit);
+>>>>>>> add detection of natural GP

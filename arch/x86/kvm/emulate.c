@@ -28,6 +28,7 @@
 #include <asm/debugreg.h>
 #include <linux/nitro_main.h>
 #include "nitro_x86.h"
+#include "emulate.h"
 
 #include "x86.h"
 #include "tss.h"
@@ -842,7 +843,7 @@ static int __do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt, int op_size)
 	return X86EMUL_CONTINUE;
 }
 
-static __always_inline int do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt,
+__always_inline int do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt,
 					       unsigned size)
 {
 	unsigned done_size = ctxt->fetch.end - ctxt->fetch.ptr;
@@ -856,14 +857,14 @@ static __always_inline int do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt,
 /* Fetch next part of the instruction being emulated. */
 #define insn_fetch(_type, _ctxt)					\
 ({	_type _x;							\
-									\
-	rc = do_insn_fetch_bytes(_ctxt, sizeof(_type));			\
-	if (rc != X86EMUL_CONTINUE)					\
-		goto done;						\
-	ctxt->_eip += sizeof(_type);					\
-	_x = *(_type __aligned(1) *) ctxt->fetch.ptr;			\
-	ctxt->fetch.ptr += sizeof(_type);				\
-	_x;								\
+                                    \
+    rc = do_insn_fetch_bytes(_ctxt, sizeof(_type));			\
+    if (rc != X86EMUL_CONTINUE)					\
+        goto done;						\
+    ctxt->_eip += sizeof(_type);					\
+    _x = *(_type __aligned(1) *) ctxt->fetch.ptr;			\
+    ctxt->fetch.ptr += sizeof(_type);				\
+    _x;								\
 })
 
 #define insn_fetch_arr(_arr, _size, _ctxt)				\
@@ -1386,6 +1387,7 @@ static int segmented_read(struct x86_emulate_ctxt *ctxt,
 		return rc;
 	return read_emulated(ctxt, linear, data, size);
 }
+
 
 static int segmented_write(struct x86_emulate_ctxt *ctxt,
 			   struct segmented_address addr,
@@ -2244,7 +2246,7 @@ static int em_cmpxchg(struct x86_emulate_ctxt *ctxt)
 	fastop(ctxt, em_cmp);
 
 	if (ctxt->eflags & X86_EFLAGS_ZF) {
-		/* Success: write back to memory; no update of EAX */
+        /* Success: write back to memory; no update of EAX */
 		ctxt->src.type = OP_NONE;
 		ctxt->dst.val = ctxt->src.orig_val;
 	} else {
@@ -5243,12 +5245,12 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
 {
 	const struct x86_emulate_ops *ops = ctxt->ops;
 	int rc = X86EMUL_CONTINUE;
-	int saved_dst_type = ctxt->dst.type;
+    int saved_dst_type = ctxt->dst.type;
 
 	ctxt->mem_read.pos = 0;
 
 	/* LOCK prefix is allowed only with some instructions */
-	if (ctxt->lock_prefix && (!(ctxt->d & Lock) || ctxt->dst.type != OP_MEM)) {
+    if (ctxt->lock_prefix && (!(ctxt->d & Lock) || ctxt->dst.type != OP_MEM)) {
 		rc = emulate_ud(ctxt);
 		goto done;
 	}
