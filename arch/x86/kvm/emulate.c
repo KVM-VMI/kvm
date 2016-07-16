@@ -26,6 +26,7 @@
 #include <asm/kvm_emulate.h>
 #include <linux/stringify.h>
 #include <linux/nitro_main.h>
+#include "nitro_x86.h"
 
 #include "x86.h"
 #include "tss.h"
@@ -2490,6 +2491,13 @@ static int em_sysenter(struct x86_emulate_ctxt *ctxt)
 	u64 msr_data;
 	u16 cs_sel, ss_sel;
 	u64 efer = 0;
+    struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
+
+    // printk(KERN_INFO "em_sysenter\n");
+
+    if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+        vcpu->nitro.event = KVM_NITRO_EVENT_SYSCALL;
+    }
 
 	ops->get_msr(ctxt, MSR_EFER, &efer);
 	/* inject #GP if in real mode */
@@ -2510,7 +2518,10 @@ static int em_sysenter(struct x86_emulate_ctxt *ctxt)
 
 	setup_syscalls_segments(ctxt, &cs, &ss);
 
-	ops->get_msr(ctxt, MSR_IA32_SYSENTER_CS, &msr_data);
+    if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL))
+        msr_data = nitro_get_old_sysenter_cs();
+    else
+        ops->get_msr(ctxt, MSR_IA32_SYSENTER_CS, &msr_data);
 	if ((msr_data & 0xfffc) == 0x0)
 		return emulate_gp(ctxt, 0);
 
@@ -2542,6 +2553,9 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 	u64 msr_data, rcx, rdx;
 	int usermode;
 	u16 cs_sel = 0, ss_sel = 0;
+    struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
+
+    // printk(KERN_INFO "em_sysexit\n");
 
 	/* inject #GP if in real mode or Virtual 8086 mode */
 	if (ctxt->mode == X86EMUL_MODE_REAL ||
@@ -2560,7 +2574,10 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 
 	cs.dpl = 3;
 	ss.dpl = 3;
-	ops->get_msr(ctxt, MSR_IA32_SYSENTER_CS, &msr_data);
+    if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL))
+        msr_data = nitro_get_old_sysenter_cs();
+    else
+        ops->get_msr(ctxt, MSR_IA32_SYSENTER_CS, &msr_data);
 	switch (usermode) {
 	case X86EMUL_MODE_PROT32:
 		cs_sel = (u16)(msr_data + 16);
@@ -2590,6 +2607,10 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 
 	ctxt->_eip = rdx;
 	*reg_write(ctxt, VCPU_REGS_RSP) = rcx;
+
+    if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+        vcpu->nitro.event = KVM_NITRO_EVENT_SYSRET;
+    }
 
 	return X86EMUL_CONTINUE;
 }

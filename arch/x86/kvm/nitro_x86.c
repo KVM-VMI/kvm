@@ -7,13 +7,29 @@
 #include <linux/completion.h>
 
 extern int kvm_set_msr_common(struct kvm_vcpu*, struct msr_data*);
+static u64 old_sysenter_cs = 0;
+
+static void nitro_set_trap_sysenter_cs(struct kvm_vcpu* vcpu, bool enabled)
+{
+    struct msr_data msr_info;
+
+    printk(KERN_INFO "nitro: setting trap on sysenter CS to %d\n", enabled);
+    kvm_x86_ops->get_msr(vcpu, MSR_IA32_SYSENTER_CS, &old_sysenter_cs);
+    msr_info.index = MSR_IA32_SYSENTER_CS;
+    if (enabled)
+        msr_info.data = 0;
+    else
+        msr_info.data = old_sysenter_cs;
+    msr_info.host_initiated = true;
+    kvm_x86_ops->set_msr(vcpu, &msr_info);
+}
 
 static void nitro_set_trap_efer(struct kvm_vcpu* vcpu, bool enabled)
 {
     u64 efer;
     struct msr_data msr_info;
 
-    printk(KERN_INFO "setting trap on efer to %d\n", enabled);
+    printk(KERN_INFO "nitro: setting trap on efer to %d\n", enabled);
     kvm_get_msr_common(vcpu, MSR_EFER, &efer);
     msr_info.index = MSR_EFER;
     if (enabled)
@@ -22,7 +38,11 @@ static void nitro_set_trap_efer(struct kvm_vcpu* vcpu, bool enabled)
         msr_info.data = efer | EFER_SCE;
     msr_info.host_initiated = true;
     kvm_set_msr_common(vcpu, &msr_info);
+}
 
+u64 nitro_get_old_sysenter_cs(void)
+{
+    return old_sysenter_cs;
 }
 
 int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
@@ -33,7 +53,9 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   printk(KERN_INFO "nitro: set syscall trap\n");
   
   kvm_for_each_vcpu(i, vcpu, kvm){
+
     vcpu->nitro.event = 0;
+
     if (enabled)
     {
         kvm->nitro.traps |= NITRO_TRAP_SYSCALL;
@@ -45,13 +67,14 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
         complete_all(&(vcpu->nitro.k_wait_cv));
     }
 
+
     nitro_vcpu_load(vcpu);
 
+    nitro_set_trap_sysenter_cs(vcpu, enabled);
     nitro_set_trap_efer(vcpu, enabled);
 
     vcpu_put(vcpu);
   }
-  
   return 0;
 }
 
