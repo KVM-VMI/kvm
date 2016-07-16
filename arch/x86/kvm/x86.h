@@ -175,3 +175,5 @@ extern unsigned int lapic_timer_advance_ns;
 
 extern struct static_key kvm_no_apic_vcpu;
 #endif
+
+int is_sysenter_sysexit(struct kvm_vcpu* vcpu);

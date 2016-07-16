@@ -5083,10 +5083,17 @@ static int handle_exception(struct kvm_vcpu *vcpu)
     if (is_general_protection(intr_info)) {
         if (vcpu->kvm->nitro.traps)
         {
-            er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-            if (er != EMULATE_DONE)
-                kvm_queue_exception(vcpu, UD_VECTOR);
-            return 1;
+            if (is_sysenter_sysexit(vcpu))
+            {
+                er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+                if (er != EMULATE_DONE)
+                    kvm_queue_exception(vcpu, UD_VECTOR);
+                return 1;
+            }
+            else
+            {
+                printk(KERN_INFO "Natural GP\n");
+            }
         }
 
     }
