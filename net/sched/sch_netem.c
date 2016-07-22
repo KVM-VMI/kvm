@@ -440,9 +440,9 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	if (count > 1 && (skb2 = skb_clone(skb, GFP_ATOMIC)) != NULL) {
 		struct Qdisc *rootq = qdisc_root(sch);
 		u32 dupsave = q->duplicate; /* prevent duplicating a dup... */
-		q->duplicate = 0;
 
-		qdisc_enqueue_root(skb2, rootq);
+		q->duplicate = 0;
+		rootq->enqueue(skb2, rootq);
 		q->duplicate = dupsave;
 	}
 
@@ -560,8 +560,8 @@ static struct sk_buff *netem_dequeue(struct Qdisc *sch)
 tfifo_dequeue:
 	skb = __skb_dequeue(&sch->q);
 	if (skb) {
-deliver:
 		qdisc_qstats_backlog_dec(sch, skb);
+deliver:
 		qdisc_unthrottled(sch);
 		qdisc_bstats_update(sch, skb);
 		return skb;
@@ -578,6 +578,7 @@ deliver:
 			rb_erase(p, &q->t_root);
 
 			sch->q.qlen--;
+			qdisc_qstats_backlog_dec(sch, skb);
 			skb->next = NULL;
 			skb->prev = NULL;
 			skb->tstamp = netem_skb_cb(skb)->tstamp_save;
@@ -597,7 +598,8 @@ deliver:
 				if (unlikely(err != NET_XMIT_SUCCESS)) {
 					if (net_xmit_drop_count(err)) {
 						qdisc_qstats_drop(sch);
-						qdisc_tree_decrease_qlen(sch, 1);
+						qdisc_tree_reduce_backlog(sch, 1,
+									  qdisc_pkt_len(skb));
 					}
 				}
 				goto tfifo_dequeue;
@@ -1036,15 +1038,7 @@ static int netem_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
 {
 	struct netem_sched_data *q = qdisc_priv(sch);
 
-	sch_tree_lock(sch);
-	*old = q->qdisc;
-	q->qdisc = new;
-	if (*old) {
-		qdisc_tree_decrease_qlen(*old, (*old)->q.qlen);
-		qdisc_reset(*old);
-	}
-	sch_tree_unlock(sch);
-
+	*old = qdisc_replace(sch, new, &q->qdisc);
 	return 0;
 }
 

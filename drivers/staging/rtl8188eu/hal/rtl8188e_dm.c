@@ -50,7 +50,7 @@ static void Init_ODM_ComInfo_88E(struct adapter *Adapter)
 	struct hal_data_8188e *hal_data = GET_HAL_DATA(Adapter);
 	struct dm_priv	*pdmpriv = &hal_data->dmpriv;
 	struct odm_dm_struct *dm_odm = &(hal_data->odmpriv);
-	u8 cut_ver, fab_ver;
+	u8 cut_ver;
 
 	/*  Init Value */
 	memset(dm_odm, 0, sizeof(*dm_odm));
@@ -61,13 +61,11 @@ static void Init_ODM_ComInfo_88E(struct adapter *Adapter)
 
 	ODM_CmnInfoInit(dm_odm, ODM_CMNINFO_IC_TYPE, ODM_RTL8188E);
 
-	fab_ver = ODM_TSMC;
 	cut_ver = ODM_CUT_A;
 
-	ODM_CmnInfoInit(dm_odm, ODM_CMNINFO_FAB_VER, fab_ver);
 	ODM_CmnInfoInit(dm_odm, ODM_CMNINFO_CUT_VER, cut_ver);
 
-	ODM_CmnInfoInit(dm_odm, ODM_CMNINFO_MP_TEST_CHIP, IS_NORMAL_CHIP(hal_data->VersionID));
+	ODM_CmnInfoInit(dm_odm, ODM_CMNINFO_MP_TEST_CHIP, hal_data->VersionID.ChipType == NORMAL_CHIP ? true : false);
 
 	ODM_CmnInfoInit(dm_odm, ODM_CMNINFO_PATCH_ID, hal_data->CustomerID);
 	ODM_CmnInfoInit(dm_odm, ODM_CMNINFO_BWIFI_TEST, Adapter->registrypriv.wifi_spec);
@@ -151,7 +149,6 @@ void rtl8188e_InitHalDm(struct adapter *Adapter)
 
 void rtl8188e_HalDmWatchDog(struct adapter *Adapter)
 {
-	bool fw_cur_in_ps = false;
 	bool fw_ps_awake = true;
 	u8 hw_init_completed = false;
 	struct hal_data_8188e *hal_data = GET_HAL_DATA(Adapter);
@@ -163,7 +160,6 @@ void rtl8188e_HalDmWatchDog(struct adapter *Adapter)
 	if (!hw_init_completed)
 		goto skip_dm;
 
-	fw_cur_in_ps = Adapter->pwrctrlpriv.bFwCurrentInPSMode;
 	rtw_hal_get_hwreg(Adapter, HW_VAR_FWLPS_RF_ON, (u8 *)(&fw_ps_awake));
 
 	/*  Fw is under p2p powersaving mode, driver should stop dynamic mechanism. */

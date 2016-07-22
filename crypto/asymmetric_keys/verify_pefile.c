@@ -328,12 +328,12 @@ static int pefile_digest_pe(const void *pebuf, unsigned int pelen,
 	void *digest;
 	int ret;
 
-	kenter(",%u", ctx->digest_algo);
+	kenter(",%s", ctx->digest_algo);
 
 	/* Allocate the hashing algorithm we're going to need and find out how
 	 * big the hash operational data will be.
 	 */
-	tfm = crypto_alloc_shash(hash_algo_name[ctx->digest_algo], 0, 0);
+	tfm = crypto_alloc_shash(ctx->digest_algo, 0, 0);
 	if (IS_ERR(tfm))
 		return (PTR_ERR(tfm) == -ENOENT) ? -ENOPKG : PTR_ERR(tfm);
 
@@ -393,6 +393,7 @@ error_no_desc:
  * @pebuf: Buffer containing the PE binary image
  * @pelen: Length of the binary image
  * @trust_keyring: Signing certificates to use as starting points
+ * @usage: The use to which the key is being put.
  * @_trusted: Set to true if trustworth, false otherwise
  *
  * Validate that the certificate chain inside the PKCS#7 message inside the PE
@@ -417,7 +418,9 @@ error_no_desc:
  * May also return -ENOMEM.
  */
 int verify_pefile_signature(const void *pebuf, unsigned pelen,
-			    struct key *trusted_keyring, bool *_trusted)
+			    struct key *trusted_keyring,
+			    enum key_being_used_for usage,
+			    bool *_trusted)
 {
 	struct pkcs7_message *pkcs7;
 	struct pefile_context ctx;
@@ -462,7 +465,7 @@ int verify_pefile_signature(const void *pebuf, unsigned pelen,
 	if (ret < 0)
 		goto error;
 
-	ret = pkcs7_verify(pkcs7);
+	ret = pkcs7_verify(pkcs7, usage);
 	if (ret < 0)
 		goto error;
 

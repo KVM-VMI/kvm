@@ -36,6 +36,8 @@ static const char *realview_board_str(u32 id)
 	switch ((id >> 16) & 0xfff) {
 	case 0x0147:
 		return "HBI-0147";
+	case 0x0159:
+		return "HBI-0159";
 	default:
 		return "Unknown";
 	}
@@ -44,6 +46,8 @@ static const char *realview_board_str(u32 id)
 static const char *realview_arch_str(u32 id)
 {
 	switch ((id >> 8) & 0xf) {
+	case 0x04:
+		return "AHB";
 	case 0x05:
 		return "Multi-layer AXI";
 	default:
@@ -142,4 +146,4 @@ static struct platform_driver realview_soc_driver = {
 		.of_match_table = realview_soc_of_match,
 	},
 };
-module_platform_driver(realview_soc_driver);
+builtin_platform_driver(realview_soc_driver);

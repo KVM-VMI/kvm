@@ -179,10 +179,11 @@ struct kvm;
 
 static inline bool vcpu_has_cache_enabled(struct kvm_vcpu *vcpu)
 {
-	return (vcpu->arch.cp15[c1_SCTLR] & 0b101) == 0b101;
+	return (vcpu_cp15(vcpu, c1_SCTLR) & 0b101) == 0b101;
 }
 
-static inline void __coherent_cache_guest_page(struct kvm_vcpu *vcpu, pfn_t pfn,
+static inline void __coherent_cache_guest_page(struct kvm_vcpu *vcpu,
+					       kvm_pfn_t pfn,
 					       unsigned long size,
 					       bool ipa_uncached)
 {
@@ -246,7 +247,7 @@ static inline void __kvm_flush_dcache_pte(pte_t pte)
 static inline void __kvm_flush_dcache_pmd(pmd_t pmd)
 {
 	unsigned long size = PMD_SIZE;
-	pfn_t pfn = pmd_pfn(pmd);
+	kvm_pfn_t pfn = pmd_pfn(pmd);
 
 	while (size) {
 		void *va = kmap_atomic_pfn(pfn);
@@ -268,6 +269,21 @@ static inline void __kvm_flush_dcache_pud(pud_t pud)
 
 void kvm_set_way_flush(struct kvm_vcpu *vcpu);
 void kvm_toggle_cache(struct kvm_vcpu *vcpu, bool was_enabled);
+
+static inline bool __kvm_cpu_uses_extended_idmap(void)
+{
+	return false;
+}
+
+static inline void __kvm_extend_hypmap(pgd_t *boot_hyp_pgd,
+				       pgd_t *hyp_pgd,
+				       pgd_t *merged_hyp_pgd,
+				       unsigned long hyp_idmap_start) { }
+
+static inline unsigned int kvm_get_vmid_bits(void)
+{
+	return 8;
+}
 
 #endif	/* !__ASSEMBLY__ */
 

@@ -133,12 +133,12 @@ static const struct dw_hdmi_curr_ctrl rockchip_cur_ctr[] = {
 	}
 };
 
-static const struct dw_hdmi_sym_term rockchip_sym_term[] = {
-	/*pixelclk   symbol   term*/
-	{ 74250000,  0x8009, 0x0004 },
-	{ 148500000, 0x8029, 0x0004 },
-	{ 297000000, 0x8039, 0x0005 },
-	{ ~0UL,	     0x0000, 0x0000 }
+static const struct dw_hdmi_phy_config rockchip_phy_config[] = {
+	/*pixelclk   symbol   term   vlev*/
+	{ 74250000,  0x8009, 0x0004, 0x0272},
+	{ 148500000, 0x802b, 0x0004, 0x028d},
+	{ 297000000, 0x8039, 0x0005, 0x028d},
+	{ ~0UL,	     0x0000, 0x0000, 0x0000}
 };
 
 static int rockchip_hdmi_parse_dt(struct rockchip_hdmi *hdmi)
@@ -173,7 +173,7 @@ dw_hdmi_rockchip_mode_valid(struct drm_connector *connector,
 	return (valid) ? MODE_OK : MODE_BAD;
 }
 
-static struct drm_encoder_funcs dw_hdmi_rockchip_encoder_funcs = {
+static const struct drm_encoder_funcs dw_hdmi_rockchip_encoder_funcs = {
 	.destroy = drm_encoder_cleanup,
 };
 
@@ -195,11 +195,14 @@ static void dw_hdmi_rockchip_encoder_mode_set(struct drm_encoder *encoder,
 {
 }
 
-static void dw_hdmi_rockchip_encoder_commit(struct drm_encoder *encoder)
+static void dw_hdmi_rockchip_encoder_enable(struct drm_encoder *encoder)
 {
 	struct rockchip_hdmi *hdmi = to_rockchip_hdmi(encoder);
 	u32 val;
 	int mux;
+
+	rockchip_drm_crtc_mode_config(encoder->crtc, DRM_MODE_CONNECTOR_HDMIA,
+				      ROCKCHIP_OUT_MODE_AAAA);
 
 	mux = rockchip_drm_encoder_get_mux_id(hdmi->dev->of_node, encoder);
 	if (mux)
@@ -212,17 +215,10 @@ static void dw_hdmi_rockchip_encoder_commit(struct drm_encoder *encoder)
 		(mux) ? "LIT" : "BIG");
 }
 
-static void dw_hdmi_rockchip_encoder_prepare(struct drm_encoder *encoder)
-{
-	rockchip_drm_crtc_mode_config(encoder->crtc, DRM_MODE_CONNECTOR_HDMIA,
-				      ROCKCHIP_OUT_MODE_AAAA);
-}
-
-static struct drm_encoder_helper_funcs dw_hdmi_rockchip_encoder_helper_funcs = {
+static const struct drm_encoder_helper_funcs dw_hdmi_rockchip_encoder_helper_funcs = {
 	.mode_fixup = dw_hdmi_rockchip_encoder_mode_fixup,
 	.mode_set   = dw_hdmi_rockchip_encoder_mode_set,
-	.prepare    = dw_hdmi_rockchip_encoder_prepare,
-	.commit     = dw_hdmi_rockchip_encoder_commit,
+	.enable     = dw_hdmi_rockchip_encoder_enable,
 	.disable    = dw_hdmi_rockchip_encoder_disable,
 };
 
@@ -230,7 +226,7 @@ static const struct dw_hdmi_plat_data rockchip_hdmi_drv_data = {
 	.mode_valid = dw_hdmi_rockchip_mode_valid,
 	.mpll_cfg   = rockchip_mpll_cfg,
 	.cur_ctr    = rockchip_cur_ctr,
-	.sym_term   = rockchip_sym_term,
+	.phy_config = rockchip_phy_config,
 	.dev_type   = RK3288_HDMI,
 };
 
@@ -295,7 +291,7 @@ static int dw_hdmi_rockchip_bind(struct device *dev, struct device *master,
 
 	drm_encoder_helper_add(encoder, &dw_hdmi_rockchip_encoder_helper_funcs);
 	drm_encoder_init(drm, encoder, &dw_hdmi_rockchip_encoder_funcs,
-			 DRM_MODE_ENCODER_TMDS);
+			 DRM_MODE_ENCODER_TMDS, NULL);
 
 	return dw_hdmi_bind(dev, master, data, encoder, iores, irq, plat_data);
 }

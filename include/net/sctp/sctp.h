@@ -126,8 +126,6 @@ int sctp_primitive_ASCONF(struct net *, struct sctp_association *, void *arg);
  */
 int sctp_rcv(struct sk_buff *skb);
 void sctp_v4_err(struct sk_buff *skb, u32 info);
-void sctp_hash_established(struct sctp_association *);
-void sctp_unhash_established(struct sctp_association *);
 void sctp_hash_endpoint(struct sctp_endpoint *);
 void sctp_unhash_endpoint(struct sctp_endpoint *);
 struct sock *sctp_err_lookup(struct net *net, int family, struct sk_buff *,
@@ -143,6 +141,17 @@ void sctp_icmp_proto_unreachable(struct sock *sk,
 				 struct sctp_transport *t);
 void sctp_backlog_migrate(struct sctp_association *assoc,
 			  struct sock *oldsk, struct sock *newsk);
+int sctp_transport_hashtable_init(void);
+void sctp_transport_hashtable_destroy(void);
+void sctp_hash_transport(struct sctp_transport *t);
+void sctp_unhash_transport(struct sctp_transport *t);
+struct sctp_transport *sctp_addrs_lookup_transport(
+				struct net *net,
+				const union sctp_addr *laddr,
+				const union sctp_addr *paddr);
+struct sctp_transport *sctp_epaddr_lookup_transport(
+				const struct sctp_endpoint *ep,
+				const union sctp_addr *paddr);
 
 /*
  * sctp/proc.c
@@ -166,6 +175,9 @@ void sctp_remaddr_proc_exit(struct net *net);
   */
 extern struct kmem_cache *sctp_chunk_cachep __read_mostly;
 extern struct kmem_cache *sctp_bucket_cachep __read_mostly;
+extern long sysctl_sctp_mem[3];
+extern int sysctl_sctp_rmem[3];
+extern int sysctl_sctp_wmem[3];
 
 /*
  *  Section:  Macros, externs, and inlines
@@ -516,25 +528,6 @@ static inline int sctp_ep_hashfn(struct net *net, __u16 lport)
 	return (net_hash_mix(net) + lport) & (sctp_ep_hashsize - 1);
 }
 
-/* This is the hash function for the association hash table. */
-static inline int sctp_assoc_hashfn(struct net *net, __u16 lport, __u16 rport)
-{
-	int h = (lport << 16) + rport + net_hash_mix(net);
-	h ^= h>>8;
-	return h & (sctp_assoc_hashsize - 1);
-}
-
-/* This is the hash function for the association hash table.  This is
- * not used yet, but could be used as a better hash function when
- * we have a vtag.
- */
-static inline int sctp_vtag_hashfn(__u16 lport, __u16 rport, __u32 vtag)
-{
-	int h = (lport << 16) + rport;
-	h ^= vtag;
-	return h & (sctp_assoc_hashsize - 1);
-}
-
 #define sctp_for_each_hentry(epb, head) \
 	hlist_for_each_entry(epb, head, node)
 
@@ -571,11 +564,14 @@ static inline void sctp_v6_map_v4(union sctp_addr *addr)
 /* Map v4 address to v4-mapped v6 address */
 static inline void sctp_v4_map_v6(union sctp_addr *addr)
 {
+	__be16 port;
+
+	port = addr->v4.sin_port;
+	addr->v6.sin6_addr.s6_addr32[3] = addr->v4.sin_addr.s_addr;
+	addr->v6.sin6_port = port;
 	addr->v6.sin6_family = AF_INET6;
 	addr->v6.sin6_flowinfo = 0;
 	addr->v6.sin6_scope_id = 0;
-	addr->v6.sin6_port = addr->v4.sin_port;
-	addr->v6.sin6_addr.s6_addr32[3] = addr->v4.sin_addr.s_addr;
 	addr->v6.sin6_addr.s6_addr32[0] = 0;
 	addr->v6.sin6_addr.s6_addr32[1] = 0;
 	addr->v6.sin6_addr.s6_addr32[2] = htonl(0x0000ffff);

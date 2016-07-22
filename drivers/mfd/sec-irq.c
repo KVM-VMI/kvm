@@ -61,13 +61,13 @@ static const struct regmap_irq s2mps11_irqs[] = {
 		.reg_offset = 1,
 		.mask = S2MPS11_IRQ_RTC60S_MASK,
 	},
-	[S2MPS11_IRQ_RTCA0] = {
-		.reg_offset = 1,
-		.mask = S2MPS11_IRQ_RTCA0_MASK,
-	},
 	[S2MPS11_IRQ_RTCA1] = {
 		.reg_offset = 1,
 		.mask = S2MPS11_IRQ_RTCA1_MASK,
+	},
+	[S2MPS11_IRQ_RTCA0] = {
+		.reg_offset = 1,
+		.mask = S2MPS11_IRQ_RTCA0_MASK,
 	},
 	[S2MPS11_IRQ_SMPL] = {
 		.reg_offset = 1,
@@ -407,6 +407,11 @@ static const struct regmap_irq_chip s2mps14_irq_chip = {
 	S2MPS1X_IRQ_CHIP_COMMON_DATA,
 };
 
+static const struct regmap_irq_chip s2mps15_irq_chip = {
+	.name = "s2mps15",
+	S2MPS1X_IRQ_CHIP_COMMON_DATA,
+};
+
 static const struct regmap_irq_chip s2mpu02_irq_chip = {
 	.name = "s2mpu02",
 	.irqs = s2mpu02_irqs,
@@ -466,6 +471,9 @@ int sec_irq_init(struct sec_pmic_dev *sec_pmic)
 	case S2MPS14X:
 		sec_irq_chip = &s2mps14_irq_chip;
 		break;
+	case S2MPS15X:
+		sec_irq_chip = &s2mps15_irq_chip;
+		break;
 	case S2MPU02:
 		sec_irq_chip = &s2mpu02_irq_chip;
 		break;
@@ -483,6 +491,12 @@ int sec_irq_init(struct sec_pmic_dev *sec_pmic)
 		dev_err(sec_pmic->dev, "Failed to register IRQ chip: %d\n", ret);
 		return ret;
 	}
+
+	/*
+	 * The rtc-s5m driver requests S2MPS14_IRQ_RTCA0 also for S2MPS11
+	 * so the interrupt number must be consistent.
+	 */
+	BUILD_BUG_ON(((enum s2mps14_irq)S2MPS11_IRQ_RTCA0) != S2MPS14_IRQ_RTCA0);
 
 	return 0;
 }

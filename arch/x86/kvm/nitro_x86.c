@@ -14,29 +14,29 @@ static void nitro_set_trap_sysenter_cs(struct kvm_vcpu* vcpu, bool enabled)
     struct msr_data msr_info;
 
     printk(KERN_INFO "nitro: setting trap on sysenter CS to %d\n", enabled);
-    kvm_x86_ops->get_msr(vcpu, MSR_IA32_SYSENTER_CS, &old_sysenter_cs);
-    msr_info.index = MSR_IA32_SYSENTER_CS;
+	msr_info.index = MSR_IA32_SYSENTER_CS;
+	msr_info.host_initiated = true;
+	kvm_x86_ops->get_msr(vcpu, &msr_info);
+	old_sysenter_cs = msr_info.data;
     if (enabled)
         msr_info.data = 0;
     else
         msr_info.data = old_sysenter_cs;
-    msr_info.host_initiated = true;
     kvm_x86_ops->set_msr(vcpu, &msr_info);
 }
 
 static void nitro_set_trap_efer(struct kvm_vcpu* vcpu, bool enabled)
 {
-    u64 efer;
     struct msr_data msr_info;
 
     printk(KERN_INFO "nitro: setting trap on efer to %d\n", enabled);
-    kvm_get_msr_common(vcpu, MSR_EFER, &efer);
-    msr_info.index = MSR_EFER;
+	msr_info.index = MSR_EFER;
+	msr_info.host_initiated = true;
+	kvm_get_msr_common(vcpu, &msr_info);
     if (enabled)
-        msr_info.data = efer & ~EFER_SCE;
+		msr_info.data &= ~EFER_SCE;
     else
-        msr_info.data = efer | EFER_SCE;
-    msr_info.host_initiated = true;
+		msr_info.data |= EFER_SCE;
     kvm_set_msr_common(vcpu, &msr_info);
 }
 

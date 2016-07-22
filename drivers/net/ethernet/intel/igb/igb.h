@@ -95,7 +95,6 @@ struct vf_data_storage {
 	unsigned char vf_mac_addresses[ETH_ALEN];
 	u16 vf_mc_hashes[IGB_MAX_VF_MC_ENTRIES];
 	u16 num_vf_mc_hashes;
-	u16 vlans_enabled;
 	u32 flags;
 	unsigned long last_nack;
 	u16 pf_vlan; /* When set, guest VLAN config not allowed. */
@@ -389,6 +388,8 @@ struct igb_adapter {
 	u16 link_speed;
 	u16 link_duplex;
 
+	u8 __iomem *io_addr; /* Mainly for iounmap use */
+
 	struct work_struct reset_task;
 	struct work_struct watchdog_task;
 	bool fc_autoneg;
@@ -444,8 +445,8 @@ struct igb_adapter {
 
 	struct ptp_pin_desc sdp_config[IGB_N_SDP];
 	struct {
-		struct timespec start;
-		struct timespec period;
+		struct timespec64 start;
+		struct timespec64 period;
 	} perout[IGB_N_PEROUT];
 
 	char fw_version[32];
@@ -480,6 +481,7 @@ struct igb_adapter {
 #define IGB_FLAG_MAS_ENABLE		(1 << 12)
 #define IGB_FLAG_HAS_MSIX		(1 << 13)
 #define IGB_FLAG_EEE			(1 << 14)
+#define IGB_FLAG_VLAN_PROMISC		BIT(15)
 
 /* Media Auto Sense */
 #define IGB_MAS_ENABLE_0		0X0001
@@ -508,6 +510,8 @@ enum igb_boards {
 extern char igb_driver_name[];
 extern char igb_driver_version[];
 
+int igb_open(struct net_device *netdev);
+int igb_close(struct net_device *netdev);
 int igb_up(struct igb_adapter *);
 void igb_down(struct igb_adapter *);
 void igb_reinit_locked(struct igb_adapter *);
@@ -540,6 +544,7 @@ void igb_ptp_rx_pktstamp(struct igb_q_vector *q_vector, unsigned char *va,
 			 struct sk_buff *skb);
 int igb_ptp_set_ts_config(struct net_device *netdev, struct ifreq *ifr);
 int igb_ptp_get_ts_config(struct net_device *netdev, struct ifreq *ifr);
+void igb_set_flag_queue_pairs(struct igb_adapter *, const u32);
 #ifdef CONFIG_IGB_HWMON
 void igb_sysfs_exit(struct igb_adapter *adapter);
 int igb_sysfs_init(struct igb_adapter *adapter);

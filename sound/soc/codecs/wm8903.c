@@ -442,7 +442,7 @@ static int wm8903_get_deemph(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct wm8903_priv *wm8903 = snd_soc_codec_get_drvdata(codec);
 
-	ucontrol->value.enumerated.item[0] = wm8903->deemph;
+	ucontrol->value.integer.value[0] = wm8903->deemph;
 
 	return 0;
 }
@@ -452,7 +452,7 @@ static int wm8903_put_deemph(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct wm8903_priv *wm8903 = snd_soc_codec_get_drvdata(codec);
-	int deemph = ucontrol->value.enumerated.item[0];
+	unsigned int deemph = ucontrol->value.integer.value[0];
 	int ret = 0;
 
 	if (deemph > 1)
@@ -1105,7 +1105,7 @@ static int wm8903_set_bias_level(struct snd_soc_codec *codec,
 		break;
 
 	case SND_SOC_BIAS_STANDBY:
-		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
+		if (snd_soc_codec_get_bias_level(codec) == SND_SOC_BIAS_OFF) {
 			snd_soc_update_bits(codec, WM8903_BIAS_CONTROL_0,
 					    WM8903_POBCTRL | WM8903_ISEL_MASK |
 					    WM8903_STARTUP_BIAS_ENA |
@@ -1199,8 +1199,6 @@ static int wm8903_set_bias_level(struct snd_soc_codec *codec,
 				    WM8903_STARTUP_BIAS_ENA, 0);
 		break;
 	}
-
-	codec->dapm.bias_level = level;
 
 	return 0;
 }
@@ -1806,7 +1804,7 @@ static int wm8903_gpio_get(struct gpio_chip *chip, unsigned offset)
 
 	regmap_read(wm8903->regmap, WM8903_GPIO_CONTROL_1 + offset, &reg);
 
-	return (reg & WM8903_GP1_LVL_MASK) >> WM8903_GP1_LVL_SHIFT;
+	return !!((reg & WM8903_GP1_LVL_MASK) >> WM8903_GP1_LVL_SHIFT);
 }
 
 static int wm8903_gpio_direction_out(struct gpio_chip *chip,
@@ -1855,7 +1853,7 @@ static void wm8903_init_gpio(struct wm8903_priv *wm8903)
 
 	wm8903->gpio_chip = wm8903_template_chip;
 	wm8903->gpio_chip.ngpio = WM8903_NUM_GPIO;
-	wm8903->gpio_chip.dev = wm8903->dev;
+	wm8903->gpio_chip.parent = wm8903->dev;
 
 	if (pdata->gpio_base)
 		wm8903->gpio_chip.base = pdata->gpio_base;
@@ -2195,7 +2193,6 @@ MODULE_DEVICE_TABLE(i2c, wm8903_i2c_id);
 static struct i2c_driver wm8903_i2c_driver = {
 	.driver = {
 		.name = "wm8903",
-		.owner = THIS_MODULE,
 		.of_match_table = wm8903_of_match,
 	},
 	.probe =    wm8903_i2c_probe,

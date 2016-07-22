@@ -27,7 +27,7 @@ static void ab8500_power_off(void)
 {
 	sigset_t old;
 	sigset_t all;
-	static char *pss[] = {"ab8500_ac", "pm2301", "ab8500_usb"};
+	static const char * const pss[] = {"ab8500_ac", "pm2301", "ab8500_usb"};
 	int i;
 	bool charger_present = false;
 	union power_supply_propval val;
@@ -49,7 +49,9 @@ static void ab8500_power_off(void)
 		if (!psy)
 			continue;
 
-		ret = psy->get_property(psy, POWER_SUPPLY_PROP_ONLINE, &val);
+		ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_ONLINE,
+				&val);
+		power_supply_put(psy);
 
 		if (!ret && val.intval) {
 			charger_present = true;
@@ -63,15 +65,15 @@ static void ab8500_power_off(void)
 	/* Check if battery is known */
 	psy = power_supply_get_by_name("ab8500_btemp");
 	if (psy) {
-		ret = psy->get_property(psy, POWER_SUPPLY_PROP_TECHNOLOGY,
-					&val);
+		ret = power_supply_get_property(psy,
+				POWER_SUPPLY_PROP_TECHNOLOGY, &val);
 		if (!ret && val.intval != POWER_SUPPLY_TECHNOLOGY_UNKNOWN) {
-			printk(KERN_INFO
-			       "Charger \"%s\" is connected with known battery."
-			       " Rebooting.\n",
-			       pss[i]);
+			pr_info("Charger '%s' is connected with known battery",
+				pss[i]);
+			pr_info(" - Rebooting.\n");
 			machine_restart("charging");
 		}
+		power_supply_put(psy);
 	}
 
 shutdown:
@@ -158,8 +160,8 @@ static int ab8500_sysctrl_probe(struct platform_device *pdev)
 					pdata->initial_req_buf_config[j]);
 			if (ret < 0) {
 				dev_err(&pdev->dev,
-					"unable to set sysClkReq%dRfClkBuf: "
-					"%d\n", j + 1, ret);
+					"Can't set sysClkReq%dRfClkBuf: %d\n",
+					j + 1, ret);
 			}
 		}
 	}

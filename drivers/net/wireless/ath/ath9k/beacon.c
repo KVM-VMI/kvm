@@ -148,7 +148,8 @@ static struct ath_buf *ath9k_beacon_generate(struct ieee80211_hw *hw,
 
 	ath_assign_seq(common, skb);
 
-	if (vif->p2p)
+	/* Always assign NOA attr when MCC enabled */
+	if (ath9k_is_chanctx_enabled())
 		ath9k_beacon_add_noa(sc, avp, skb);
 
 	bf->bf_buf_addr = dma_map_single(sc->dev, skb->data,
@@ -219,11 +220,14 @@ void ath9k_beacon_remove_slot(struct ath_softc *sc, struct ieee80211_vif *vif)
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	struct ath_vif *avp = (void *)vif->drv_priv;
 	struct ath_buf *bf = avp->av_bcbuf;
+	struct ath_beacon_config *cur_conf = &sc->cur_chan->beacon;
 
 	ath_dbg(common, CONFIG, "Removing interface at beacon slot: %d\n",
 		avp->av_bslot);
 
 	tasklet_disable(&sc->bcon_tasklet);
+
+	cur_conf->enable_beacon &= ~BIT(avp->av_bslot);
 
 	if (bf && bf->bf_mpdu) {
 		struct sk_buff *skb = bf->bf_mpdu;
@@ -521,8 +525,7 @@ static bool ath9k_allow_beacon_config(struct ath_softc *sc,
 	}
 
 	if (sc->sc_ah->opmode == NL80211_IFTYPE_AP) {
-		if ((vif->type != NL80211_IFTYPE_AP) ||
-		    (sc->nbcnvifs > 1)) {
+		if (vif->type != NL80211_IFTYPE_AP) {
 			ath_dbg(common, CONFIG,
 				"An AP interface is already present !\n");
 			return false;
@@ -616,12 +619,14 @@ void ath9k_beacon_config(struct ath_softc *sc, struct ieee80211_vif *vif,
 	 * enabling/disabling SWBA.
 	 */
 	if (changed & BSS_CHANGED_BEACON_ENABLED) {
-		if (!bss_conf->enable_beacon &&
-		    (sc->nbcnvifs <= 1)) {
-			cur_conf->enable_beacon = false;
-		} else if (bss_conf->enable_beacon) {
-			cur_conf->enable_beacon = true;
-			ath9k_cache_beacon_config(sc, ctx, bss_conf);
+		bool enabled = cur_conf->enable_beacon;
+
+		if (!bss_conf->enable_beacon) {
+			cur_conf->enable_beacon &= ~BIT(avp->av_bslot);
+		} else {
+			cur_conf->enable_beacon |= BIT(avp->av_bslot);
+			if (!enabled)
+				ath9k_cache_beacon_config(sc, ctx, bss_conf);
 		}
 	}
 

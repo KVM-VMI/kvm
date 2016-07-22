@@ -44,6 +44,7 @@ struct mlx4_mod_stat_cfg {
 };
 
 struct mlx4_port_cap {
+	u8  link_state;
 	u8  supported_port_types;
 	u8  suggested_type;
 	u8  default_sense;
@@ -127,6 +128,7 @@ struct mlx4_dev_cap {
 	u32 max_counters;
 	u32 dmfs_high_rate_qpn_base;
 	u32 dmfs_high_rate_qpn_range;
+	struct mlx4_rate_limit_caps rl_caps;
 	struct mlx4_port_cap port_cap[MLX4_MAX_PORTS + 1];
 };
 
@@ -202,6 +204,8 @@ struct mlx4_init_hca_param {
 	u64 dev_cap_enabled;
 	u16 cqe_size; /* For use only when CQE stride feature enabled */
 	u16 eqe_size; /* For use only when EQE stride feature enabled */
+	u8 rss_ip_frags;
+	u8 phv_check_en; /* for QUERY_HCA */
 };
 
 struct mlx4_init_ib_param {

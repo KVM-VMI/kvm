@@ -10,8 +10,9 @@
  */
 #include "util.h"
 #include "cache.h"
-#include "exec_cmd.h"
+#include <subcmd/exec-cmd.h>
 #include "util/hist.h"  /* perf_hist_config */
+#include "util/llvm-utils.h"   /* perf_llvm_config */
 
 #define MAXNAME (256)
 
@@ -25,7 +26,7 @@ static const char *config_file_name;
 static int config_linenr;
 static int config_file_eof;
 
-static const char *config_exclusive_filename;
+const char *config_exclusive_filename;
 
 static int get_next_char(void)
 {
@@ -408,6 +409,9 @@ int perf_default_config(const char *var, const char *value,
 	if (!prefixcmp(var, "call-graph."))
 		return perf_callchain_config(var, value);
 
+	if (!prefixcmp(var, "llvm."))
+		return perf_llvm_config(var, value);
+
 	/* Add other config variables here. */
 	return 0;
 }
@@ -430,7 +434,7 @@ static int perf_config_from_file(config_fn_t fn, const char *filename, void *dat
 	return ret;
 }
 
-static const char *perf_etc_perfconfig(void)
+const char *perf_etc_perfconfig(void)
 {
 	static const char *system_wide;
 	if (!system_wide)

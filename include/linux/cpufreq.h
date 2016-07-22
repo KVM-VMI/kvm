@@ -51,21 +51,21 @@ struct cpufreq_cpuinfo {
 	unsigned int		transition_latency;
 };
 
-struct cpufreq_real_policy {
+struct cpufreq_user_policy {
 	unsigned int		min;    /* in kHz */
 	unsigned int		max;    /* in kHz */
-	unsigned int		policy; /* see above */
-	struct cpufreq_governor	*governor; /* see below */
 };
 
 struct cpufreq_policy {
 	/* CPUs sharing clock, require sw coordination */
 	cpumask_var_t		cpus;	/* Online CPUs only */
 	cpumask_var_t		related_cpus; /* Online + Offline CPUs */
+	cpumask_var_t		real_cpus; /* Related and present */
 
 	unsigned int		shared_type; /* ACPI: ANY or ALL affected CPUs
 						should set cpufreq */
-	unsigned int		cpu;    /* cpu nr of CPU managing this policy */
+	unsigned int		cpu;    /* cpu managing this policy, must be online */
+
 	struct clk		*clk;
 	struct cpufreq_cpuinfo	cpuinfo;/* see above */
 
@@ -77,14 +77,15 @@ struct cpufreq_policy {
 	unsigned int		suspend_freq; /* freq to set during suspend */
 
 	unsigned int		policy; /* see above */
+	unsigned int		last_policy; /* policy before unplug */
 	struct cpufreq_governor	*governor; /* see below */
 	void			*governor_data;
-	bool			governor_enabled; /* governor start/stop flag */
+	char			last_governor[CPUFREQ_NAME_LEN]; /* last governor used */
 
 	struct work_struct	update; /* if update_policy() needs to be
 					 * called, but you're in IRQ context */
 
-	struct cpufreq_real_policy	user_policy;
+	struct cpufreq_user_policy user_policy;
 	struct cpufreq_frequency_table	*freq_table;
 
 	struct list_head        policy_list;
@@ -98,10 +99,6 @@ struct cpufreq_policy {
 	 * - Any routine that will write to the policy structure and/or may take away
 	 *   the policy altogether (eg. CPU hotplug), will hold this lock in write
 	 *   mode before doing so.
-	 *
-	 * Additional rules:
-	 * - Lock should not be held across
-	 *     __cpufreq_governor(data, CPUFREQ_GOV_POLICY_EXIT);
 	 */
 	struct rw_semaphore	rwsem;
 
@@ -125,9 +122,14 @@ struct cpufreq_policy {
 #define CPUFREQ_SHARED_TYPE_ANY	 (3) /* Freq can be set from any dependent CPU*/
 
 #ifdef CONFIG_CPU_FREQ
+struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu);
 struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu);
 void cpufreq_cpu_put(struct cpufreq_policy *policy);
 #else
+static inline struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu)
+{
+	return NULL;
+}
 static inline struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu)
 {
 	return NULL;
@@ -142,10 +144,6 @@ static inline bool policy_is_shared(struct cpufreq_policy *policy)
 
 /* /sys/devices/system/cpu/cpufreq: entry point for global variables */
 extern struct kobject *cpufreq_global_kobject;
-int cpufreq_get_global_kobject(void);
-void cpufreq_put_global_kobject(void);
-int cpufreq_sysfs_create_file(const struct attribute *attr);
-void cpufreq_sysfs_remove_file(const struct attribute *attr);
 
 #ifdef CONFIG_CPU_FREQ
 unsigned int cpufreq_get(unsigned int cpu);
@@ -275,7 +273,6 @@ struct cpufreq_driver {
 	struct freq_attr **attr;
 
 	/* platform specific boost support code */
-	bool		boost_supported;
 	bool		boost_enabled;
 	int		(*set_boost)(int state);
 };
@@ -365,11 +362,10 @@ static inline void cpufreq_resume(void) {}
 
 /* Policy Notifiers  */
 #define CPUFREQ_ADJUST			(0)
-#define CPUFREQ_INCOMPATIBLE		(1)
-#define CPUFREQ_NOTIFY			(2)
-#define CPUFREQ_START			(3)
-#define CPUFREQ_CREATE_POLICY		(4)
-#define CPUFREQ_REMOVE_POLICY		(5)
+#define CPUFREQ_NOTIFY			(1)
+#define CPUFREQ_START			(2)
+#define CPUFREQ_CREATE_POLICY		(3)
+#define CPUFREQ_REMOVE_POLICY		(4)
 
 #ifdef CONFIG_CPU_FREQ
 int cpufreq_register_notifier(struct notifier_block *nb, unsigned int list);
@@ -463,29 +459,8 @@ int __cpufreq_driver_target(struct cpufreq_policy *policy,
 int cpufreq_register_governor(struct cpufreq_governor *governor);
 void cpufreq_unregister_governor(struct cpufreq_governor *governor);
 
-/* CPUFREQ DEFAULT GOVERNOR */
-/*
- * Performance governor is fallback governor if any other gov failed to auto
- * load due latency restrictions
- */
-#ifdef CONFIG_CPU_FREQ_GOV_PERFORMANCE
-extern struct cpufreq_governor cpufreq_gov_performance;
-#endif
-#ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_performance)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE)
-extern struct cpufreq_governor cpufreq_gov_powersave;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_powersave)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE)
-extern struct cpufreq_governor cpufreq_gov_userspace;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_userspace)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND)
-extern struct cpufreq_governor cpufreq_gov_ondemand;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_ondemand)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_CONSERVATIVE)
-extern struct cpufreq_governor cpufreq_gov_conservative;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_conservative)
-#endif
+struct cpufreq_governor *cpufreq_default_governor(void);
+struct cpufreq_governor *cpufreq_fallback_governor(void);
 
 /*********************************************************************
  *                     FREQUENCY TABLE HELPERS                       *
@@ -524,16 +499,6 @@ static inline void dev_pm_opp_free_cpufreq_table(struct device *dev,
 }
 #endif
 
-static inline bool cpufreq_next_valid(struct cpufreq_frequency_table **pos)
-{
-	while ((*pos)->frequency != CPUFREQ_TABLE_END)
-		if ((*pos)->frequency != CPUFREQ_ENTRY_INVALID)
-			return true;
-		else
-			(*pos)++;
-	return false;
-}
-
 /*
  * cpufreq_for_each_entry -	iterate over a cpufreq_frequency_table
  * @pos:	the cpufreq_frequency_table * to use as a loop cursor.
@@ -550,8 +515,11 @@ static inline bool cpufreq_next_valid(struct cpufreq_frequency_table **pos)
  * @table:      the cpufreq_frequency_table * to iterate over.
  */
 
-#define cpufreq_for_each_valid_entry(pos, table)	\
-	for (pos = table; cpufreq_next_valid(&pos); pos++)
+#define cpufreq_for_each_valid_entry(pos, table)			\
+	for (pos = table; pos->frequency != CPUFREQ_TABLE_END; pos++)	\
+		if (pos->frequency == CPUFREQ_ENTRY_INVALID)		\
+			continue;					\
+		else
 
 int cpufreq_frequency_table_cpuinfo(struct cpufreq_policy *policy,
 				    struct cpufreq_frequency_table *table);
@@ -572,14 +540,11 @@ ssize_t cpufreq_show_cpus(const struct cpumask *mask, char *buf);
 
 #ifdef CONFIG_CPU_FREQ
 int cpufreq_boost_trigger_state(int state);
-int cpufreq_boost_supported(void);
 int cpufreq_boost_enabled(void);
+int cpufreq_enable_boost_support(void);
+bool policy_has_boost_freq(struct cpufreq_policy *policy);
 #else
 static inline int cpufreq_boost_trigger_state(int state)
-{
-	return 0;
-}
-static inline int cpufreq_boost_supported(void)
 {
 	return 0;
 }
@@ -587,12 +552,23 @@ static inline int cpufreq_boost_enabled(void)
 {
 	return 0;
 }
+
+static inline int cpufreq_enable_boost_support(void)
+{
+	return -EINVAL;
+}
+
+static inline bool policy_has_boost_freq(struct cpufreq_policy *policy)
+{
+	return false;
+}
 #endif
 /* the following funtion is for cpufreq core use only */
 struct cpufreq_frequency_table *cpufreq_frequency_get_table(unsigned int cpu);
 
 /* the following are really really optional */
 extern struct freq_attr cpufreq_freq_attr_scaling_available_freqs;
+extern struct freq_attr cpufreq_freq_attr_scaling_boost_freqs;
 extern struct freq_attr *cpufreq_generic_attr[];
 int cpufreq_table_validate_and_show(struct cpufreq_policy *policy,
 				      struct cpufreq_frequency_table *table);

@@ -9,12 +9,14 @@
 
 #include <linux/fs.h>
 #include <linux/namei.h>
+#include <linux/pagemap.h>
 #include <linux/xattr.h>
 #include <linux/security.h>
 #include <linux/mount.h>
 #include <linux/slab.h>
 #include <linux/parser.h>
 #include <linux/module.h>
+#include <linux/pagemap.h>
 #include <linux/sched.h>
 #include <linux/statfs.h>
 #include <linux/seq_file.h>
@@ -24,12 +26,11 @@ MODULE_AUTHOR("Miklos Szeredi <miklos@szeredi.hu>");
 MODULE_DESCRIPTION("Overlay filesystem");
 MODULE_LICENSE("GPL");
 
-#define OVERLAYFS_SUPER_MAGIC 0x794c7630
-
 struct ovl_config {
 	char *lowerdir;
 	char *upperdir;
 	char *workdir;
+	bool default_permissions;
 };
 
 /* private information held for overlayfs's superblock */
@@ -75,12 +76,14 @@ enum ovl_path_type ovl_path_type(struct dentry *dentry)
 	if (oe->__upperdentry) {
 		type = __OVL_PATH_UPPER;
 
-		if (oe->numlower) {
-			if (S_ISDIR(dentry->d_inode->i_mode))
-				type |= __OVL_PATH_MERGE;
-		} else if (!oe->opaque) {
+		/*
+		 * Non-dir dentry can hold lower dentry from previous
+		 * location. Its purity depends only on opaque flag.
+		 */
+		if (oe->numlower && S_ISDIR(dentry->d_inode->i_mode))
+			type |= __OVL_PATH_MERGE;
+		else if (!oe->opaque)
 			type |= __OVL_PATH_PURE;
-		}
 	} else {
 		if (oe->numlower > 1)
 			type |= __OVL_PATH_MERGE;
@@ -154,11 +157,30 @@ struct dentry *ovl_entry_real(struct ovl_entry *oe, bool *is_upper)
 	return realdentry;
 }
 
+struct vfsmount *ovl_entry_mnt_real(struct ovl_entry *oe, struct inode *inode,
+				    bool is_upper)
+{
+	if (is_upper) {
+		struct ovl_fs *ofs = inode->i_sb->s_fs_info;
+
+		return ofs->upper_mnt;
+	} else {
+		return oe->numlower ? oe->lowerstack[0].mnt : NULL;
+	}
+}
+
 struct ovl_dir_cache *ovl_dir_cache(struct dentry *dentry)
 {
 	struct ovl_entry *oe = dentry->d_fsdata;
 
 	return oe->cache;
+}
+
+bool ovl_is_default_permissions(struct inode *inode)
+{
+	struct ovl_fs *ofs = inode->i_sb->s_fs_info;
+
+	return ofs->config.default_permissions;
 }
 
 void ovl_set_dir_cache(struct dentry *dentry, struct ovl_dir_cache *cache)
@@ -209,7 +231,7 @@ void ovl_dentry_update(struct dentry *dentry, struct dentry *upperdentry)
 {
 	struct ovl_entry *oe = dentry->d_fsdata;
 
-	WARN_ON(!mutex_is_locked(&upperdentry->d_parent->d_inode->i_mutex));
+	WARN_ON(!inode_is_locked(upperdentry->d_parent->d_inode));
 	WARN_ON(oe->__upperdentry);
 	BUG_ON(!upperdentry->d_inode);
 	/*
@@ -224,7 +246,7 @@ void ovl_dentry_version_inc(struct dentry *dentry)
 {
 	struct ovl_entry *oe = dentry->d_fsdata;
 
-	WARN_ON(!mutex_is_locked(&dentry->d_inode->i_mutex));
+	WARN_ON(!inode_is_locked(dentry->d_inode));
 	oe->version++;
 }
 
@@ -232,7 +254,7 @@ u64 ovl_dentry_version_get(struct dentry *dentry)
 {
 	struct ovl_entry *oe = dentry->d_fsdata;
 
-	WARN_ON(!mutex_is_locked(&dentry->d_inode->i_mutex));
+	WARN_ON(!inode_is_locked(dentry->d_inode));
 	return oe->version;
 }
 
@@ -273,8 +295,57 @@ static void ovl_dentry_release(struct dentry *dentry)
 	}
 }
 
+static int ovl_dentry_revalidate(struct dentry *dentry, unsigned int flags)
+{
+	struct ovl_entry *oe = dentry->d_fsdata;
+	unsigned int i;
+	int ret = 1;
+
+	for (i = 0; i < oe->numlower; i++) {
+		struct dentry *d = oe->lowerstack[i].dentry;
+
+		if (d->d_flags & DCACHE_OP_REVALIDATE) {
+			ret = d->d_op->d_revalidate(d, flags);
+			if (ret < 0)
+				return ret;
+			if (!ret) {
+				if (!(flags & LOOKUP_RCU))
+					d_invalidate(d);
+				return -ESTALE;
+			}
+		}
+	}
+	return 1;
+}
+
+static int ovl_dentry_weak_revalidate(struct dentry *dentry, unsigned int flags)
+{
+	struct ovl_entry *oe = dentry->d_fsdata;
+	unsigned int i;
+	int ret = 1;
+
+	for (i = 0; i < oe->numlower; i++) {
+		struct dentry *d = oe->lowerstack[i].dentry;
+
+		if (d->d_flags & DCACHE_OP_WEAK_REVALIDATE) {
+			ret = d->d_op->d_weak_revalidate(d, flags);
+			if (ret <= 0)
+				break;
+		}
+	}
+	return ret;
+}
+
 static const struct dentry_operations ovl_dentry_operations = {
 	.d_release = ovl_dentry_release,
+	.d_select_inode = ovl_d_select_inode,
+};
+
+static const struct dentry_operations ovl_reval_dentry_operations = {
+	.d_release = ovl_dentry_release,
+	.d_select_inode = ovl_d_select_inode,
+	.d_revalidate = ovl_dentry_revalidate,
+	.d_weak_revalidate = ovl_dentry_weak_revalidate,
 };
 
 static struct ovl_entry *ovl_alloc_entry(unsigned int numlower)
@@ -288,14 +359,28 @@ static struct ovl_entry *ovl_alloc_entry(unsigned int numlower)
 	return oe;
 }
 
+static bool ovl_dentry_remote(struct dentry *dentry)
+{
+	return dentry->d_flags &
+		(DCACHE_OP_REVALIDATE | DCACHE_OP_WEAK_REVALIDATE);
+}
+
+static bool ovl_dentry_weird(struct dentry *dentry)
+{
+	return dentry->d_flags & (DCACHE_NEED_AUTOMOUNT |
+				  DCACHE_MANAGE_TRANSIT |
+				  DCACHE_OP_HASH |
+				  DCACHE_OP_COMPARE);
+}
+
 static inline struct dentry *ovl_lookup_real(struct dentry *dir,
 					     struct qstr *name)
 {
 	struct dentry *dentry;
 
-	mutex_lock(&dir->d_inode->i_mutex);
+	inode_lock(dir->d_inode);
 	dentry = lookup_one_len(name->name, dir, name->len);
-	mutex_unlock(&dir->d_inode->i_mutex);
+	inode_unlock(dir->d_inode);
 
 	if (IS_ERR(dentry)) {
 		if (PTR_ERR(dentry) == -ENOENT)
@@ -303,6 +388,10 @@ static inline struct dentry *ovl_lookup_real(struct dentry *dir,
 	} else if (!dentry->d_inode) {
 		dput(dentry);
 		dentry = NULL;
+	} else if (ovl_dentry_weird(dentry)) {
+		dput(dentry);
+		/* Don't support traversing automounts and other weirdness */
+		dentry = ERR_PTR(-EREMOTE);
 	}
 	return dentry;
 }
@@ -350,6 +439,11 @@ struct dentry *ovl_lookup(struct inode *dir, struct dentry *dentry,
 			goto out;
 
 		if (this) {
+			if (unlikely(ovl_dentry_remote(this))) {
+				dput(this);
+				err = -EREMOTE;
+				goto out;
+			}
 			if (ovl_is_whiteout(this)) {
 				dput(this);
 				this = NULL;
@@ -473,6 +567,7 @@ static void ovl_put_super(struct super_block *sb)
 	mntput(ufs->upper_mnt);
 	for (i = 0; i < ufs->numlower; i++)
 		mntput(ufs->lower_mnt[i]);
+	kfree(ufs->lower_mnt);
 
 	kfree(ufs->config.lowerdir);
 	kfree(ufs->config.upperdir);
@@ -517,11 +612,13 @@ static int ovl_show_options(struct seq_file *m, struct dentry *dentry)
 	struct super_block *sb = dentry->d_sb;
 	struct ovl_fs *ufs = sb->s_fs_info;
 
-	seq_printf(m, ",lowerdir=%s", ufs->config.lowerdir);
+	seq_show_option(m, "lowerdir", ufs->config.lowerdir);
 	if (ufs->config.upperdir) {
-		seq_printf(m, ",upperdir=%s", ufs->config.upperdir);
-		seq_printf(m, ",workdir=%s", ufs->config.workdir);
+		seq_show_option(m, "upperdir", ufs->config.upperdir);
+		seq_show_option(m, "workdir", ufs->config.workdir);
 	}
+	if (ufs->config.default_permissions)
+		seq_puts(m, ",default_permissions");
 	return 0;
 }
 
@@ -529,8 +626,7 @@ static int ovl_remount(struct super_block *sb, int *flags, char *data)
 {
 	struct ovl_fs *ufs = sb->s_fs_info;
 
-	if (!(*flags & MS_RDONLY) &&
-	    (!ufs->upper_mnt || (ufs->upper_mnt->mnt_sb->s_flags & MS_RDONLY)))
+	if (!(*flags & MS_RDONLY) && (!ufs->upper_mnt || !ufs->workdir))
 		return -EROFS;
 
 	return 0;
@@ -547,6 +643,7 @@ enum {
 	OPT_LOWERDIR,
 	OPT_UPPERDIR,
 	OPT_WORKDIR,
+	OPT_DEFAULT_PERMISSIONS,
 	OPT_ERR,
 };
 
@@ -554,6 +651,7 @@ static const match_table_t ovl_tokens = {
 	{OPT_LOWERDIR,			"lowerdir=%s"},
 	{OPT_UPPERDIR,			"upperdir=%s"},
 	{OPT_WORKDIR,			"workdir=%s"},
+	{OPT_DEFAULT_PERMISSIONS,	"default_permissions"},
 	{OPT_ERR,			NULL}
 };
 
@@ -614,10 +712,24 @@ static int ovl_parse_opt(char *opt, struct ovl_config *config)
 				return -ENOMEM;
 			break;
 
+		case OPT_DEFAULT_PERMISSIONS:
+			config->default_permissions = true;
+			break;
+
 		default:
+			pr_err("overlayfs: unrecognized mount option \"%s\" or missing value\n", p);
 			return -EINVAL;
 		}
 	}
+
+	/* Workdir is useless in non-upper mount */
+	if (!config->upperdir && config->workdir) {
+		pr_info("overlayfs: option \"workdir=%s\" is useless in a non-upper mount, ignore\n",
+			config->workdir);
+		kfree(config->workdir);
+		config->workdir = NULL;
+	}
+
 	return 0;
 }
 
@@ -635,7 +747,7 @@ static struct dentry *ovl_workdir_create(struct vfsmount *mnt,
 	if (err)
 		return ERR_PTR(err);
 
-	mutex_lock_nested(&dir->i_mutex, I_MUTEX_PARENT);
+	inode_lock_nested(dir, I_MUTEX_PARENT);
 retry:
 	work = lookup_one_len(OVL_WORKDIR_NAME, dentry,
 			      strlen(OVL_WORKDIR_NAME));
@@ -661,7 +773,7 @@ retry:
 			goto out_dput;
 	}
 out_unlock:
-	mutex_unlock(&dir->i_mutex);
+	inode_unlock(dir);
 	mnt_drop_write(mnt);
 
 	return work;
@@ -685,25 +797,6 @@ static void ovl_unescape(char *s)
 	}
 }
 
-static bool ovl_is_allowed_fs_type(struct dentry *root)
-{
-	const struct dentry_operations *dop = root->d_op;
-
-	/*
-	 * We don't support:
-	 *  - automount filesystems
-	 *  - filesystems with revalidate (FIXME for lower layer)
-	 *  - filesystems with case insensitive names
-	 */
-	if (dop &&
-	    (dop->d_manage || dop->d_automount ||
-	     dop->d_revalidate || dop->d_weak_revalidate ||
-	     dop->d_compare || dop->d_hash)) {
-		return false;
-	}
-	return true;
-}
-
 static int ovl_mount_dir_noesc(const char *name, struct path *path)
 {
 	int err = -EINVAL;
@@ -718,7 +811,7 @@ static int ovl_mount_dir_noesc(const char *name, struct path *path)
 		goto out;
 	}
 	err = -EINVAL;
-	if (!ovl_is_allowed_fs_type(path->dentry)) {
+	if (ovl_dentry_weird(path->dentry)) {
 		pr_err("overlayfs: filesystem on '%s' not supported\n", name);
 		goto out_put;
 	}
@@ -742,13 +835,21 @@ static int ovl_mount_dir(const char *name, struct path *path)
 	if (tmp) {
 		ovl_unescape(tmp);
 		err = ovl_mount_dir_noesc(tmp, path);
+
+		if (!err)
+			if (ovl_dentry_remote(path->dentry)) {
+				pr_err("overlayfs: filesystem on '%s' not supported as upperdir\n",
+				       tmp);
+				path_put(path);
+				err = -EINVAL;
+			}
 		kfree(tmp);
 	}
 	return err;
 }
 
 static int ovl_lower_dir(const char *name, struct path *path, long *namelen,
-			 int *stack_depth)
+			 int *stack_depth, bool *remote)
 {
 	int err;
 	struct kstatfs statfs;
@@ -764,6 +865,9 @@ static int ovl_lower_dir(const char *name, struct path *path, long *namelen,
 	}
 	*namelen = max(*namelen, statfs.f_namelen);
 	*stack_depth = max(*stack_depth, path->mnt->mnt_sb->s_stack_depth);
+
+	if (ovl_dentry_remote(path->dentry))
+		*remote = true;
 
 	return 0;
 
@@ -818,6 +922,7 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 	unsigned int numlower;
 	unsigned int stacklen = 0;
 	unsigned int i;
+	bool remote = false;
 	int err;
 
 	err = -ENOMEM;
@@ -836,8 +941,8 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	sb->s_stack_depth = 0;
+	sb->s_maxbytes = MAX_LFS_FILESIZE;
 	if (ufs->config.upperdir) {
-		/* FIXME: workdir is not needed for a R/O mount */
 		if (!ufs->config.workdir) {
 			pr_err("overlayfs: missing 'workdir'\n");
 			goto out_free_config;
@@ -846,6 +951,13 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 		err = ovl_mount_dir(ufs->config.upperdir, &upperpath);
 		if (err)
 			goto out_free_config;
+
+		/* Upper fs should not be r/o */
+		if (upperpath.mnt->mnt_sb->s_flags & MS_RDONLY) {
+			pr_err("overlayfs: upper fs is r/o, try multi-lower layers mount\n");
+			err = -EINVAL;
+			goto out_put_upperpath;
+		}
 
 		err = ovl_mount_dir(ufs->config.workdir, &workpath);
 		if (err)
@@ -869,8 +981,14 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 
 	err = -EINVAL;
 	stacklen = ovl_split_lowerdirs(lowertmp);
-	if (stacklen > OVL_MAX_STACK)
+	if (stacklen > OVL_MAX_STACK) {
+		pr_err("overlayfs: too many lower directries, limit is %d\n",
+		       OVL_MAX_STACK);
 		goto out_free_lowertmp;
+	} else if (!ufs->config.upperdir && stacklen == 1) {
+		pr_err("overlayfs: at least 2 lowerdir are needed while upperdir nonexistent\n");
+		goto out_free_lowertmp;
+	}
 
 	stack = kcalloc(stacklen, sizeof(struct path), GFP_KERNEL);
 	if (!stack)
@@ -879,7 +997,8 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 	lower = lowertmp;
 	for (numlower = 0; numlower < stacklen; numlower++) {
 		err = ovl_lower_dir(lower, &stack[numlower],
-				    &ufs->lower_namelen, &sb->s_stack_depth);
+				    &ufs->lower_namelen, &sb->s_stack_depth,
+				    &remote);
 		if (err)
 			goto out_put_lowerpath;
 
@@ -904,9 +1023,10 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 		ufs->workdir = ovl_workdir_create(ufs->upper_mnt, workpath.dentry);
 		err = PTR_ERR(ufs->workdir);
 		if (IS_ERR(ufs->workdir)) {
-			pr_err("overlayfs: failed to create directory %s/%s\n",
-			       ufs->config.workdir, OVL_WORKDIR_NAME);
-			goto out_put_upper_mnt;
+			pr_warn("overlayfs: failed to create directory %s/%s (errno: %i); mounting read-only\n",
+				ufs->config.workdir, OVL_WORKDIR_NAME, -err);
+			sb->s_flags |= MS_RDONLY;
+			ufs->workdir = NULL;
 		}
 	}
 
@@ -932,11 +1052,14 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 		ufs->numlower++;
 	}
 
-	/* If the upper fs is r/o or nonexistent, we mark overlayfs r/o too */
-	if (!ufs->upper_mnt || (ufs->upper_mnt->mnt_sb->s_flags & MS_RDONLY))
+	/* If the upper fs is nonexistent, we mark overlayfs r/o too */
+	if (!ufs->upper_mnt)
 		sb->s_flags |= MS_RDONLY;
 
-	sb->s_d_op = &ovl_dentry_operations;
+	if (remote)
+		sb->s_d_op = &ovl_reval_dentry_operations;
+	else
+		sb->s_d_op = &ovl_dentry_operations;
 
 	err = -ENOMEM;
 	oe = ovl_alloc_entry(numlower);
@@ -958,8 +1081,12 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 		oe->lowerstack[i].dentry = stack[i].dentry;
 		oe->lowerstack[i].mnt = ufs->lower_mnt[i];
 	}
+	kfree(stack);
 
 	root_dentry->d_fsdata = oe;
+
+	ovl_copyattr(ovl_dentry_real(root_dentry)->d_inode,
+		     root_dentry->d_inode);
 
 	sb->s_magic = OVERLAYFS_SUPER_MAGIC;
 	sb->s_op = &ovl_super_operations;
@@ -976,7 +1103,6 @@ out_put_lower_mnt:
 	kfree(ufs->lower_mnt);
 out_put_workdir:
 	dput(ufs->workdir);
-out_put_upper_mnt:
 	mntput(ufs->upper_mnt);
 out_put_lowerpath:
 	for (i = 0; i < numlower; i++)

@@ -21,6 +21,7 @@
 #include <drm/drm_fb_helper.h>
 #include <linux/dma-mapping.h>
 #include <linux/pm_runtime.h>
+#include <linux/module.h>
 #include <linux/of_graph.h>
 #include <linux/component.h>
 
@@ -54,20 +55,18 @@ int rockchip_drm_dma_attach_device(struct drm_device *drm_dev,
 
 	return arm_iommu_attach_device(dev, mapping);
 }
-EXPORT_SYMBOL_GPL(rockchip_drm_dma_attach_device);
 
 void rockchip_drm_dma_detach_device(struct drm_device *drm_dev,
 				    struct device *dev)
 {
 	arm_iommu_detach_device(dev);
 }
-EXPORT_SYMBOL_GPL(rockchip_drm_dma_detach_device);
 
-int rockchip_register_crtc_funcs(struct drm_device *dev,
-				 const struct rockchip_crtc_funcs *crtc_funcs,
-				 int pipe)
+int rockchip_register_crtc_funcs(struct drm_crtc *crtc,
+				 const struct rockchip_crtc_funcs *crtc_funcs)
 {
-	struct rockchip_drm_private *priv = dev->dev_private;
+	int pipe = drm_crtc_index(crtc);
+	struct rockchip_drm_private *priv = crtc->dev->dev_private;
 
 	if (pipe > ROCKCHIP_MAX_CRTC)
 		return -EINVAL;
@@ -76,18 +75,17 @@ int rockchip_register_crtc_funcs(struct drm_device *dev,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(rockchip_register_crtc_funcs);
 
-void rockchip_unregister_crtc_funcs(struct drm_device *dev, int pipe)
+void rockchip_unregister_crtc_funcs(struct drm_crtc *crtc)
 {
-	struct rockchip_drm_private *priv = dev->dev_private;
+	int pipe = drm_crtc_index(crtc);
+	struct rockchip_drm_private *priv = crtc->dev->dev_private;
 
 	if (pipe > ROCKCHIP_MAX_CRTC)
 		return;
 
 	priv->crtc_funcs[pipe] = NULL;
 }
-EXPORT_SYMBOL_GPL(rockchip_unregister_crtc_funcs);
 
 static struct drm_crtc *rockchip_crtc_from_pipe(struct drm_device *drm,
 						int pipe)
@@ -102,7 +100,8 @@ static struct drm_crtc *rockchip_crtc_from_pipe(struct drm_device *drm,
 	return NULL;
 }
 
-static int rockchip_drm_crtc_enable_vblank(struct drm_device *dev, int pipe)
+static int rockchip_drm_crtc_enable_vblank(struct drm_device *dev,
+					   unsigned int pipe)
 {
 	struct rockchip_drm_private *priv = dev->dev_private;
 	struct drm_crtc *crtc = rockchip_crtc_from_pipe(dev, pipe);
@@ -114,7 +113,8 @@ static int rockchip_drm_crtc_enable_vblank(struct drm_device *dev, int pipe)
 	return 0;
 }
 
-static void rockchip_drm_crtc_disable_vblank(struct drm_device *dev, int pipe)
+static void rockchip_drm_crtc_disable_vblank(struct drm_device *dev,
+					     unsigned int pipe)
 {
 	struct rockchip_drm_private *priv = dev->dev_private;
 	struct drm_crtc *crtc = rockchip_crtc_from_pipe(dev, pipe);
@@ -129,11 +129,15 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	struct rockchip_drm_private *private;
 	struct dma_iommu_mapping *mapping;
 	struct device *dev = drm_dev->dev;
+	struct drm_connector *connector;
 	int ret;
 
 	private = devm_kzalloc(drm_dev->dev, sizeof(*private), GFP_KERNEL);
 	if (!private)
 		return -ENOMEM;
+
+	mutex_init(&private->commit.lock);
+	INIT_WORK(&private->commit.work, rockchip_drm_atomic_work);
 
 	drm_dev->dev_private = private;
 
@@ -171,6 +175,23 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	if (ret)
 		goto err_detach_device;
 
+	/*
+	 * All components are now added, we can publish the connector sysfs
+	 * entries to userspace.  This will generate hotplug events and so
+	 * userspace will expect to be able to access DRM at this point.
+	 */
+	list_for_each_entry(connector, &drm_dev->mode_config.connector_list,
+			head) {
+		ret = drm_connector_register(connector);
+		if (ret) {
+			dev_err(drm_dev->dev,
+				"[CONNECTOR:%d:%s] drm_connector_register failed: %d\n",
+				connector->base.id,
+				connector->name, ret);
+			goto err_unbind;
+		}
+	}
+
 	/* init kms poll for handling hpd */
 	drm_kms_helper_poll_init(drm_dev);
 
@@ -191,6 +212,8 @@ static int rockchip_drm_load(struct drm_device *drm_dev, unsigned long flags)
 	 */
 	drm_dev->vblank_disable_allowed = true;
 
+	drm_mode_config_reset(drm_dev);
+
 	ret = rockchip_drm_fbdev_init(drm_dev);
 	if (ret)
 		goto err_vblank_cleanup;
@@ -200,6 +223,7 @@ err_vblank_cleanup:
 	drm_vblank_cleanup(drm_dev);
 err_kms_helper_poll_fini:
 	drm_kms_helper_poll_fini(drm_dev);
+err_unbind:
 	component_unbind_all(dev, drm_dev);
 err_detach_device:
 	arm_iommu_detach_device(dev);
@@ -253,11 +277,12 @@ const struct vm_operations_struct rockchip_drm_vm_ops = {
 };
 
 static struct drm_driver rockchip_drm_driver = {
-	.driver_features	= DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME,
+	.driver_features	= DRIVER_MODESET | DRIVER_GEM |
+				  DRIVER_PRIME | DRIVER_ATOMIC,
 	.load			= rockchip_drm_load,
 	.unload			= rockchip_drm_unload,
 	.lastclose		= rockchip_drm_lastclose,
-	.get_vblank_counter	= drm_vblank_count,
+	.get_vblank_counter	= drm_vblank_no_hw_counter,
 	.enable_vblank		= rockchip_drm_crtc_enable_vblank,
 	.disable_vblank		= rockchip_drm_crtc_disable_vblank,
 	.gem_vm_ops		= &rockchip_drm_vm_ops,
@@ -366,7 +391,7 @@ static const struct dev_pm_ops rockchip_drm_pm_ops = {
 int rockchip_drm_encoder_get_mux_id(struct device_node *node,
 				    struct drm_encoder *encoder)
 {
-	struct device_node *ep = NULL;
+	struct device_node *ep;
 	struct drm_crtc *crtc = encoder->crtc;
 	struct of_endpoint endpoint;
 	struct device_node *port;
@@ -375,18 +400,15 @@ int rockchip_drm_encoder_get_mux_id(struct device_node *node,
 	if (!node || !crtc)
 		return -EINVAL;
 
-	do {
-		ep = of_graph_get_next_endpoint(node, ep);
-		if (!ep)
-			break;
-
+	for_each_endpoint_of_node(node, ep) {
 		port = of_graph_get_remote_port(ep);
 		of_node_put(port);
 		if (port == crtc->port) {
 			ret = of_graph_parse_endpoint(ep, &endpoint);
+			of_node_put(ep);
 			return ret ?: endpoint.id;
 		}
-	} while (ep);
+	}
 
 	return -EINVAL;
 }
@@ -430,10 +452,6 @@ static int rockchip_drm_bind(struct device *dev)
 	drm = drm_dev_alloc(&rockchip_drm_driver, dev);
 	if (!drm)
 		return -ENOMEM;
-
-	ret = drm_dev_set_unique(drm, "%s", dev_name(dev));
-	if (ret)
-		goto err_free;
 
 	ret = drm_dev_register(drm, 0);
 	if (ret)
@@ -538,7 +556,6 @@ static struct platform_driver rockchip_drm_platform_driver = {
 	.probe = rockchip_drm_platform_probe,
 	.remove = rockchip_drm_platform_remove,
 	.driver = {
-		.owner = THIS_MODULE,
 		.name = "rockchip-drm",
 		.of_match_table = rockchip_drm_dt_ids,
 		.pm = &rockchip_drm_pm_ops,

@@ -63,7 +63,9 @@ void platform_restart(void)
 #if XCHAL_NUM_IBREAK > 0
 			      "wsr	a2, ibreakenable\n\t"
 #endif
+#if XCHAL_HAVE_LOOPS
 			      "wsr	a2, lcount\n\t"
+#endif
 			      "movi	a2, 0x1f\n\t"
 			      "wsr	a2, ps\n\t"
 			      "isync\n\t"
@@ -189,6 +191,7 @@ void __init platform_calibrate_ccount(void)
 #include <linux/serial_8250.h>
 #include <linux/if.h>
 #include <net/ethoc.h>
+#include <linux/usb/c67x00.h>
 
 /*----------------------------------------------------------------------------
  *  Ethernet -- OpenCores Ethernet MAC (ethoc driver)
@@ -220,6 +223,7 @@ static struct ethoc_platform_data ethoc_pdata = {
 	 */
 	.hwaddr = { 0x00, 0x50, 0xc2, 0x13, 0x6f, 0 },
 	.phy_id = -1,
+	.big_endian = XCHAL_HAVE_BE,
 };
 
 static struct platform_device ethoc_device = {
@@ -229,6 +233,38 @@ static struct platform_device ethoc_device = {
 	.resource = ethoc_res,
 	.dev = {
 		.platform_data = &ethoc_pdata,
+	},
+};
+
+/*----------------------------------------------------------------------------
+ *  USB Host/Device -- Cypress CY7C67300
+ */
+
+static struct resource c67x00_res[] = {
+	[0] = { /* register space */
+		.start = C67X00_PADDR,
+		.end   = C67X00_PADDR + C67X00_SIZE - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	[1] = { /* IRQ number */
+		.start = C67X00_IRQ,
+		.end   = C67X00_IRQ,
+		.flags = IORESOURCE_IRQ,
+	},
+};
+
+static struct c67x00_platform_data c67x00_pdata = {
+	.sie_config = C67X00_SIE1_HOST | C67X00_SIE2_UNUSED,
+	.hpi_regstep = 4,
+};
+
+static struct platform_device c67x00_device = {
+	.name = "c67x00",
+	.id = -1,
+	.num_resources = ARRAY_SIZE(c67x00_res),
+	.resource = c67x00_res,
+	.dev = {
+		.platform_data = &c67x00_pdata,
 	},
 };
 
@@ -248,7 +284,7 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.irq		= DUART16552_INTNUM,
 		.flags		= UPF_BOOT_AUTOCONF | UPF_SKIP_TEST |
 				  UPF_IOREMAP,
-		.iotype		= UPIO_MEM32,
+		.iotype		= XCHAL_HAVE_BE ? UPIO_MEM32BE : UPIO_MEM32,
 		.regshift	= 2,
 		.uartclk	= 0,    /* set in xtavnet_init() */
 	},
@@ -268,6 +304,7 @@ static struct platform_device xtavnet_uart = {
 /* platform devices */
 static struct platform_device *platform_devices[] __initdata = {
 	&ethoc_device,
+	&c67x00_device,
 	&xtavnet_uart,
 };
 

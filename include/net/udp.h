@@ -177,9 +177,10 @@ static inline struct udphdr *udp_gro_udphdr(struct sk_buff *skb)
 }
 
 /* hash routines shared between UDPv4/6 and UDP-Litev4/6 */
-static inline void udp_lib_hash(struct sock *sk)
+static inline int udp_lib_hash(struct sock *sk)
 {
 	BUG();
+	return 0;
 }
 
 void udp_lib_unhash(struct sock *sk);
@@ -191,8 +192,10 @@ static inline void udp_lib_close(struct sock *sk, long timeout)
 }
 
 int udp_lib_get_port(struct sock *sk, unsigned short snum,
-		     int (*)(const struct sock *, const struct sock *),
+		     int (*)(const struct sock *, const struct sock *, bool),
 		     unsigned int hash2_nulladdr);
+
+u32 udp_flow_hashrnd(void);
 
 static inline __be16 udp_flow_src_port(struct net *net, struct sk_buff *skb,
 				       int min, int max, bool use_eth)
@@ -205,12 +208,19 @@ static inline __be16 udp_flow_src_port(struct net *net, struct sk_buff *skb,
 	}
 
 	hash = skb_get_hash(skb);
-	if (unlikely(!hash) && use_eth) {
-		/* Can't find a normal hash, caller has indicated an Ethernet
-		 * packet so use that to compute a hash.
-		 */
-		hash = jhash(skb->data, 2 * ETH_ALEN,
-			     (__force u32) skb->protocol);
+	if (unlikely(!hash)) {
+		if (use_eth) {
+			/* Can't find a normal hash, caller has indicated an
+			 * Ethernet packet so use that to compute a hash.
+			 */
+			hash = jhash(skb->data, 2 * ETH_ALEN,
+				     (__force u32) skb->protocol);
+		} else {
+			/* Can't derive any sort of hash for the packet, set
+			 * to some consistent random value.
+			 */
+			hash = udp_flow_hashrnd();
+		}
 	}
 
 	/* Since this is being sent on the wire obfuscate hash a bit
@@ -229,8 +239,7 @@ int udp_get_port(struct sock *sk, unsigned short snum,
 		 int (*saddr_cmp)(const struct sock *,
 				  const struct sock *));
 void udp_err(struct sk_buff *, u32);
-int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
-		size_t len);
+int udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len);
 int udp_push_pending_frames(struct sock *sk);
 void udp_flush_pending_frames(struct sock *sk);
 void udp4_hwcsum(struct sk_buff *skb, __be32 src, __be32 dst);
@@ -250,7 +259,7 @@ struct sock *udp4_lib_lookup(struct net *net, __be32 saddr, __be16 sport,
 			     __be32 daddr, __be16 dport, int dif);
 struct sock *__udp4_lib_lookup(struct net *net, __be32 saddr, __be16 sport,
 			       __be32 daddr, __be16 dport, int dif,
-			       struct udp_table *tbl);
+			       struct udp_table *tbl, struct sk_buff *skb);
 struct sock *udp6_lib_lookup(struct net *net,
 			     const struct in6_addr *saddr, __be16 sport,
 			     const struct in6_addr *daddr, __be16 dport,
@@ -258,7 +267,8 @@ struct sock *udp6_lib_lookup(struct net *net,
 struct sock *__udp6_lib_lookup(struct net *net,
 			       const struct in6_addr *saddr, __be16 sport,
 			       const struct in6_addr *daddr, __be16 dport,
-			       int dif, struct udp_table *tbl);
+			       int dif, struct udp_table *tbl,
+			       struct sk_buff *skb);
 
 /*
  * 	SNMP statistics for UDP and UDP-Lite

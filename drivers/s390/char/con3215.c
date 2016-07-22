@@ -643,7 +643,6 @@ static void raw3215_shutdown(struct raw3215_info *raw)
 	if ((raw->flags & RAW3215_WORKING) ||
 	    raw->queued_write != NULL ||
 	    raw->queued_read != NULL) {
-		raw->port.flags |= ASYNC_CLOSING;
 		add_wait_queue(&raw->empty_wait, &wait);
 		set_current_state(TASK_INTERRUPTIBLE);
 		spin_unlock_irqrestore(get_ccwdev_lock(raw->cdev), flags);
@@ -651,7 +650,7 @@ static void raw3215_shutdown(struct raw3215_info *raw)
 		spin_lock_irqsave(get_ccwdev_lock(raw->cdev), flags);
 		remove_wait_queue(&raw->empty_wait, &wait);
 		set_current_state(TASK_RUNNING);
-		raw->port.flags &= ~(ASYNC_INITIALIZED | ASYNC_CLOSING);
+		raw->port.flags &= ~ASYNC_INITIALIZED;
 	}
 	spin_unlock_irqrestore(get_ccwdev_lock(raw->cdev), flags);
 }
@@ -667,6 +666,8 @@ static struct raw3215_info *raw3215_alloc_info(void)
 	info->buffer = kzalloc(RAW3215_BUFFER_SIZE, GFP_KERNEL | GFP_DMA);
 	info->inbuf = kzalloc(RAW3215_INBUF_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!info->buffer || !info->inbuf) {
+		kfree(info->inbuf);
+		kfree(info->buffer);
 		kfree(info);
 		return NULL;
 	}
@@ -920,6 +921,8 @@ static int __init con3215_init(void)
 	spin_lock_init(&raw3215_freelist_lock);
 	for (i = 0; i < NR_3215_REQ; i++) {
 		req = kzalloc(sizeof(struct raw3215_req), GFP_KERNEL | GFP_DMA);
+		if (!req)
+			return -ENOMEM;
 		req->next = raw3215_freelist;
 		raw3215_freelist = req;
 	}

@@ -76,7 +76,7 @@ static int ak4641_put_deemph(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct ak4641_priv *ak4641 = snd_soc_codec_get_drvdata(codec);
-	int deemph = ucontrol->value.enumerated.item[0];
+	int deemph = ucontrol->value.integer.value[0];
 
 	if (deemph > 1)
 		return -EINVAL;
@@ -92,7 +92,7 @@ static int ak4641_get_deemph(struct snd_kcontrol *kcontrol,
 	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	struct ak4641_priv *ak4641 = snd_soc_codec_get_drvdata(codec);
 
-	ucontrol->value.enumerated.item[0] = ak4641->deemph;
+	ucontrol->value.integer.value[0] = ak4641->deemph;
 	return 0;
 };
 
@@ -412,7 +412,7 @@ static int ak4641_set_bias_level(struct snd_soc_codec *codec,
 		snd_soc_update_bits(codec, AK4641_DAC, 0x20, 0x20);
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
+		if (snd_soc_codec_get_bias_level(codec) == SND_SOC_BIAS_OFF) {
 			if (pdata && gpio_is_valid(pdata->gpio_power))
 				gpio_set_value(pdata->gpio_power, 1);
 			mdelay(1);
@@ -439,7 +439,6 @@ static int ak4641_set_bias_level(struct snd_soc_codec *codec,
 		regcache_mark_dirty(ak4641->regmap);
 		break;
 	}
-	codec->dapm.bias_level = level;
 	return 0;
 }
 
@@ -610,7 +609,6 @@ MODULE_DEVICE_TABLE(i2c, ak4641_i2c_id);
 static struct i2c_driver ak4641_i2c_driver = {
 	.driver = {
 		.name = "ak4641",
-		.owner = THIS_MODULE,
 	},
 	.probe =    ak4641_i2c_probe,
 	.remove =   ak4641_i2c_remove,

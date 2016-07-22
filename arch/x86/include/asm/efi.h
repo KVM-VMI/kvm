@@ -1,7 +1,10 @@
 #ifndef _ASM_X86_EFI_H
 #define _ASM_X86_EFI_H
 
-#include <asm/i387.h>
+#include <asm/fpu/api.h>
+#include <asm/pgtable.h>
+#include <asm/tlb.h>
+
 /*
  * We map the EFI regions needed for runtime services non-contiguously,
  * with preserved alignment on virtual addresses starting from -4G down
@@ -22,6 +25,8 @@
 
 #define EFI32_LOADER_SIGNATURE	"EL32"
 #define EFI64_LOADER_SIGNATURE	"EL64"
+
+#define MAX_CMDLINE_ADDRESS	UINT_MAX
 
 #ifdef CONFIG_X86_32
 
@@ -62,6 +67,17 @@ extern u64 asmlinkage efi_call(void *fp, ...);
 
 #define efi_call_phys(f, args...)		efi_call((f), args)
 
+/*
+ * Scratch space used for switching the pagetable in the EFI stub
+ */
+struct efi_scratch {
+	u64	r15;
+	u64	prev_cr3;
+	pgd_t	*efi_pgt;
+	bool	use_pgd;
+	u64	phys_stack;
+} __packed;
+
 #define efi_call_virt(f, ...)						\
 ({									\
 	efi_status_t __s;						\
@@ -69,7 +85,20 @@ extern u64 asmlinkage efi_call(void *fp, ...);
 	efi_sync_low_kernel_mappings();					\
 	preempt_disable();						\
 	__kernel_fpu_begin();						\
+									\
+	if (efi_scratch.use_pgd) {					\
+		efi_scratch.prev_cr3 = read_cr3();			\
+		write_cr3((unsigned long)efi_scratch.efi_pgt);		\
+		__flush_tlb_all();					\
+	}								\
+									\
 	__s = efi_call((void *)efi.systab->runtime->f, __VA_ARGS__);	\
+									\
+	if (efi_scratch.use_pgd) {					\
+		write_cr3(efi_scratch.prev_cr3);			\
+		__flush_tlb_all();					\
+	}								\
+									\
 	__kernel_fpu_end();						\
 	preempt_enable();						\
 	__s;								\
@@ -84,23 +113,37 @@ extern u64 asmlinkage efi_call(void *fp, ...);
 extern void __iomem *__init efi_ioremap(unsigned long addr, unsigned long size,
 					u32 type, u64 attribute);
 
+#ifdef CONFIG_KASAN
+/*
+ * CONFIG_KASAN may redefine memset to __memset.  __memset function is present
+ * only in kernel binary.  Since the EFI stub linked into a separate binary it
+ * doesn't have __memset().  So we should use standard memset from
+ * arch/x86/boot/compressed/string.c.  The same applies to memcpy and memmove.
+ */
+#undef memcpy
+#undef memset
+#undef memmove
+#endif
+
 #endif /* CONFIG_X86_32 */
 
 extern struct efi_scratch efi_scratch;
 extern void __init efi_set_executable(efi_memory_desc_t *md, bool executable);
 extern int __init efi_memblock_x86_reserve_range(void);
-extern void __init efi_call_phys_prolog(void);
-extern void __init efi_call_phys_epilog(void);
+extern pgd_t * __init efi_call_phys_prolog(void);
+extern void __init efi_call_phys_epilog(pgd_t *save_pgd);
+extern void __init efi_print_memmap(void);
 extern void __init efi_unmap_memmap(void);
 extern void __init efi_memory_uc(u64 addr, unsigned long size);
 extern void __init efi_map_region(efi_memory_desc_t *md);
 extern void __init efi_map_region_fixed(efi_memory_desc_t *md);
 extern void efi_sync_low_kernel_mappings(void);
+extern int __init efi_alloc_page_tables(void);
 extern int __init efi_setup_page_tables(unsigned long pa_memmap, unsigned num_pages);
 extern void __init efi_cleanup_page_tables(unsigned long pa_memmap, unsigned num_pages);
 extern void __init old_map_region(efi_memory_desc_t *md);
 extern void __init runtime_code_page_mkexec(void);
-extern void __init efi_runtime_mkexec(void);
+extern void __init efi_runtime_update_mappings(void);
 extern void __init efi_dump_pagetable(void);
 extern void __init efi_apply_memmap_quirks(void);
 extern int __init efi_reuse_config(u64 tables, int nr_tables);

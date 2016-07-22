@@ -328,7 +328,8 @@ config JS_RTC
 
 config GEN_RTC
 	tristate "Generic /dev/rtc emulation"
-	depends on RTC!=y && !IA64 && !ARM && !M32R && !MIPS && !SPARC && !FRV && !S390 && !SUPERH && !AVR32 && !BLACKFIN && !UML
+	depends on RTC!=y
+	depends on ALPHA || M68K || MN10300 || PARISC || PPC || X86
 	---help---
 	  If you say Y here and create a character special file /dev/rtc with
 	  major number 10 and minor number 135 using mknod ("man mknod"), you
@@ -589,14 +590,6 @@ config DEVPORT
 	default y
 
 source "drivers/s390/char/Kconfig"
-
-config MSM_SMD_PKT
-	bool "Enable device interface for some SMD packet ports"
-	default n
-	depends on MSM_SMD
-	help
-	  Enables userspace clients to read and write to some packet SMD
-	  ports via device interface for MSM chipset.
 
 config TILE_SROM
 	bool "Character-device access via hypervisor to the Tilera SPI ROM"

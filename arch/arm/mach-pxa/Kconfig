@@ -297,7 +297,6 @@ config MACH_MAGICIAN
 
 config MACH_MIOA701
 	bool "Mitac Mio A701 Support"
-	select GPIO_SYSFS
 	select IWMMXT
 	select PXA27x
 	help
@@ -529,7 +528,7 @@ config MACH_TOSA
 
 config TOSA_BT
 	tristate "Control the state of built-in bluetooth chip on Sharp SL-6000"
-	depends on MACH_TOSA
+	depends on MACH_TOSA && NET
 	select RFKILL
 	help
 	  This is a simple driver that is able to control
@@ -690,5 +689,14 @@ config SHARPSL_PM_MAX1111
 
 config PXA310_ULPI
 	bool
+
+config PXA_SYSTEMS_CPLDS
+	tristate "Motherboard cplds"
+	default ARCH_LUBBOCK || MACH_MAINSTONE
+	help
+	  This driver supports the Lubbock and Mainstone multifunction chip
+	  found on the pxa25x development platform system (Lubbock) and pxa27x
+	  development platform system (Mainstone). This IO board supports the
+	  interrupts handling, ethernet controller, flash chips, etc ...
 
 endif

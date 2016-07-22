@@ -58,7 +58,7 @@ again:
 		if (!walk->pte_entry)
 			continue;
 
-		split_huge_page_pmd_mm(walk->mm, addr, pmd);
+		split_huge_pmd(walk->vma, pmd, addr);
 		if (pmd_trans_unstable(pmd))
 			goto again;
 		err = walk_pte_range(pmd, addr, next, walk);
@@ -265,8 +265,15 @@ int walk_page_range(unsigned long start, unsigned long end,
 			vma = vma->vm_next;
 
 			err = walk_page_test(start, next, walk);
-			if (err > 0)
+			if (err > 0) {
+				/*
+				 * positive return values are purely for
+				 * controlling the pagewalk, so should never
+				 * be passed to the callers.
+				 */
+				err = 0;
 				continue;
+			}
 			if (err < 0)
 				break;
 		}

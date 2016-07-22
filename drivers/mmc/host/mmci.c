@@ -151,6 +151,7 @@ static struct variant_data variant_nomadik = {
 	.fifosize		= 16 * 4,
 	.fifohalfsize		= 8 * 4,
 	.clkreg			= MCI_CLK_ENABLE,
+	.clkreg_8bit_bus_enable = MCI_ST_8BIT_BUS,
 	.datalength_bits	= 24,
 	.datactrl_mask_sdio	= MCI_ST_DPSM_SDIOEN,
 	.st_sdio		= true,
@@ -1613,7 +1614,10 @@ static int mmci_probe(struct amba_device *dev,
 	dev_dbg(mmc_dev(mmc), "clocking block at %u Hz\n", mmc->f_max);
 
 	/* Get regulators and the supported OCR mask */
-	mmc_regulator_get_supply(mmc);
+	ret = mmc_regulator_get_supply(mmc);
+	if (ret == -EPROBE_DEFER)
+		goto clk_disable;
+
 	if (!mmc->ocr_avail)
 		mmc->ocr_avail = plat->ocr_mask;
 	else if (plat->ocr_mask)
@@ -1883,7 +1887,7 @@ static struct amba_id mmci_ids[] = {
 	{
 		.id     = 0x00280180,
 		.mask   = 0x00ffffff,
-		.data	= &variant_u300,
+		.data	= &variant_nomadik,
 	},
 	{
 		.id     = 0x00480180,

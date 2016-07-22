@@ -19,7 +19,7 @@
 static int mn88472_get_tune_settings(struct dvb_frontend *fe,
 	struct dvb_frontend_tune_settings *s)
 {
-	s->min_delay_ms = 400;
+	s->min_delay_ms = 800;
 	return 0;
 }
 
@@ -96,9 +96,9 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
 	/* Calculate IF registers ( (1<<24)*IF / Xtal ) */
 	tmp =  div_u64(if_frequency * (u64)(1<<24) + (dev->xtal / 2),
 				   dev->xtal);
-	if_val[0] = ((tmp >> 16) & 0xff);
-	if_val[1] = ((tmp >>  8) & 0xff);
-	if_val[2] = ((tmp >>  0) & 0xff);
+	if_val[0] = (tmp >> 16) & 0xff;
+	if_val[1] = (tmp >>  8) & 0xff;
+	if_val[2] = (tmp >>  0) & 0xff;
 
 	ret = regmap_write(dev->regmap[2], 0xfb, 0x13);
 	ret = regmap_write(dev->regmap[2], 0xef, 0x13);
@@ -178,8 +178,32 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
 
 	ret = regmap_write(dev->regmap[0], 0x46, 0x00);
 	ret = regmap_write(dev->regmap[0], 0xae, 0x00);
-	ret = regmap_write(dev->regmap[2], 0x08, 0x1d);
-	ret = regmap_write(dev->regmap[0], 0xd9, 0xe3);
+
+	switch (dev->ts_mode) {
+	case SERIAL_TS_MODE:
+		ret = regmap_write(dev->regmap[2], 0x08, 0x1d);
+		break;
+	case PARALLEL_TS_MODE:
+		ret = regmap_write(dev->regmap[2], 0x08, 0x00);
+		break;
+	default:
+		dev_dbg(&client->dev, "ts_mode error: %d\n", dev->ts_mode);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	switch (dev->ts_clock) {
+	case VARIABLE_TS_CLOCK:
+		ret = regmap_write(dev->regmap[0], 0xd9, 0xe3);
+		break;
+	case FIXED_TS_CLOCK:
+		ret = regmap_write(dev->regmap[0], 0xd9, 0xe1);
+		break;
+	default:
+		dev_dbg(&client->dev, "ts_clock error: %d\n", dev->ts_clock);
+		ret = -EINVAL;
+		goto err;
+	}
 
 	/* Reset demod */
 	ret = regmap_write(dev->regmap[2], 0xf8, 0x9f);
@@ -194,13 +218,14 @@ err:
 	return ret;
 }
 
-static int mn88472_read_status(struct dvb_frontend *fe, fe_status_t *status)
+static int mn88472_read_status(struct dvb_frontend *fe, enum fe_status *status)
 {
 	struct i2c_client *client = fe->demodulator_priv;
 	struct mn88472_dev *dev = i2c_get_clientdata(client);
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
 	int ret;
 	unsigned int utmp;
+	int lock = 0;
 
 	*status = 0;
 
@@ -211,21 +236,36 @@ static int mn88472_read_status(struct dvb_frontend *fe, fe_status_t *status)
 
 	switch (c->delivery_system) {
 	case SYS_DVBT:
+		ret = regmap_read(dev->regmap[0], 0x7F, &utmp);
+		if (ret)
+			goto err;
+		if ((utmp & 0xF) >= 0x09)
+			lock = 1;
+		break;
 	case SYS_DVBT2:
-		/* FIXME: implement me */
-		utmp = 0x08; /* DVB-C lock value */
+		ret = regmap_read(dev->regmap[2], 0x92, &utmp);
+		if (ret)
+			goto err;
+		if ((utmp & 0xF) >= 0x07)
+			*status |= FE_HAS_SIGNAL;
+		if ((utmp & 0xF) >= 0x0a)
+			*status |= FE_HAS_CARRIER;
+		if ((utmp & 0xF) >= 0x0d)
+			*status |= FE_HAS_VITERBI | FE_HAS_SYNC | FE_HAS_LOCK;
 		break;
 	case SYS_DVBC_ANNEX_A:
 		ret = regmap_read(dev->regmap[1], 0x84, &utmp);
 		if (ret)
 			goto err;
+		if ((utmp & 0xF) >= 0x08)
+			lock = 1;
 		break;
 	default:
 		ret = -EINVAL;
 		goto err;
 	}
 
-	if (utmp == 0x08)
+	if (lock)
 		*status = FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_VITERBI |
 				FE_HAS_SYNC | FE_HAS_LOCK;
 
@@ -242,6 +282,7 @@ static int mn88472_init(struct dvb_frontend *fe)
 	int ret, len, remaining;
 	const struct firmware *fw = NULL;
 	u8 *fw_file = MN88472_FIRMWARE;
+	unsigned int tmp;
 
 	dev_dbg(&client->dev, "\n");
 
@@ -257,6 +298,17 @@ static int mn88472_init(struct dvb_frontend *fe)
 	if (ret)
 		goto err;
 
+	/* check if firmware is already running */
+	ret = regmap_read(dev->regmap[0], 0xf5, &tmp);
+	if (ret)
+		goto err;
+
+	if (!(tmp & 0x1)) {
+		dev_info(&client->dev, "firmware already running\n");
+		dev->warm = true;
+		return 0;
+	}
+
 	/* request the firmware, this will block and timeout */
 	ret = request_firmware(&fw, fw_file, &client->dev);
 	if (ret) {
@@ -270,26 +322,40 @@ static int mn88472_init(struct dvb_frontend *fe)
 
 	ret = regmap_write(dev->regmap[0], 0xf5, 0x03);
 	if (ret)
-		goto err;
+		goto firmware_release;
 
 	for (remaining = fw->size; remaining > 0;
 			remaining -= (dev->i2c_wr_max - 1)) {
 		len = remaining;
 		if (len > (dev->i2c_wr_max - 1))
-			len = (dev->i2c_wr_max - 1);
+			len = dev->i2c_wr_max - 1;
 
 		ret = regmap_bulk_write(dev->regmap[0], 0xf6,
 				&fw->data[fw->size - remaining], len);
 		if (ret) {
 			dev_err(&client->dev,
 					"firmware download failed=%d\n", ret);
-			goto err;
+			goto firmware_release;
 		}
 	}
 
+	/* parity check of firmware */
+	ret = regmap_read(dev->regmap[0], 0xf8, &tmp);
+	if (ret) {
+		dev_err(&client->dev,
+				"parity reg read failed=%d\n", ret);
+		goto firmware_release;
+	}
+	if (tmp & 0x10) {
+		dev_err(&client->dev,
+				"firmware parity check failed=0x%x\n", tmp);
+		goto firmware_release;
+	}
+	dev_err(&client->dev, "firmware parity check succeeded=0x%x\n", tmp);
+
 	ret = regmap_write(dev->regmap[0], 0xf5, 0x00);
 	if (ret)
-		goto err;
+		goto firmware_release;
 
 	release_firmware(fw);
 	fw = NULL;
@@ -298,10 +364,9 @@ static int mn88472_init(struct dvb_frontend *fe)
 	dev->warm = true;
 
 	return 0;
+firmware_release:
+	release_firmware(fw);
 err:
-	if (fw)
-		release_firmware(fw);
-
 	dev_dbg(&client->dev, "failed=%d\n", ret);
 	return ret;
 }
@@ -336,6 +401,8 @@ static struct dvb_frontend_ops mn88472_ops = {
 	.delsys = {SYS_DVBT, SYS_DVBT2, SYS_DVBC_ANNEX_A},
 	.info = {
 		.name = "Panasonic MN88472",
+		.symbol_rate_min = 1000000,
+		.symbol_rate_max = 7200000,
 		.caps =	FE_CAN_FEC_1_2                 |
 			FE_CAN_FEC_2_3                 |
 			FE_CAN_FEC_3_4                 |
@@ -389,13 +456,15 @@ static int mn88472_probe(struct i2c_client *client,
 	}
 
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
-	if (dev == NULL) {
+	if (!dev) {
 		ret = -ENOMEM;
 		goto err;
 	}
 
 	dev->i2c_wr_max = config->i2c_wr_max;
 	dev->xtal = config->xtal;
+	dev->ts_mode = config->ts_mode;
+	dev->ts_clock = config->ts_clock;
 	dev->client[0] = client;
 	dev->regmap[0] = regmap_init_i2c(dev->client[0], &regmap_config);
 	if (IS_ERR(dev->regmap[0])) {
@@ -414,7 +483,7 @@ static int mn88472_probe(struct i2c_client *client,
 	 * 0x1a and 0x1c, in order to get own I2C client for each register page.
 	 */
 	dev->client[1] = i2c_new_dummy(client->adapter, 0x1a);
-	if (dev->client[1] == NULL) {
+	if (!dev->client[1]) {
 		ret = -ENODEV;
 		dev_err(&client->dev, "I2C registration failed\n");
 		if (ret)
@@ -428,7 +497,7 @@ static int mn88472_probe(struct i2c_client *client,
 	i2c_set_clientdata(dev->client[1], dev);
 
 	dev->client[2] = i2c_new_dummy(client->adapter, 0x1c);
-	if (dev->client[2] == NULL) {
+	if (!dev->client[2]) {
 		ret = -ENODEV;
 		dev_err(&client->dev, "2nd I2C registration failed\n");
 		if (ret)
@@ -492,7 +561,6 @@ MODULE_DEVICE_TABLE(i2c, mn88472_id_table);
 
 static struct i2c_driver mn88472_driver = {
 	.driver = {
-		.owner	= THIS_MODULE,
 		.name	= "mn88472",
 	},
 	.probe		= mn88472_probe,

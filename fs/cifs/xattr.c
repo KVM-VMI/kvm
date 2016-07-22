@@ -50,9 +50,9 @@ int cifs_removexattr(struct dentry *direntry, const char *ea_name)
 
 	if (direntry == NULL)
 		return -EIO;
-	if (direntry->d_inode == NULL)
+	if (d_really_is_negative(direntry))
 		return -EIO;
-	sb = direntry->d_inode->i_sb;
+	sb = d_inode(direntry)->i_sb;
 	if (sb == NULL)
 		return -EIO;
 
@@ -111,9 +111,9 @@ int cifs_setxattr(struct dentry *direntry, const char *ea_name,
 
 	if (direntry == NULL)
 		return -EIO;
-	if (direntry->d_inode == NULL)
+	if (d_really_is_negative(direntry))
 		return -EIO;
-	sb = direntry->d_inode->i_sb;
+	sb = d_inode(direntry)->i_sb;
 	if (sb == NULL)
 		return -EIO;
 
@@ -177,12 +177,12 @@ int cifs_setxattr(struct dentry *direntry, const char *ea_name,
 			memcpy(pacl, ea_value, value_size);
 			if (pTcon->ses->server->ops->set_acl)
 				rc = pTcon->ses->server->ops->set_acl(pacl,
-						value_size, direntry->d_inode,
+						value_size, d_inode(direntry),
 						full_path, CIFS_ACL_DACL);
 			else
 				rc = -EOPNOTSUPP;
 			if (rc == 0) /* force revalidate of the inode */
-				CIFS_I(direntry->d_inode)->time = 0;
+				CIFS_I(d_inode(direntry))->time = 0;
 			kfree(pacl);
 		}
 #else
@@ -190,8 +190,8 @@ int cifs_setxattr(struct dentry *direntry, const char *ea_name,
 #endif /* CONFIG_CIFS_ACL */
 	} else {
 		int temp;
-		temp = strncmp(ea_name, POSIX_ACL_XATTR_ACCESS,
-			strlen(POSIX_ACL_XATTR_ACCESS));
+		temp = strncmp(ea_name, XATTR_NAME_POSIX_ACL_ACCESS,
+			strlen(XATTR_NAME_POSIX_ACL_ACCESS));
 		if (temp == 0) {
 #ifdef CONFIG_CIFS_POSIX
 			if (sb->s_flags & MS_POSIXACL)
@@ -203,8 +203,8 @@ int cifs_setxattr(struct dentry *direntry, const char *ea_name,
 #else
 			cifs_dbg(FYI, "set POSIX ACL not supported\n");
 #endif
-		} else if (strncmp(ea_name, POSIX_ACL_XATTR_DEFAULT,
-				   strlen(POSIX_ACL_XATTR_DEFAULT)) == 0) {
+		} else if (strncmp(ea_name, XATTR_NAME_POSIX_ACL_DEFAULT,
+				   strlen(XATTR_NAME_POSIX_ACL_DEFAULT)) == 0) {
 #ifdef CONFIG_CIFS_POSIX
 			if (sb->s_flags & MS_POSIXACL)
 				rc = CIFSSMBSetPosixACL(xid, pTcon, full_path,
@@ -246,9 +246,9 @@ ssize_t cifs_getxattr(struct dentry *direntry, const char *ea_name,
 
 	if (direntry == NULL)
 		return -EIO;
-	if (direntry->d_inode == NULL)
+	if (d_really_is_negative(direntry))
 		return -EIO;
-	sb = direntry->d_inode->i_sb;
+	sb = d_inode(direntry)->i_sb;
 	if (sb == NULL)
 		return -EIO;
 
@@ -292,8 +292,8 @@ ssize_t cifs_getxattr(struct dentry *direntry, const char *ea_name,
 			rc = pTcon->ses->server->ops->query_all_EAs(xid, pTcon,
 				full_path, ea_name, ea_value, buf_size,
 				cifs_sb->local_nls, cifs_remap(cifs_sb));
-	} else if (strncmp(ea_name, POSIX_ACL_XATTR_ACCESS,
-			  strlen(POSIX_ACL_XATTR_ACCESS)) == 0) {
+	} else if (strncmp(ea_name, XATTR_NAME_POSIX_ACL_ACCESS,
+			  strlen(XATTR_NAME_POSIX_ACL_ACCESS)) == 0) {
 #ifdef CONFIG_CIFS_POSIX
 		if (sb->s_flags & MS_POSIXACL)
 			rc = CIFSSMBGetPosixACL(xid, pTcon, full_path,
@@ -303,8 +303,8 @@ ssize_t cifs_getxattr(struct dentry *direntry, const char *ea_name,
 #else
 		cifs_dbg(FYI, "Query POSIX ACL not supported yet\n");
 #endif /* CONFIG_CIFS_POSIX */
-	} else if (strncmp(ea_name, POSIX_ACL_XATTR_DEFAULT,
-			  strlen(POSIX_ACL_XATTR_DEFAULT)) == 0) {
+	} else if (strncmp(ea_name, XATTR_NAME_POSIX_ACL_DEFAULT,
+			  strlen(XATTR_NAME_POSIX_ACL_DEFAULT)) == 0) {
 #ifdef CONFIG_CIFS_POSIX
 		if (sb->s_flags & MS_POSIXACL)
 			rc = CIFSSMBGetPosixACL(xid, pTcon, full_path,
@@ -324,7 +324,7 @@ ssize_t cifs_getxattr(struct dentry *direntry, const char *ea_name,
 				goto get_ea_exit; /* rc already EOPNOTSUPP */
 
 			pacl = pTcon->ses->server->ops->get_acl(cifs_sb,
-					direntry->d_inode, full_path, &acllen);
+					d_inode(direntry), full_path, &acllen);
 			if (IS_ERR(pacl)) {
 				rc = PTR_ERR(pacl);
 				cifs_dbg(VFS, "%s: error %zd getting sec desc\n",
@@ -382,9 +382,9 @@ ssize_t cifs_listxattr(struct dentry *direntry, char *data, size_t buf_size)
 
 	if (direntry == NULL)
 		return -EIO;
-	if (direntry->d_inode == NULL)
+	if (d_really_is_negative(direntry))
 		return -EIO;
-	sb = direntry->d_inode->i_sb;
+	sb = d_inode(direntry)->i_sb;
 	if (sb == NULL)
 		return -EIO;
 

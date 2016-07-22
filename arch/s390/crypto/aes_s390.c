@@ -24,8 +24,10 @@
 #include <crypto/algapi.h>
 #include <linux/err.h>
 #include <linux/module.h>
+#include <linux/cpufeature.h>
 #include <linux/init.h>
 #include <linux/spinlock.h>
+#include <crypto/xts.h>
 #include "crypt_s390.h"
 
 #define AES_KEYLEN_128		1
@@ -586,6 +588,11 @@ static int xts_aes_set_key(struct crypto_tfm *tfm, const u8 *in_key,
 {
 	struct s390_xts_ctx *xts_ctx = crypto_tfm_ctx(tfm);
 	u32 *flags = &tfm->crt_flags;
+	int err;
+
+	err = xts_check_key(tfm, in_key, key_len);
+	if (err)
+		return err;
 
 	switch (key_len) {
 	case 32:
@@ -976,7 +983,7 @@ static void __exit aes_s390_fini(void)
 	crypto_unregister_alg(&aes_alg);
 }
 
-module_init(aes_s390_init);
+module_cpu_feature_match(MSA, aes_s390_init);
 module_exit(aes_s390_fini);
 
 MODULE_ALIAS_CRYPTO("aes-all");

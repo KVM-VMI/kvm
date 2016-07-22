@@ -11,10 +11,6 @@
  * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
  *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59
- * Temple Place - Suite 330, Boston, MA  02111-1307, USA.
- *
  * The full GNU General Public License is included in this distribution in the
  * file called COPYING.
  */
@@ -47,6 +43,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -269,8 +266,18 @@ static void dma_chan_put(struct dma_chan *chan)
 	module_put(dma_chan_to_owner(chan));
 
 	/* This channel is not in use anymore, free it */
-	if (!chan->client_count && chan->device->device_free_chan_resources)
+	if (!chan->client_count && chan->device->device_free_chan_resources) {
+		/* Make sure all operations have completed */
+		dmaengine_synchronize(chan);
 		chan->device->device_free_chan_resources(chan);
+	}
+
+	/* If the channel is used via a DMA request router, free the mapping */
+	if (chan->router && chan->router->route_free) {
+		chan->router->route_free(chan->router->dev, chan->route_data);
+		chan->router = NULL;
+		chan->route_data = NULL;
+	}
 }
 
 enum dma_status dma_sync_wait(struct dma_chan *chan, dma_cookie_t cookie)
@@ -354,20 +361,6 @@ struct dma_chan *dma_find_channel(enum dma_transaction_type tx_type)
 	return this_cpu_read(channel_table[tx_type]->chan);
 }
 EXPORT_SYMBOL(dma_find_channel);
-
-/*
- * net_dma_find_channel - find a channel for net_dma
- * net_dma has alignment requirements
- */
-struct dma_chan *net_dma_find_channel(void)
-{
-	struct dma_chan *chan = dma_find_channel(DMA_MEMCPY);
-	if (chan && !is_dma_copy_aligned(chan->device, 1, 1, 1))
-		return NULL;
-
-	return chan;
-}
-EXPORT_SYMBOL(net_dma_find_channel);
 
 /**
  * dma_issue_pending_all - flush all pending operations across all channels
@@ -503,9 +496,15 @@ int dma_get_slave_caps(struct dma_chan *chan, struct dma_slave_caps *caps)
 	caps->src_addr_widths = device->src_addr_widths;
 	caps->dst_addr_widths = device->dst_addr_widths;
 	caps->directions = device->directions;
+	caps->max_burst = device->max_burst;
 	caps->residue_granularity = device->residue_granularity;
+	caps->descriptor_reuse = device->descriptor_reuse;
 
-	caps->cmd_pause = !!device->device_pause;
+	/*
+	 * Some devices implement only pause (e.g. to get residuum) but no
+	 * resume. However cmd_pause is advertised as pause AND resume.
+	 */
+	caps->cmd_pause = !!(device->device_pause && device->device_resume);
 	caps->cmd_terminate = !!device->device_terminate_all;
 
 	return 0;
@@ -518,7 +517,7 @@ static struct dma_chan *private_candidate(const dma_cap_mask_t *mask,
 {
 	struct dma_chan *chan;
 
-	if (!__dma_device_satisfies_mask(dev, mask)) {
+	if (mask && !__dma_device_satisfies_mask(dev, mask)) {
 		pr_debug("%s: wrong capabilities\n", __func__);
 		return NULL;
 	}
@@ -549,8 +548,44 @@ static struct dma_chan *private_candidate(const dma_cap_mask_t *mask,
 	return NULL;
 }
 
+static struct dma_chan *find_candidate(struct dma_device *device,
+				       const dma_cap_mask_t *mask,
+				       dma_filter_fn fn, void *fn_param)
+{
+	struct dma_chan *chan = private_candidate(mask, device, fn, fn_param);
+	int err;
+
+	if (chan) {
+		/* Found a suitable channel, try to grab, prep, and return it.
+		 * We first set DMA_PRIVATE to disable balance_ref_count as this
+		 * channel will not be published in the general-purpose
+		 * allocator
+		 */
+		dma_cap_set(DMA_PRIVATE, device->cap_mask);
+		device->privatecnt++;
+		err = dma_chan_get(chan);
+
+		if (err) {
+			if (err == -ENODEV) {
+				pr_debug("%s: %s module removed\n", __func__,
+					 dma_chan_name(chan));
+				list_del_rcu(&device->global_node);
+			} else
+				pr_debug("%s: failed to get %s: (%d)\n",
+					 __func__, dma_chan_name(chan), err);
+
+			if (--device->privatecnt == 0)
+				dma_cap_clear(DMA_PRIVATE, device->cap_mask);
+
+			chan = ERR_PTR(err);
+		}
+	}
+
+	return chan ? chan : ERR_PTR(-EPROBE_DEFER);
+}
+
 /**
- * dma_request_slave_channel - try to get specific channel exclusively
+ * dma_get_slave_channel - try to get specific channel exclusively
  * @chan: target channel
  */
 struct dma_chan *dma_get_slave_channel(struct dma_chan *chan)
@@ -561,10 +596,18 @@ struct dma_chan *dma_get_slave_channel(struct dma_chan *chan)
 	mutex_lock(&dma_list_mutex);
 
 	if (chan->client_count == 0) {
+		struct dma_device *device = chan->device;
+
+		dma_cap_set(DMA_PRIVATE, device->cap_mask);
+		device->privatecnt++;
 		err = dma_chan_get(chan);
-		if (err)
+		if (err) {
 			pr_debug("%s: failed to get %s: (%d)\n",
 				__func__, dma_chan_name(chan), err);
+			chan = NULL;
+			if (--device->privatecnt == 0)
+				dma_cap_clear(DMA_PRIVATE, device->cap_mask);
+		}
 	} else
 		chan = NULL;
 
@@ -579,7 +622,6 @@ struct dma_chan *dma_get_any_slave_channel(struct dma_device *device)
 {
 	dma_cap_mask_t mask;
 	struct dma_chan *chan;
-	int err;
 
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_SLAVE, mask);
@@ -587,19 +629,11 @@ struct dma_chan *dma_get_any_slave_channel(struct dma_device *device)
 	/* lock against __dma_request_channel */
 	mutex_lock(&dma_list_mutex);
 
-	chan = private_candidate(&mask, device, NULL, NULL);
-	if (chan) {
-		err = dma_chan_get(chan);
-		if (err) {
-			pr_debug("%s: failed to get %s: (%d)\n",
-				__func__, dma_chan_name(chan), err);
-			chan = NULL;
-		}
-	}
+	chan = find_candidate(device, &mask, NULL, NULL);
 
 	mutex_unlock(&dma_list_mutex);
 
-	return chan;
+	return IS_ERR(chan) ? NULL : chan;
 }
 EXPORT_SYMBOL_GPL(dma_get_any_slave_channel);
 
@@ -616,35 +650,15 @@ struct dma_chan *__dma_request_channel(const dma_cap_mask_t *mask,
 {
 	struct dma_device *device, *_d;
 	struct dma_chan *chan = NULL;
-	int err;
 
 	/* Find a channel */
 	mutex_lock(&dma_list_mutex);
 	list_for_each_entry_safe(device, _d, &dma_device_list, global_node) {
-		chan = private_candidate(mask, device, fn, fn_param);
-		if (chan) {
-			/* Found a suitable channel, try to grab, prep, and
-			 * return it.  We first set DMA_PRIVATE to disable
-			 * balance_ref_count as this channel will not be
-			 * published in the general-purpose allocator
-			 */
-			dma_cap_set(DMA_PRIVATE, device->cap_mask);
-			device->privatecnt++;
-			err = dma_chan_get(chan);
+		chan = find_candidate(device, mask, fn, fn_param);
+		if (!IS_ERR(chan))
+			break;
 
-			if (err == -ENODEV) {
-				pr_debug("%s: %s module removed\n",
-					 __func__, dma_chan_name(chan));
-				list_del_rcu(&device->global_node);
-			} else if (err)
-				pr_debug("%s: failed to get %s: (%d)\n",
-					 __func__, dma_chan_name(chan), err);
-			else
-				break;
-			if (--device->privatecnt == 0)
-				dma_cap_clear(DMA_PRIVATE, device->cap_mask);
-			chan = NULL;
-		}
+		chan = NULL;
 	}
 	mutex_unlock(&dma_list_mutex);
 
@@ -657,27 +671,73 @@ struct dma_chan *__dma_request_channel(const dma_cap_mask_t *mask,
 }
 EXPORT_SYMBOL_GPL(__dma_request_channel);
 
+static const struct dma_slave_map *dma_filter_match(struct dma_device *device,
+						    const char *name,
+						    struct device *dev)
+{
+	int i;
+
+	if (!device->filter.mapcnt)
+		return NULL;
+
+	for (i = 0; i < device->filter.mapcnt; i++) {
+		const struct dma_slave_map *map = &device->filter.map[i];
+
+		if (!strcmp(map->devname, dev_name(dev)) &&
+		    !strcmp(map->slave, name))
+			return map;
+	}
+
+	return NULL;
+}
+
 /**
- * dma_request_slave_channel - try to allocate an exclusive slave channel
+ * dma_request_chan - try to allocate an exclusive slave channel
  * @dev:	pointer to client device structure
  * @name:	slave channel name
  *
  * Returns pointer to appropriate DMA channel on success or an error pointer.
  */
-struct dma_chan *dma_request_slave_channel_reason(struct device *dev,
-						  const char *name)
+struct dma_chan *dma_request_chan(struct device *dev, const char *name)
 {
+	struct dma_device *d, *_d;
+	struct dma_chan *chan = NULL;
+
 	/* If device-tree is present get slave info from here */
 	if (dev->of_node)
-		return of_dma_request_slave_channel(dev->of_node, name);
+		chan = of_dma_request_slave_channel(dev->of_node, name);
 
 	/* If device was enumerated by ACPI get slave info from here */
-	if (ACPI_HANDLE(dev))
-		return acpi_dma_request_slave_chan_by_name(dev, name);
+	if (has_acpi_companion(dev) && !chan)
+		chan = acpi_dma_request_slave_chan_by_name(dev, name);
 
-	return ERR_PTR(-ENODEV);
+	if (chan) {
+		/* Valid channel found or requester need to be deferred */
+		if (!IS_ERR(chan) || PTR_ERR(chan) == -EPROBE_DEFER)
+			return chan;
+	}
+
+	/* Try to find the channel via the DMA filter map(s) */
+	mutex_lock(&dma_list_mutex);
+	list_for_each_entry_safe(d, _d, &dma_device_list, global_node) {
+		dma_cap_mask_t mask;
+		const struct dma_slave_map *map = dma_filter_match(d, name, dev);
+
+		if (!map)
+			continue;
+
+		dma_cap_zero(mask);
+		dma_cap_set(DMA_SLAVE, mask);
+
+		chan = find_candidate(d, &mask, d->filter.fn, map->param);
+		if (!IS_ERR(chan))
+			break;
+	}
+	mutex_unlock(&dma_list_mutex);
+
+	return chan ? chan : ERR_PTR(-EPROBE_DEFER);
 }
-EXPORT_SYMBOL_GPL(dma_request_slave_channel_reason);
+EXPORT_SYMBOL_GPL(dma_request_chan);
 
 /**
  * dma_request_slave_channel - try to allocate an exclusive slave channel
@@ -689,12 +749,34 @@ EXPORT_SYMBOL_GPL(dma_request_slave_channel_reason);
 struct dma_chan *dma_request_slave_channel(struct device *dev,
 					   const char *name)
 {
-	struct dma_chan *ch = dma_request_slave_channel_reason(dev, name);
+	struct dma_chan *ch = dma_request_chan(dev, name);
 	if (IS_ERR(ch))
 		return NULL;
+
 	return ch;
 }
 EXPORT_SYMBOL_GPL(dma_request_slave_channel);
+
+/**
+ * dma_request_chan_by_mask - allocate a channel satisfying certain capabilities
+ * @mask: capabilities that the channel must satisfy
+ *
+ * Returns pointer to appropriate DMA channel on success or an error pointer.
+ */
+struct dma_chan *dma_request_chan_by_mask(const dma_cap_mask_t *mask)
+{
+	struct dma_chan *chan;
+
+	if (!mask)
+		return ERR_PTR(-ENODEV);
+
+	chan = __dma_request_channel(mask, NULL, NULL);
+	if (!chan)
+		chan = ERR_PTR(-ENODEV);
+
+	return chan;
+}
+EXPORT_SYMBOL_GPL(dma_request_chan_by_mask);
 
 void dma_release_channel(struct dma_chan *chan)
 {
@@ -846,6 +928,8 @@ int dma_async_device_register(struct dma_device *device)
 		!device->device_prep_dma_pq);
 	BUG_ON(dma_has_cap(DMA_PQ_VAL, device->cap_mask) &&
 		!device->device_prep_dma_pq_val);
+	BUG_ON(dma_has_cap(DMA_MEMSET, device->cap_mask) &&
+		!device->device_prep_dma_memset);
 	BUG_ON(dma_has_cap(DMA_INTERRUPT, device->cap_mask) &&
 		!device->device_prep_dma_interrupt);
 	BUG_ON(dma_has_cap(DMA_SG, device->cap_mask) &&
@@ -858,9 +942,6 @@ int dma_async_device_register(struct dma_device *device)
 	BUG_ON(!device->device_tx_status);
 	BUG_ON(!device->device_issue_pending);
 	BUG_ON(!device->dev);
-
-	WARN(dma_has_cap(DMA_SLAVE, device->cap_mask) && !device->directions,
-	     "this driver doesn't support generic slave capabilities reporting\n");
 
 	/* note: this only matters in the
 	 * CONFIG_ASYNC_TX_ENABLE_CHANNEL_SWITCH=n case
@@ -1066,11 +1147,9 @@ static void dmaengine_destroy_unmap_pool(void)
 	for (i = 0; i < ARRAY_SIZE(unmap_pool); i++) {
 		struct dmaengine_unmap_pool *p = &unmap_pool[i];
 
-		if (p->pool)
-			mempool_destroy(p->pool);
+		mempool_destroy(p->pool);
 		p->pool = NULL;
-		if (p->cache)
-			kmem_cache_destroy(p->cache);
+		kmem_cache_destroy(p->cache);
 		p->cache = NULL;
 	}
 }

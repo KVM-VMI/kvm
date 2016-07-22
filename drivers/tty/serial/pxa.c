@@ -603,7 +603,7 @@ static struct uart_driver serial_pxa_reg;
 /*
  *	Wait for transmitter & holding register to empty
  */
-static inline void wait_for_xmitr(struct uart_pxa_port *up)
+static void wait_for_xmitr(struct uart_pxa_port *up)
 {
 	unsigned int status, tmout = 10000;
 
@@ -824,7 +824,7 @@ static const struct dev_pm_ops serial_pxa_pm_ops = {
 };
 #endif
 
-static struct of_device_id serial_pxa_dt_ids[] = {
+static const struct of_device_id serial_pxa_dt_ids[] = {
 	{ .compatible = "mrvl,pxa-uart", },
 	{ .compatible = "mrvl,mmp-uart", },
 	{}

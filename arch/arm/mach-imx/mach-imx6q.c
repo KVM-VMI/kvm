@@ -211,8 +211,9 @@ static void __init imx6q_1588_init(void)
 	 * set bit IOMUXC_GPR1[21].  Or the PTP clock must be from pad
 	 * (external OSC), and we need to clear the bit.
 	 */
-	clksel = ptp_clk == enet_ref ? IMX6Q_GPR1_ENET_CLK_SEL_ANATOP :
-				       IMX6Q_GPR1_ENET_CLK_SEL_PAD;
+	clksel = clk_is_match(ptp_clk, enet_ref) ?
+				IMX6Q_GPR1_ENET_CLK_SEL_ANATOP :
+				IMX6Q_GPR1_ENET_CLK_SEL_PAD;
 	gpr = syscon_regmap_lookup_by_compatible("fsl,imx6q-iomuxc-gpr");
 	if (!IS_ERR(gpr))
 		regmap_update_bits(gpr, IOMUXC_GPR1,
@@ -265,8 +266,11 @@ static void __init imx6q_init_machine(void)
 {
 	struct device *parent;
 
-	imx_print_silicon_rev(cpu_is_imx6dl() ? "i.MX6DL" : "i.MX6Q",
-			      imx_get_soc_revision());
+	if (cpu_is_imx6q() && imx_get_soc_revision() == IMX_CHIP_REVISION_2_0)
+		imx_print_silicon_rev("i.MX6QP", IMX_CHIP_REVISION_1_0);
+	else
+		imx_print_silicon_rev(cpu_is_imx6dl() ? "i.MX6DL" : "i.MX6Q",
+				imx_get_soc_revision());
 
 	parent = imx_soc_device_init();
 	if (parent == NULL)
@@ -349,7 +353,7 @@ static void __init imx6q_opp_init(void)
 		return;
 	}
 
-	if (of_init_opp_table(cpu_dev)) {
+	if (dev_pm_opp_of_add_table(cpu_dev)) {
 		pr_warn("failed to init OPP table\n");
 		goto put_node;
 	}
@@ -387,16 +391,18 @@ static void __init imx6q_map_io(void)
 
 static void __init imx6q_init_irq(void)
 {
+	imx_gpc_check_dt();
 	imx_init_revision_from_anatop();
 	imx_init_l2cache();
 	imx_src_init();
-	imx_gpc_init();
 	irqchip_init();
+	imx6_pm_ccm_init("fsl,imx6q-ccm");
 }
 
 static const char * const imx6q_dt_compat[] __initconst = {
 	"fsl,imx6dl",
 	"fsl,imx6q",
+	"fsl,imx6qp",
 	NULL,
 };
 

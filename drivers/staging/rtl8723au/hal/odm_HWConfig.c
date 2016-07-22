@@ -33,24 +33,23 @@ static s32 odm_SignalScaleMapping_92CSeries(struct dm_odm_t *pDM_Odm, s32 CurrSi
 {
 	s32 RetSig = 0;
 
-	if ((pDM_Odm->SupportInterface  == ODM_ITRF_USB) || (pDM_Odm->SupportInterface  == ODM_ITRF_SDIO)) {
-		if (CurrSig >= 51 && CurrSig <= 100)
-			RetSig = 100;
-		else if (CurrSig >= 41 && CurrSig <= 50)
-			RetSig = 80 + ((CurrSig - 40)*2);
-		else if (CurrSig >= 31 && CurrSig <= 40)
-			RetSig = 66 + (CurrSig - 30);
-		else if (CurrSig >= 21 && CurrSig <= 30)
-			RetSig = 54 + (CurrSig - 20);
-		else if (CurrSig >= 10 && CurrSig <= 20)
-			RetSig = 42 + (((CurrSig - 10) * 2) / 3);
-		else if (CurrSig >= 5 && CurrSig <= 9)
-			RetSig = 22 + (((CurrSig - 5) * 3) / 2);
-		else if (CurrSig >= 1 && CurrSig <= 4)
-			RetSig = 6 + (((CurrSig - 1) * 3) / 2);
-		else
-			RetSig = CurrSig;
-	}
+	if (CurrSig >= 51 && CurrSig <= 100)
+		RetSig = 100;
+	else if (CurrSig >= 41 && CurrSig <= 50)
+		RetSig = 80 + ((CurrSig - 40)*2);
+	else if (CurrSig >= 31 && CurrSig <= 40)
+		RetSig = 66 + (CurrSig - 30);
+	else if (CurrSig >= 21 && CurrSig <= 30)
+		RetSig = 54 + (CurrSig - 20);
+	else if (CurrSig >= 10 && CurrSig <= 20)
+		RetSig = 42 + (((CurrSig - 10) * 2) / 3);
+	else if (CurrSig >= 5 && CurrSig <= 9)
+		RetSig = 22 + (((CurrSig - 5) * 3) / 2);
+	else if (CurrSig >= 1 && CurrSig <= 4)
+		RetSig = 6 + (((CurrSig - 1) * 3) / 2);
+	else
+		RetSig = CurrSig;
+
 	return RetSig;
 }
 
@@ -269,10 +268,6 @@ static void odm_RxPhyStatus92CSeries_Parsing(struct dm_odm_t *pDM_Odm,
 		if (rf_rx_num != 0)
 			pPhyInfo->SignalStrength = (u8)(odm_SignalScaleMapping(pDM_Odm, total_rssi /= rf_rx_num));
 	}
-}
-
-void odm_Init_RSSIForDM23a(struct dm_odm_t *pDM_Odm)
-{
 }
 
 static void odm_Process_RSSIForDM(struct dm_odm_t *pDM_Odm,

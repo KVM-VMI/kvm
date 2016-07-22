@@ -16,6 +16,8 @@
  * published by the Free Software Foundation.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/bcd.h>
 #include <linux/delay.h>
 #include <linux/io.h>
@@ -185,9 +187,9 @@ ds1685_rtc_end_data_access(struct ds1685_priv *rtc)
  * Only use this where you are certain another lock will not be held.
  */
 static inline void
-ds1685_rtc_begin_ctrl_access(struct ds1685_priv *rtc, unsigned long flags)
+ds1685_rtc_begin_ctrl_access(struct ds1685_priv *rtc, unsigned long *flags)
 {
-	spin_lock_irqsave(&rtc->lock, flags);
+	spin_lock_irqsave(&rtc->lock, *flags);
 	ds1685_rtc_switch_to_bank1(rtc);
 }
 
@@ -799,7 +801,7 @@ ds1685_rtc_proc(struct device *dev, struct seq_file *seq)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct ds1685_priv *rtc = platform_get_drvdata(pdev);
 	u8 ctrla, ctrlb, ctrlc, ctrld, ctrl4a, ctrl4b, ssn[8];
-	char *model = '\0';
+	char *model;
 #ifdef CONFIG_RTC_DS1685_PROC_REGS
 	char bits[NUM_REGS][(NUM_BITS * NUM_SPACES) + NUM_BITS + 1];
 #endif
@@ -851,7 +853,7 @@ ds1685_rtc_proc(struct device *dev, struct seq_file *seq)
 	   "Periodic Rate\t: %s\n"
 	   "SQW Freq\t: %s\n"
 #ifdef CONFIG_RTC_DS1685_PROC_REGS
-	   "Serial #\t: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n"
+	   "Serial #\t: %8phC\n"
 	   "Register Status\t:\n"
 	   "   Ctrl A\t: UIP  DV2  DV1  DV0  RS3  RS2  RS1  RS0\n"
 	   "\t\t:  %s\n"
@@ -870,7 +872,7 @@ ds1685_rtc_proc(struct device *dev, struct seq_file *seq)
 	   "   Ctrl 4B\t: ABE  E32k  CS  RCE  PRS  RIE  WIE  KSE\n"
 	   "\t\t:  %s\n",
 #else
-	   "Serial #\t: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
+	   "Serial #\t: %8phC\n",
 #endif
 	   model,
 	   ((ctrla & RTC_CTRL_A_DV1) ? "enabled" : "disabled"),
@@ -886,7 +888,7 @@ ds1685_rtc_proc(struct device *dev, struct seq_file *seq)
 	   (!((ctrl4b & RTC_CTRL_4B_E32K)) ?
 	    ds1685_rtc_sqw_freq[(ctrla & RTC_CTRL_A_RS_MASK)] : "32768Hz"),
 #ifdef CONFIG_RTC_DS1685_PROC_REGS
-	   ssn[0], ssn[1], ssn[2], ssn[3], ssn[4], ssn[5], ssn[6], ssn[7],
+	   ssn,
 	   ds1685_rtc_print_regs(ctrla, bits[0]),
 	   ds1685_rtc_print_regs(ctrlb, bits[1]),
 	   ds1685_rtc_print_regs(ctrlc, bits[2]),
@@ -894,7 +896,7 @@ ds1685_rtc_proc(struct device *dev, struct seq_file *seq)
 	   ds1685_rtc_print_regs(ctrl4a, bits[4]),
 	   ds1685_rtc_print_regs(ctrl4b, bits[5]));
 #else
-	   ssn[0], ssn[1], ssn[2], ssn[3], ssn[4], ssn[5], ssn[6], ssn[7]);
+	   ssn);
 #endif
 	return 0;
 }
@@ -1112,7 +1114,7 @@ ds1685_rtc_sysfs_battery_show(struct device *dev,
 
 	ctrld = rtc->read(rtc, RTC_CTRL_D);
 
-	return snprintf(buf, 13, "%s\n",
+	return sprintf(buf, "%s\n",
 			(ctrld & RTC_CTRL_D_VRT) ? "ok" : "not ok or N/A");
 }
 static DEVICE_ATTR(battery, S_IRUGO, ds1685_rtc_sysfs_battery_show, NULL);
@@ -1135,7 +1137,7 @@ ds1685_rtc_sysfs_auxbatt_show(struct device *dev,
 	ctrl4a = rtc->read(rtc, RTC_EXT_CTRL_4A);
 	ds1685_rtc_switch_to_bank0(rtc);
 
-	return snprintf(buf, 13, "%s\n",
+	return sprintf(buf, "%s\n",
 			(ctrl4a & RTC_CTRL_4A_VRT2) ? "ok" : "not ok or N/A");
 }
 static DEVICE_ATTR(auxbatt, S_IRUGO, ds1685_rtc_sysfs_auxbatt_show, NULL);
@@ -1158,11 +1160,7 @@ ds1685_rtc_sysfs_serial_show(struct device *dev,
 	ds1685_rtc_get_ssn(rtc, ssn);
 	ds1685_rtc_switch_to_bank0(rtc);
 
-	return snprintf(buf, 24, "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
-			ssn[0], ssn[1], ssn[2], ssn[3], ssn[4], ssn[5],
-			ssn[6], ssn[7]);
-
-	return 0;
+	return sprintf(buf, "%8phC\n", ssn);
 }
 static DEVICE_ATTR(serial, S_IRUGO, ds1685_rtc_sysfs_serial_show, NULL);
 
@@ -1285,7 +1283,7 @@ ds1685_rtc_sysfs_ctrl_regs_show(struct device *dev,
 	tmp = rtc->read(rtc, reg_info->reg) & reg_info->bit;
 	ds1685_rtc_switch_to_bank0(rtc);
 
-	return snprintf(buf, 2, "%d\n", (tmp ? 1 : 0));
+	return sprintf(buf, "%d\n", (tmp ? 1 : 0));
 }
 
 /**
@@ -1302,7 +1300,7 @@ ds1685_rtc_sysfs_ctrl_regs_store(struct device *dev,
 {
 	struct ds1685_priv *rtc = dev_get_drvdata(dev);
 	u8 reg = 0, bit = 0, tmp;
-	unsigned long flags = 0;
+	unsigned long flags;
 	long int val = 0;
 	const struct ds1685_rtc_ctrl_regs *reg_info =
 		ds1685_rtc_sysfs_ctrl_regs_lookup(attr->attr.name);
@@ -1323,7 +1321,7 @@ ds1685_rtc_sysfs_ctrl_regs_store(struct device *dev,
 	bit = reg_info->bit;
 
 	/* Safe to spinlock during a write. */
-	ds1685_rtc_begin_ctrl_access(rtc, flags);
+	ds1685_rtc_begin_ctrl_access(rtc, &flags);
 	tmp = rtc->read(rtc, reg);
 	rtc->write(rtc, reg, (val ? (tmp | bit) : (tmp & ~(bit))));
 	ds1685_rtc_end_ctrl_access(rtc, flags);
@@ -1621,7 +1619,7 @@ ds1685_rtc_sysfs_time_regs_show(struct device *dev,
 	tmp = ds1685_rtc_bcd2bin(rtc, tmp, bcd_reg_info->mask,
 				 bin_reg_info->mask);
 
-	return snprintf(buf, 4, "%d\n", tmp);
+	return sprintf(buf, "%d\n", tmp);
 }
 
 /**
@@ -2139,32 +2137,11 @@ ds1685_rtc_remove(struct platform_device *pdev)
 static struct platform_driver ds1685_rtc_driver = {
 	.driver		= {
 		.name	= "rtc-ds1685",
-		.owner	= THIS_MODULE,
 	},
 	.probe		= ds1685_rtc_probe,
 	.remove		= ds1685_rtc_remove,
 };
-
-/**
- * ds1685_rtc_init - rtc module init.
- */
-static int __init
-ds1685_rtc_init(void)
-{
-	return platform_driver_register(&ds1685_rtc_driver);
-}
-
-/**
- * ds1685_rtc_exit - rtc module exit.
- */
-static void __exit
-ds1685_rtc_exit(void)
-{
-	platform_driver_unregister(&ds1685_rtc_driver);
-}
-
-module_init(ds1685_rtc_init);
-module_exit(ds1685_rtc_exit);
+module_platform_driver(ds1685_rtc_driver);
 /* ----------------------------------------------------------------------- */
 
 
@@ -2175,7 +2152,7 @@ module_exit(ds1685_rtc_exit);
  * ds1685_rtc_poweroff - uses the RTC chip to power the system off.
  * @pdev: pointer to platform_device structure.
  */
-extern void __noreturn
+void __noreturn
 ds1685_rtc_poweroff(struct platform_device *pdev)
 {
 	u8 ctrla, ctrl4a, ctrl4b;
@@ -2183,7 +2160,8 @@ ds1685_rtc_poweroff(struct platform_device *pdev)
 
 	/* Check for valid RTC data, else, spin forever. */
 	if (unlikely(!pdev)) {
-		pr_emerg("rtc-ds1685: platform device data not available, spinning forever ...\n");
+		pr_emerg("platform device data not available, spinning forever ...\n");
+		while(1);
 		unreachable();
 	} else {
 		/* Get the rtc data. */

@@ -11,9 +11,9 @@
  */
 #include <linux/export.h>
 #include <linux/compiler.h>
+#include <linux/dax.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
-#include <linux/aio.h>
 #include <linux/capability.h>
 #include <linux/kernel_stat.h>
 #include <linux/gfp.h>
@@ -101,6 +101,7 @@
  *    ->tree_lock		(page_remove_rmap->set_page_dirty)
  *    bdi.wb->list_lock		(page_remove_rmap->set_page_dirty)
  *    ->inode->i_lock		(page_remove_rmap->set_page_dirty)
+ *    ->memcg->move_lock	(page_remove_rmap->lock_page_memcg)
  *    bdi.wb->list_lock		(zap_pte_range->set_page_dirty)
  *    ->inode->i_lock		(zap_pte_range->set_page_dirty)
  *    ->private_lock		(zap_pte_range->__set_page_dirty_buffers)
@@ -123,9 +124,9 @@ static void page_cache_tree_delete(struct address_space *mapping,
 	__radix_tree_lookup(&mapping->page_tree, page->index, &node, &slot);
 
 	if (shadow) {
-		mapping->nrshadows++;
+		mapping->nrexceptional++;
 		/*
-		 * Make sure the nrshadows update is committed before
+		 * Make sure the nrexceptional update is committed before
 		 * the nrpages update so that final truncate racing
 		 * with reclaim does not see both counters 0 at the
 		 * same time and miss a shadow entry.
@@ -192,27 +193,51 @@ void __delete_from_page_cache(struct page *page, void *shadow)
 	else
 		cleancache_invalidate_page(mapping, page);
 
+	VM_BUG_ON_PAGE(page_mapped(page), page);
+	if (!IS_ENABLED(CONFIG_DEBUG_VM) && unlikely(page_mapped(page))) {
+		int mapcount;
+
+		pr_alert("BUG: Bad page cache in process %s  pfn:%05lx\n",
+			 current->comm, page_to_pfn(page));
+		dump_page(page, "still mapped when deleted");
+		dump_stack();
+		add_taint(TAINT_BAD_PAGE, LOCKDEP_NOW_UNRELIABLE);
+
+		mapcount = page_mapcount(page);
+		if (mapping_exiting(mapping) &&
+		    page_count(page) >= mapcount + 2) {
+			/*
+			 * All vmas have already been torn down, so it's
+			 * a good bet that actually the page is unmapped,
+			 * and we'd prefer not to leak it: if we're wrong,
+			 * some other bad page check should catch it later.
+			 */
+			page_mapcount_reset(page);
+			atomic_sub(mapcount, &page->_count);
+		}
+	}
+
 	page_cache_tree_delete(mapping, page, shadow);
 
 	page->mapping = NULL;
 	/* Leave page->index set: truncation lookup relies upon it */
 
-	__dec_zone_page_state(page, NR_FILE_PAGES);
+	/* hugetlb pages do not participate in page cache accounting. */
+	if (!PageHuge(page))
+		__dec_zone_page_state(page, NR_FILE_PAGES);
 	if (PageSwapBacked(page))
 		__dec_zone_page_state(page, NR_SHMEM);
-	BUG_ON(page_mapped(page));
 
 	/*
-	 * Some filesystems seem to re-dirty the page even after
-	 * the VM has canceled the dirty bit (eg ext3 journaling).
+	 * At this point page must be either written or cleaned by truncate.
+	 * Dirty page here signals a bug and loss of unwritten data.
 	 *
-	 * Fix it up by doing a final dirty accounting check after
-	 * having removed the page entirely.
+	 * This fixes dirty accounting after removing the page entirely but
+	 * leaves PageDirty set: it has no effect for truncated page and
+	 * anyway will be cleared before returning page into buddy allocator.
 	 */
-	if (PageDirty(page) && mapping_cap_account_dirty(mapping)) {
-		dec_zone_page_state(page, NR_FILE_DIRTY);
-		dec_bdi_stat(inode_to_bdi(mapping->host), BDI_RECLAIMABLE);
-	}
+	if (WARN_ON_ONCE(PageDirty(page)))
+		account_page_cleaned(page, mapping, inode_to_wb(mapping->host));
 }
 
 /**
@@ -226,14 +251,17 @@ void __delete_from_page_cache(struct page *page, void *shadow)
 void delete_from_page_cache(struct page *page)
 {
 	struct address_space *mapping = page->mapping;
+	unsigned long flags;
+
 	void (*freepage)(struct page *);
 
 	BUG_ON(!PageLocked(page));
 
 	freepage = mapping->a_ops->freepage;
-	spin_lock_irq(&mapping->tree_lock);
+
+	spin_lock_irqsave(&mapping->tree_lock, flags);
 	__delete_from_page_cache(page, NULL);
-	spin_unlock_irq(&mapping->tree_lock);
+	spin_unlock_irqrestore(&mapping->tree_lock, flags);
 
 	if (freepage)
 		freepage(page);
@@ -283,7 +311,9 @@ int __filemap_fdatawrite_range(struct address_space *mapping, loff_t start,
 	if (!mapping_cap_writeback_dirty(mapping))
 		return 0;
 
+	wbc_attach_fdatawrite_inode(&wbc, mapping->host);
 	ret = do_writepages(mapping, &wbc);
+	wbc_detach_inode(&wbc);
 	return ret;
 }
 
@@ -319,23 +349,14 @@ int filemap_flush(struct address_space *mapping)
 }
 EXPORT_SYMBOL(filemap_flush);
 
-/**
- * filemap_fdatawait_range - wait for writeback to complete
- * @mapping:		address space structure to wait for
- * @start_byte:		offset in bytes where the range starts
- * @end_byte:		offset in bytes where the range ends (inclusive)
- *
- * Walk the list of under-writeback pages of the given address space
- * in the given range and wait for all of them.
- */
-int filemap_fdatawait_range(struct address_space *mapping, loff_t start_byte,
-			    loff_t end_byte)
+static int __filemap_fdatawait_range(struct address_space *mapping,
+				     loff_t start_byte, loff_t end_byte)
 {
 	pgoff_t index = start_byte >> PAGE_CACHE_SHIFT;
 	pgoff_t end = end_byte >> PAGE_CACHE_SHIFT;
 	struct pagevec pvec;
 	int nr_pages;
-	int ret2, ret = 0;
+	int ret = 0;
 
 	if (end_byte < start_byte)
 		goto out;
@@ -362,6 +383,29 @@ int filemap_fdatawait_range(struct address_space *mapping, loff_t start_byte,
 		cond_resched();
 	}
 out:
+	return ret;
+}
+
+/**
+ * filemap_fdatawait_range - wait for writeback to complete
+ * @mapping:		address space structure to wait for
+ * @start_byte:		offset in bytes where the range starts
+ * @end_byte:		offset in bytes where the range ends (inclusive)
+ *
+ * Walk the list of under-writeback pages of the given address space
+ * in the given range and wait for all of them.  Check error status of
+ * the address space and return it.
+ *
+ * Since the error status of the address space is cleared by this function,
+ * callers are responsible for checking the return value and handling and/or
+ * reporting the error.
+ */
+int filemap_fdatawait_range(struct address_space *mapping, loff_t start_byte,
+			    loff_t end_byte)
+{
+	int ret, ret2;
+
+	ret = __filemap_fdatawait_range(mapping, start_byte, end_byte);
 	ret2 = filemap_check_errors(mapping);
 	if (!ret)
 		ret = ret2;
@@ -371,11 +415,38 @@ out:
 EXPORT_SYMBOL(filemap_fdatawait_range);
 
 /**
+ * filemap_fdatawait_keep_errors - wait for writeback without clearing errors
+ * @mapping: address space structure to wait for
+ *
+ * Walk the list of under-writeback pages of the given address space
+ * and wait for all of them.  Unlike filemap_fdatawait(), this function
+ * does not clear error status of the address space.
+ *
+ * Use this function if callers don't handle errors themselves.  Expected
+ * call sites are system-wide / filesystem-wide data flushers: e.g. sync(2),
+ * fsfreeze(8)
+ */
+void filemap_fdatawait_keep_errors(struct address_space *mapping)
+{
+	loff_t i_size = i_size_read(mapping->host);
+
+	if (i_size == 0)
+		return;
+
+	__filemap_fdatawait_range(mapping, 0, i_size - 1);
+}
+
+/**
  * filemap_fdatawait - wait for all under-writeback pages to complete
  * @mapping: address space structure to wait for
  *
  * Walk the list of under-writeback pages of the given address space
- * and wait for all of them.
+ * and wait for all of them.  Check error status of the address space
+ * and return it.
+ *
+ * Since the error status of the address space is cleared by this function,
+ * callers are responsible for checking the return value and handling and/or
+ * reporting the error.
  */
 int filemap_fdatawait(struct address_space *mapping)
 {
@@ -392,7 +463,8 @@ int filemap_write_and_wait(struct address_space *mapping)
 {
 	int err = 0;
 
-	if (mapping->nrpages) {
+	if ((!dax_mapping(mapping) && mapping->nrpages) ||
+	    (dax_mapping(mapping) && mapping->nrexceptional)) {
 		err = filemap_fdatawrite(mapping);
 		/*
 		 * Even if the above returned error, the pages may be
@@ -428,7 +500,8 @@ int filemap_write_and_wait_range(struct address_space *mapping,
 {
 	int err = 0;
 
-	if (mapping->nrpages) {
+	if ((!dax_mapping(mapping) && mapping->nrpages) ||
+	    (dax_mapping(mapping) && mapping->nrexceptional)) {
 		err = __filemap_fdatawrite_range(mapping, lstart, lend,
 						 WB_SYNC_ALL);
 		/* See comment of filemap_write_and_wait() */
@@ -472,6 +545,7 @@ int replace_page_cache_page(struct page *old, struct page *new, gfp_t gfp_mask)
 	if (!error) {
 		struct address_space *mapping = old->mapping;
 		void (*freepage)(struct page *);
+		unsigned long flags;
 
 		pgoff_t offset = old->index;
 		freepage = mapping->a_ops->freepage;
@@ -480,16 +554,21 @@ int replace_page_cache_page(struct page *old, struct page *new, gfp_t gfp_mask)
 		new->mapping = mapping;
 		new->index = offset;
 
-		spin_lock_irq(&mapping->tree_lock);
+		spin_lock_irqsave(&mapping->tree_lock, flags);
 		__delete_from_page_cache(old, NULL);
 		error = radix_tree_insert(&mapping->page_tree, offset, new);
 		BUG_ON(error);
 		mapping->nrpages++;
-		__inc_zone_page_state(new, NR_FILE_PAGES);
+
+		/*
+		 * hugetlb pages do not participate in page cache accounting.
+		 */
+		if (!PageHuge(new))
+			__inc_zone_page_state(new, NR_FILE_PAGES);
 		if (PageSwapBacked(new))
 			__inc_zone_page_state(new, NR_SHMEM);
-		spin_unlock_irq(&mapping->tree_lock);
-		mem_cgroup_migrate(old, new, true);
+		spin_unlock_irqrestore(&mapping->tree_lock, flags);
+		mem_cgroup_migrate(old, new);
 		radix_tree_preload_end();
 		if (freepage)
 			freepage(old);
@@ -507,7 +586,7 @@ static int page_cache_tree_insert(struct address_space *mapping,
 	void **slot;
 	int error;
 
-	error = __radix_tree_create(&mapping->page_tree, page->index,
+	error = __radix_tree_create(&mapping->page_tree, page->index, 0,
 				    &node, &slot);
 	if (error)
 		return error;
@@ -517,9 +596,13 @@ static int page_cache_tree_insert(struct address_space *mapping,
 		p = radix_tree_deref_slot_protected(slot, &mapping->tree_lock);
 		if (!radix_tree_exceptional_entry(p))
 			return -EEXIST;
+
+		if (WARN_ON(dax_mapping(mapping)))
+			return -EINVAL;
+
 		if (shadowp)
 			*shadowp = p;
-		mapping->nrshadows--;
+		mapping->nrexceptional--;
 		if (node)
 			workingset_node_shadows_dec(node);
 	}
@@ -556,7 +639,7 @@ static int __add_to_page_cache_locked(struct page *page,
 
 	if (!huge) {
 		error = mem_cgroup_try_charge(page, current->mm,
-					      gfp_mask, &memcg);
+					      gfp_mask, &memcg, false);
 		if (error)
 			return error;
 	}
@@ -564,7 +647,7 @@ static int __add_to_page_cache_locked(struct page *page,
 	error = radix_tree_maybe_preload(gfp_mask & ~__GFP_HIGHMEM);
 	if (error) {
 		if (!huge)
-			mem_cgroup_cancel_charge(page, memcg);
+			mem_cgroup_cancel_charge(page, memcg, false);
 		return error;
 	}
 
@@ -577,10 +660,13 @@ static int __add_to_page_cache_locked(struct page *page,
 	radix_tree_preload_end();
 	if (unlikely(error))
 		goto err_insert;
-	__inc_zone_page_state(page, NR_FILE_PAGES);
+
+	/* hugetlb pages do not participate in page cache accounting. */
+	if (!huge)
+		__inc_zone_page_state(page, NR_FILE_PAGES);
 	spin_unlock_irq(&mapping->tree_lock);
 	if (!huge)
-		mem_cgroup_commit_charge(page, memcg, false);
+		mem_cgroup_commit_charge(page, memcg, false, false);
 	trace_mm_filemap_add_to_page_cache(page);
 	return 0;
 err_insert:
@@ -588,7 +674,7 @@ err_insert:
 	/* Leave page->index set: truncation relies upon it */
 	spin_unlock_irq(&mapping->tree_lock);
 	if (!huge)
-		mem_cgroup_cancel_charge(page, memcg);
+		mem_cgroup_cancel_charge(page, memcg, false);
 	page_cache_release(page);
 	return error;
 }
@@ -617,11 +703,11 @@ int add_to_page_cache_lru(struct page *page, struct address_space *mapping,
 	void *shadow = NULL;
 	int ret;
 
-	__set_page_locked(page);
+	__SetPageLocked(page);
 	ret = __add_to_page_cache_locked(page, mapping, offset,
 					 gfp_mask, &shadow);
 	if (unlikely(ret))
-		__clear_page_locked(page);
+		__ClearPageLocked(page);
 	else {
 		/*
 		 * The page might have been evicted from cache only
@@ -650,7 +736,7 @@ struct page *__page_cache_alloc(gfp_t gfp)
 		do {
 			cpuset_mems_cookie = read_mems_allowed_begin();
 			n = cpuset_mem_spread_node();
-			page = alloc_pages_exact_node(n, gfp, 0);
+			page = __alloc_pages_node(n, gfp, 0);
 		} while (!page && read_mems_allowed_retry(cpuset_mems_cookie));
 
 		return page;
@@ -744,6 +830,7 @@ EXPORT_SYMBOL_GPL(add_page_wait_queue);
  */
 void unlock_page(struct page *page)
 {
+	page = compound_head(page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	clear_bit_unlock(PG_locked, &page->flags);
 	smp_mb__after_atomic();
@@ -808,18 +895,20 @@ EXPORT_SYMBOL_GPL(page_endio);
  */
 void __lock_page(struct page *page)
 {
-	DEFINE_WAIT_BIT(wait, &page->flags, PG_locked);
+	struct page *page_head = compound_head(page);
+	DEFINE_WAIT_BIT(wait, &page_head->flags, PG_locked);
 
-	__wait_on_bit_lock(page_waitqueue(page), &wait, bit_wait_io,
+	__wait_on_bit_lock(page_waitqueue(page_head), &wait, bit_wait_io,
 							TASK_UNINTERRUPTIBLE);
 }
 EXPORT_SYMBOL(__lock_page);
 
 int __lock_page_killable(struct page *page)
 {
-	DEFINE_WAIT_BIT(wait, &page->flags, PG_locked);
+	struct page *page_head = compound_head(page);
+	DEFINE_WAIT_BIT(wait, &page_head->flags, PG_locked);
 
-	return __wait_on_bit_lock(page_waitqueue(page), &wait,
+	return __wait_on_bit_lock(page_waitqueue(page_head), &wait,
 					bit_wait_io, TASK_KILLABLE);
 }
 EXPORT_SYMBOL_GPL(__lock_page_killable);
@@ -1166,7 +1255,6 @@ unsigned find_get_entries(struct address_space *mapping,
 		return 0;
 
 	rcu_read_lock();
-restart:
 	radix_tree_for_each_slot(slot, &mapping->page_tree, &iter, start) {
 		struct page *page;
 repeat:
@@ -1174,12 +1262,14 @@ repeat:
 		if (unlikely(!page))
 			continue;
 		if (radix_tree_exception(page)) {
-			if (radix_tree_deref_retry(page))
-				goto restart;
+			if (radix_tree_deref_retry(page)) {
+				slot = radix_tree_iter_retry(&iter);
+				continue;
+			}
 			/*
-			 * A shadow entry of a recently evicted page,
-			 * or a swap entry from shmem/tmpfs.  Return
-			 * it without attempting to raise page count.
+			 * A shadow entry of a recently evicted page, a swap
+			 * entry from shmem/tmpfs or a DAX entry.  Return it
+			 * without attempting to raise page count.
 			 */
 			goto export;
 		}
@@ -1228,7 +1318,6 @@ unsigned find_get_pages(struct address_space *mapping, pgoff_t start,
 		return 0;
 
 	rcu_read_lock();
-restart:
 	radix_tree_for_each_slot(slot, &mapping->page_tree, &iter, start) {
 		struct page *page;
 repeat:
@@ -1238,13 +1327,8 @@ repeat:
 
 		if (radix_tree_exception(page)) {
 			if (radix_tree_deref_retry(page)) {
-				/*
-				 * Transient condition which can only trigger
-				 * when entry at index 0 moves out of or back
-				 * to root: none yet gotten, safe to restart.
-				 */
-				WARN_ON(iter.index);
-				goto restart;
+				slot = radix_tree_iter_retry(&iter);
+				continue;
 			}
 			/*
 			 * A shadow entry of a recently evicted page,
@@ -1295,7 +1379,6 @@ unsigned find_get_pages_contig(struct address_space *mapping, pgoff_t index,
 		return 0;
 
 	rcu_read_lock();
-restart:
 	radix_tree_for_each_contig(slot, &mapping->page_tree, &iter, index) {
 		struct page *page;
 repeat:
@@ -1306,12 +1389,8 @@ repeat:
 
 		if (radix_tree_exception(page)) {
 			if (radix_tree_deref_retry(page)) {
-				/*
-				 * Transient condition which can only trigger
-				 * when entry at index 0 moves out of or back
-				 * to root: none yet gotten, safe to restart.
-				 */
-				goto restart;
+				slot = radix_tree_iter_retry(&iter);
+				continue;
 			}
 			/*
 			 * A shadow entry of a recently evicted page,
@@ -1371,7 +1450,6 @@ unsigned find_get_pages_tag(struct address_space *mapping, pgoff_t *index,
 		return 0;
 
 	rcu_read_lock();
-restart:
 	radix_tree_for_each_tagged(slot, &mapping->page_tree,
 				   &iter, *index, tag) {
 		struct page *page;
@@ -1382,12 +1460,8 @@ repeat:
 
 		if (radix_tree_exception(page)) {
 			if (radix_tree_deref_retry(page)) {
-				/*
-				 * Transient condition which can only trigger
-				 * when entry at index 0 moves out of or back
-				 * to root: none yet gotten, safe to restart.
-				 */
-				goto restart;
+				slot = radix_tree_iter_retry(&iter);
+				continue;
 			}
 			/*
 			 * A shadow entry of a recently evicted page.
@@ -1425,6 +1499,69 @@ repeat:
 	return ret;
 }
 EXPORT_SYMBOL(find_get_pages_tag);
+
+/**
+ * find_get_entries_tag - find and return entries that match @tag
+ * @mapping:	the address_space to search
+ * @start:	the starting page cache index
+ * @tag:	the tag index
+ * @nr_entries:	the maximum number of entries
+ * @entries:	where the resulting entries are placed
+ * @indices:	the cache indices corresponding to the entries in @entries
+ *
+ * Like find_get_entries, except we only return entries which are tagged with
+ * @tag.
+ */
+unsigned find_get_entries_tag(struct address_space *mapping, pgoff_t start,
+			int tag, unsigned int nr_entries,
+			struct page **entries, pgoff_t *indices)
+{
+	void **slot;
+	unsigned int ret = 0;
+	struct radix_tree_iter iter;
+
+	if (!nr_entries)
+		return 0;
+
+	rcu_read_lock();
+	radix_tree_for_each_tagged(slot, &mapping->page_tree,
+				   &iter, start, tag) {
+		struct page *page;
+repeat:
+		page = radix_tree_deref_slot(slot);
+		if (unlikely(!page))
+			continue;
+		if (radix_tree_exception(page)) {
+			if (radix_tree_deref_retry(page)) {
+				slot = radix_tree_iter_retry(&iter);
+				continue;
+			}
+
+			/*
+			 * A shadow entry of a recently evicted page, a swap
+			 * entry from shmem/tmpfs or a DAX entry.  Return it
+			 * without attempting to raise page count.
+			 */
+			goto export;
+		}
+		if (!page_cache_get_speculative(page))
+			goto repeat;
+
+		/* Has the page moved? */
+		if (unlikely(page != *slot)) {
+			page_cache_release(page);
+			goto repeat;
+		}
+export:
+		indices[ret] = iter.index;
+		entries[ret] = page;
+		if (++ret == nr_entries)
+			break;
+	}
+	rcu_read_unlock();
+	return ret;
+}
+EXPORT_SYMBOL(find_get_entries_tag);
 
 /*
  * CD/DVDs are error prone. When a medium error occurs, the driver may fail
@@ -1502,6 +1639,15 @@ find_page:
 					index, last_index - index);
 		}
 		if (!PageUptodate(page)) {
+			/*
+			 * See comment in do_read_cache_page on why
+			 * wait_on_page_locked is used to avoid unnecessarily
+			 * serialisations and why it's safe.
+			 */
+			wait_on_page_locked_killable(page);
+			if (PageUptodate(page))
+				goto page_ok;
+
 			if (inode->i_blkbits == PAGE_CACHE_SHIFT ||
 					!mapping->a_ops->is_partially_uptodate)
 				goto page_not_up_to_date;
@@ -1656,8 +1802,8 @@ no_cached_page:
 			error = -ENOMEM;
 			goto out;
 		}
-		error = add_to_page_cache_lru(page, mapping,
-						index, GFP_KERNEL);
+		error = add_to_page_cache_lru(page, mapping, index,
+				mapping_gfp_constraint(mapping, GFP_KERNEL));
 		if (error) {
 			page_cache_release(page);
 			if (error == -EEXIST) {
@@ -1695,7 +1841,7 @@ generic_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
 	loff_t *ppos = &iocb->ki_pos;
 	loff_t pos = *ppos;
 
-	if (io_is_direct(file)) {
+	if (iocb->ki_flags & IOCB_DIRECT) {
 		struct address_space *mapping = file->f_mapping;
 		struct inode *inode = mapping->host;
 		size_t count = iov_iter_count(iter);
@@ -1708,7 +1854,7 @@ generic_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
 					pos + count - 1);
 		if (!retval) {
 			struct iov_iter data = *iter;
-			retval = mapping->a_ops->direct_IO(READ, iocb, &data, pos);
+			retval = mapping->a_ops->direct_IO(iocb, &data, pos);
 		}
 
 		if (retval > 0) {
@@ -1743,22 +1889,23 @@ EXPORT_SYMBOL(generic_file_read_iter);
  * page_cache_read - adds requested page to the page cache if not already there
  * @file:	file to read
  * @offset:	page index
+ * @gfp_mask:	memory allocation flags
  *
  * This adds the requested page to the page cache if it isn't already there,
  * and schedules an I/O to read in its contents from disk.
  */
-static int page_cache_read(struct file *file, pgoff_t offset)
+static int page_cache_read(struct file *file, pgoff_t offset, gfp_t gfp_mask)
 {
 	struct address_space *mapping = file->f_mapping;
 	struct page *page;
 	int ret;
 
 	do {
-		page = page_cache_alloc_cold(mapping);
+		page = __page_cache_alloc(gfp_mask|__GFP_COLD);
 		if (!page)
 			return -ENOMEM;
 
-		ret = add_to_page_cache_lru(page, mapping, offset, GFP_KERNEL);
+		ret = add_to_page_cache_lru(page, mapping, offset, gfp_mask & GFP_KERNEL);
 		if (ret == 0)
 			ret = mapping->a_ops->readpage(file, page);
 		else if (ret == -EEXIST)
@@ -1782,7 +1929,6 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 				   struct file *file,
 				   pgoff_t offset)
 {
-	unsigned long ra_pages;
 	struct address_space *mapping = file->f_mapping;
 
 	/* If we don't want any read-ahead, don't bother */
@@ -1811,10 +1957,9 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 	/*
 	 * mmap read-around
 	 */
-	ra_pages = max_sane_readahead(ra->ra_pages);
-	ra->start = max_t(long, 0, offset - ra_pages / 2);
-	ra->size = ra_pages;
-	ra->async_size = ra_pages / 4;
+	ra->start = max_t(long, 0, offset - ra->ra_pages / 2);
+	ra->size = ra->ra_pages;
+	ra->async_size = ra->ra_pages / 4;
 	ra_submit(ra, mapping, file);
 }
 
@@ -1941,7 +2086,7 @@ no_cached_page:
 	 * We're only likely to ever get here if MADV_RANDOM is in
 	 * effect.
 	 */
-	error = page_cache_read(file, offset);
+	error = page_cache_read(file, offset, vmf->gfp_mask);
 
 	/*
 	 * The page we want has now been added to the page cache.
@@ -2006,10 +2151,11 @@ repeat:
 		if (unlikely(!page))
 			goto next;
 		if (radix_tree_exception(page)) {
-			if (radix_tree_deref_retry(page))
-				break;
-			else
-				goto next;
+			if (radix_tree_deref_retry(page)) {
+				slot = radix_tree_iter_retry(&iter);
+				continue;
+			}
+			goto next;
 		}
 
 		if (!page_cache_get_speculative(page))
@@ -2138,7 +2284,7 @@ static struct page *wait_on_page_read(struct page *page)
 	return page;
 }
 
-static struct page *__read_cache_page(struct address_space *mapping,
+static struct page *do_read_cache_page(struct address_space *mapping,
 				pgoff_t index,
 				int (*filler)(void *, struct page *),
 				void *data,
@@ -2160,53 +2306,74 @@ repeat:
 			/* Presumably ENOMEM for radix tree node */
 			return ERR_PTR(err);
 		}
+
+filler:
 		err = filler(data, page);
 		if (err < 0) {
 			page_cache_release(page);
-			page = ERR_PTR(err);
-		} else {
-			page = wait_on_page_read(page);
+			return ERR_PTR(err);
 		}
+
+		page = wait_on_page_read(page);
+		if (IS_ERR(page))
+			return page;
+		goto out;
 	}
-	return page;
-}
-
-static struct page *do_read_cache_page(struct address_space *mapping,
-				pgoff_t index,
-				int (*filler)(void *, struct page *),
-				void *data,
-				gfp_t gfp)
-
-{
-	struct page *page;
-	int err;
-
-retry:
-	page = __read_cache_page(mapping, index, filler, data, gfp);
-	if (IS_ERR(page))
-		return page;
 	if (PageUptodate(page))
 		goto out;
 
+	/*
+	 * Page is not up to date and may be locked due one of the following
+	 * case a: Page is being filled and the page lock is held
+	 * case b: Read/write error clearing the page uptodate status
+	 * case c: Truncation in progress (page locked)
+	 * case d: Reclaim in progress
+	 *
+	 * Case a, the page will be up to date when the page is unlocked.
+	 *    There is no need to serialise on the page lock here as the page
+	 *    is pinned so the lock gives no additional protection. Even if the
+	 *    the page is truncated, the data is still valid if PageUptodate as
+	 *    it's a race vs truncate race.
+	 * Case b, the page will not be up to date
+	 * Case c, the page may be truncated but in itself, the data may still
+	 *    be valid after IO completes as it's a read vs truncate race. The
+	 *    operation must restart if the page is not uptodate on unlock but
+	 *    otherwise serialising on page lock to stabilise the mapping gives
+	 *    no additional guarantees to the caller as the page lock is
+	 *    released before return.
+	 * Case d, similar to truncation. If reclaim holds the page lock, it
+	 *    will be a race with remove_mapping that determines if the mapping
+	 *    is valid on unlock but otherwise the data is valid and there is
+	 *    no need to serialise with page lock.
+	 *
+	 * As the page lock gives no additional guarantee, we optimistically
+	 * wait on the page to be unlocked and check if it's up to date and
+	 * use the page if it is. Otherwise, the page lock is required to
+	 * distinguish between the different cases. The motivation is that we
+	 * avoid spurious serialisations and wakeups when multiple processes
+	 * wait on the same page for IO to complete.
+	 */
+	wait_on_page_locked(page);
+	if (PageUptodate(page))
+		goto out;
+
+	/* Distinguish between all the cases under the safety of the lock */
 	lock_page(page);
+
+	/* Case c or d, restart the operation */
 	if (!page->mapping) {
 		unlock_page(page);
 		page_cache_release(page);
-		goto retry;
+		goto repeat;
 	}
+
+	/* Someone else locked and filled the page in a very small window */
 	if (PageUptodate(page)) {
 		unlock_page(page);
 		goto out;
 	}
-	err = filler(data, page);
-	if (err < 0) {
-		page_cache_release(page);
-		return ERR_PTR(err);
-	} else {
-		page = wait_on_page_read(page);
-		if (IS_ERR(page))
-			return page;
-	}
+	goto filler;
+
 out:
 	mark_page_accessed(page);
 	return page;
@@ -2261,41 +2428,38 @@ EXPORT_SYMBOL(read_cache_page_gfp);
  * Returns appropriate error code that caller should return or
  * zero in case that write should be allowed.
  */
-inline int generic_write_checks(struct file *file, loff_t *pos, size_t *count, int isblk)
+inline ssize_t generic_write_checks(struct kiocb *iocb, struct iov_iter *from)
 {
+	struct file *file = iocb->ki_filp;
 	struct inode *inode = file->f_mapping->host;
 	unsigned long limit = rlimit(RLIMIT_FSIZE);
+	loff_t pos;
 
-        if (unlikely(*pos < 0))
-                return -EINVAL;
+	if (!iov_iter_count(from))
+		return 0;
 
-	if (!isblk) {
-		/* FIXME: this is for backwards compatibility with 2.4 */
-		if (file->f_flags & O_APPEND)
-                        *pos = i_size_read(inode);
+	/* FIXME: this is for backwards compatibility with 2.4 */
+	if (iocb->ki_flags & IOCB_APPEND)
+		iocb->ki_pos = i_size_read(inode);
 
-		if (limit != RLIM_INFINITY) {
-			if (*pos >= limit) {
-				send_sig(SIGXFSZ, current, 0);
-				return -EFBIG;
-			}
-			if (*count > limit - (typeof(limit))*pos) {
-				*count = limit - (typeof(limit))*pos;
-			}
+	pos = iocb->ki_pos;
+
+	if (limit != RLIM_INFINITY) {
+		if (iocb->ki_pos >= limit) {
+			send_sig(SIGXFSZ, current, 0);
+			return -EFBIG;
 		}
+		iov_iter_truncate(from, limit - (unsigned long)pos);
 	}
 
 	/*
 	 * LFS rule
 	 */
-	if (unlikely(*pos + *count > MAX_NON_LFS &&
+	if (unlikely(pos + iov_iter_count(from) > MAX_NON_LFS &&
 				!(file->f_flags & O_LARGEFILE))) {
-		if (*pos >= MAX_NON_LFS) {
+		if (pos >= MAX_NON_LFS)
 			return -EFBIG;
-		}
-		if (*count > MAX_NON_LFS - (unsigned long)*pos) {
-			*count = MAX_NON_LFS - (unsigned long)*pos;
-		}
+		iov_iter_truncate(from, MAX_NON_LFS - (unsigned long)pos);
 	}
 
 	/*
@@ -2305,34 +2469,11 @@ inline int generic_write_checks(struct file *file, loff_t *pos, size_t *count, i
 	 * exceeded without writing data we send a signal and return EFBIG.
 	 * Linus frestrict idea will clean these up nicely..
 	 */
-	if (likely(!isblk)) {
-		if (unlikely(*pos >= inode->i_sb->s_maxbytes)) {
-			if (*count || *pos > inode->i_sb->s_maxbytes) {
-				return -EFBIG;
-			}
-			/* zero-length writes at ->s_maxbytes are OK */
-		}
+	if (unlikely(pos >= inode->i_sb->s_maxbytes))
+		return -EFBIG;
 
-		if (unlikely(*pos + *count > inode->i_sb->s_maxbytes))
-			*count = inode->i_sb->s_maxbytes - *pos;
-	} else {
-#ifdef CONFIG_BLOCK
-		loff_t isize;
-		if (bdev_read_only(I_BDEV(inode)))
-			return -EPERM;
-		isize = i_size_read(inode);
-		if (*pos >= isize) {
-			if (*count || *pos > isize)
-				return -ENOSPC;
-		}
-
-		if (*pos + *count > isize)
-			*count = isize - *pos;
-#else
-		return -EPERM;
-#endif
-	}
-	return 0;
+	iov_iter_truncate(from, inode->i_sb->s_maxbytes - pos);
+	return iov_iter_count(from);
 }
 EXPORT_SYMBOL(generic_write_checks);
 
@@ -2396,7 +2537,7 @@ generic_file_direct_write(struct kiocb *iocb, struct iov_iter *from, loff_t pos)
 	}
 
 	data = *from;
-	written = mapping->a_ops->direct_IO(WRITE, iocb, &data, pos);
+	written = mapping->a_ops->direct_IO(iocb, &data, pos);
 
 	/*
 	 * Finally, try again to invalidate clean pages which might have been
@@ -2489,6 +2630,11 @@ again:
 			break;
 		}
 
+		if (fatal_signal_pending(current)) {
+			status = -EINTR;
+			break;
+		}
+
 		status = a_ops->write_begin(file, mapping, pos, bytes, flags,
 						&page, &fsdata);
 		if (unlikely(status < 0))
@@ -2526,10 +2672,6 @@ again:
 		written += copied;
 
 		balance_dirty_pages_ratelimited(mapping);
-		if (fatal_signal_pending(current)) {
-			status = -EINTR;
-			break;
-		}
 	} while (iov_iter_count(i));
 
 	return written ? written : status;
@@ -2558,24 +2700,13 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	struct file *file = iocb->ki_filp;
 	struct address_space * mapping = file->f_mapping;
 	struct inode 	*inode = mapping->host;
-	loff_t		pos = iocb->ki_pos;
 	ssize_t		written = 0;
 	ssize_t		err;
 	ssize_t		status;
-	size_t		count = iov_iter_count(from);
 
 	/* We can write back this queue in page reclaim */
 	current->backing_dev_info = inode_to_bdi(inode);
-	err = generic_write_checks(file, &pos, &count, S_ISBLK(inode->i_mode));
-	if (err)
-		goto out;
-
-	if (count == 0)
-		goto out;
-
-	iov_iter_truncate(from, count);
-
-	err = file_remove_suid(file);
+	err = file_remove_privs(file);
 	if (err)
 		goto out;
 
@@ -2583,10 +2714,10 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (err)
 		goto out;
 
-	if (io_is_direct(file)) {
-		loff_t endbyte;
+	if (iocb->ki_flags & IOCB_DIRECT) {
+		loff_t pos, endbyte;
 
-		written = generic_file_direct_write(iocb, from, pos);
+		written = generic_file_direct_write(iocb, from, iocb->ki_pos);
 		/*
 		 * If the write stopped short of completing, fall back to
 		 * buffered writes.  Some filesystems do this for writes to
@@ -2594,13 +2725,10 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		 * not succeed (even if it did, DAX does not handle dirty
 		 * page-cache pages correctly).
 		 */
-		if (written < 0 || written == count || IS_DAX(inode))
+		if (written < 0 || !iov_iter_count(from) || IS_DAX(inode))
 			goto out;
 
-		pos += written;
-		count -= written;
-
-		status = generic_perform_write(file, from, pos);
+		status = generic_perform_write(file, from, pos = iocb->ki_pos);
 		/*
 		 * If generic_perform_write() returned a synchronous error
 		 * then we want to return the number of bytes which were
@@ -2612,15 +2740,15 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			err = status;
 			goto out;
 		}
-		iocb->ki_pos = pos + status;
 		/*
 		 * We need to ensure that the page cache pages are written to
 		 * disk and invalidated to preserve the expected O_DIRECT
 		 * semantics.
 		 */
 		endbyte = pos + status - 1;
-		err = filemap_write_and_wait_range(file->f_mapping, pos, endbyte);
+		err = filemap_write_and_wait_range(mapping, pos, endbyte);
 		if (err == 0) {
+			iocb->ki_pos = endbyte + 1;
 			written += status;
 			invalidate_mapping_pages(mapping,
 						 pos >> PAGE_CACHE_SHIFT,
@@ -2632,9 +2760,9 @@ ssize_t __generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			 */
 		}
 	} else {
-		written = generic_perform_write(file, from, pos);
-		if (likely(written >= 0))
-			iocb->ki_pos = pos + written;
+		written = generic_perform_write(file, from, iocb->ki_pos);
+		if (likely(written > 0))
+			iocb->ki_pos += written;
 	}
 out:
 	current->backing_dev_info = NULL;
@@ -2657,9 +2785,11 @@ ssize_t generic_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	struct inode *inode = file->f_mapping->host;
 	ssize_t ret;
 
-	mutex_lock(&inode->i_mutex);
-	ret = __generic_file_write_iter(iocb, from);
-	mutex_unlock(&inode->i_mutex);
+	inode_lock(inode);
+	ret = generic_write_checks(iocb, from);
+	if (ret > 0)
+		ret = __generic_file_write_iter(iocb, from);
+	inode_unlock(inode);
 
 	if (ret > 0) {
 		ssize_t err;
@@ -2686,7 +2816,7 @@ EXPORT_SYMBOL(generic_file_write_iter);
  * page is known to the local caching routines.
  *
  * The @gfp_mask argument specifies whether I/O may be performed to release
- * this page (__GFP_IO), and whether the call may block (__GFP_WAIT & __GFP_FS).
+ * this page (__GFP_IO), and whether the call may block (__GFP_RECLAIM & __GFP_FS).
  *
  */
 int try_to_release_page(struct page *page, gfp_t gfp_mask)

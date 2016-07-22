@@ -185,20 +185,9 @@ static void __iomem *mvebu_gpioreg_level_mask(struct mvebu_gpio_chip *mvchip)
  * Functions implementing the gpio_chip methods
  */
 
-static int mvebu_gpio_request(struct gpio_chip *chip, unsigned pin)
-{
-	return pinctrl_request_gpio(chip->base + pin);
-}
-
-static void mvebu_gpio_free(struct gpio_chip *chip, unsigned pin)
-{
-	pinctrl_free_gpio(chip->base + pin);
-}
-
 static void mvebu_gpio_set(struct gpio_chip *chip, unsigned pin, int value)
 {
-	struct mvebu_gpio_chip *mvchip =
-		container_of(chip, struct mvebu_gpio_chip, chip);
+	struct mvebu_gpio_chip *mvchip = gpiochip_get_data(chip);
 	unsigned long flags;
 	u32 u;
 
@@ -214,8 +203,7 @@ static void mvebu_gpio_set(struct gpio_chip *chip, unsigned pin, int value)
 
 static int mvebu_gpio_get(struct gpio_chip *chip, unsigned pin)
 {
-	struct mvebu_gpio_chip *mvchip =
-		container_of(chip, struct mvebu_gpio_chip, chip);
+	struct mvebu_gpio_chip *mvchip = gpiochip_get_data(chip);
 	u32 u;
 
 	if (readl_relaxed(mvebu_gpioreg_io_conf(mvchip)) & (1 << pin)) {
@@ -230,8 +218,7 @@ static int mvebu_gpio_get(struct gpio_chip *chip, unsigned pin)
 
 static void mvebu_gpio_blink(struct gpio_chip *chip, unsigned pin, int value)
 {
-	struct mvebu_gpio_chip *mvchip =
-		container_of(chip, struct mvebu_gpio_chip, chip);
+	struct mvebu_gpio_chip *mvchip = gpiochip_get_data(chip);
 	unsigned long flags;
 	u32 u;
 
@@ -247,8 +234,7 @@ static void mvebu_gpio_blink(struct gpio_chip *chip, unsigned pin, int value)
 
 static int mvebu_gpio_direction_input(struct gpio_chip *chip, unsigned pin)
 {
-	struct mvebu_gpio_chip *mvchip =
-		container_of(chip, struct mvebu_gpio_chip, chip);
+	struct mvebu_gpio_chip *mvchip = gpiochip_get_data(chip);
 	unsigned long flags;
 	int ret;
 	u32 u;
@@ -271,8 +257,7 @@ static int mvebu_gpio_direction_input(struct gpio_chip *chip, unsigned pin)
 static int mvebu_gpio_direction_output(struct gpio_chip *chip, unsigned pin,
 				       int value)
 {
-	struct mvebu_gpio_chip *mvchip =
-		container_of(chip, struct mvebu_gpio_chip, chip);
+	struct mvebu_gpio_chip *mvchip = gpiochip_get_data(chip);
 	unsigned long flags;
 	int ret;
 	u32 u;
@@ -297,8 +282,7 @@ static int mvebu_gpio_direction_output(struct gpio_chip *chip, unsigned pin,
 
 static int mvebu_gpio_to_irq(struct gpio_chip *chip, unsigned pin)
 {
-	struct mvebu_gpio_chip *mvchip =
-		container_of(chip, struct mvebu_gpio_chip, chip);
+	struct mvebu_gpio_chip *mvchip = gpiochip_get_data(chip);
 	return irq_create_mapping(mvchip->domain, pin);
 }
 
@@ -320,11 +304,13 @@ static void mvebu_gpio_edge_irq_mask(struct irq_data *d)
 {
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
 	struct mvebu_gpio_chip *mvchip = gc->private;
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
 	u32 mask = 1 << (d->irq - gc->irq_base);
 
 	irq_gc_lock(gc);
-	gc->mask_cache &= ~mask;
-	writel_relaxed(gc->mask_cache, mvebu_gpioreg_edge_mask(mvchip));
+	ct->mask_cache_priv &= ~mask;
+
+	writel_relaxed(ct->mask_cache_priv, mvebu_gpioreg_edge_mask(mvchip));
 	irq_gc_unlock(gc);
 }
 
@@ -332,11 +318,13 @@ static void mvebu_gpio_edge_irq_unmask(struct irq_data *d)
 {
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
 	struct mvebu_gpio_chip *mvchip = gc->private;
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
+
 	u32 mask = 1 << (d->irq - gc->irq_base);
 
 	irq_gc_lock(gc);
-	gc->mask_cache |= mask;
-	writel_relaxed(gc->mask_cache, mvebu_gpioreg_edge_mask(mvchip));
+	ct->mask_cache_priv |= mask;
+	writel_relaxed(ct->mask_cache_priv, mvebu_gpioreg_edge_mask(mvchip));
 	irq_gc_unlock(gc);
 }
 
@@ -344,11 +332,13 @@ static void mvebu_gpio_level_irq_mask(struct irq_data *d)
 {
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
 	struct mvebu_gpio_chip *mvchip = gc->private;
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
+
 	u32 mask = 1 << (d->irq - gc->irq_base);
 
 	irq_gc_lock(gc);
-	gc->mask_cache &= ~mask;
-	writel_relaxed(gc->mask_cache, mvebu_gpioreg_level_mask(mvchip));
+	ct->mask_cache_priv &= ~mask;
+	writel_relaxed(ct->mask_cache_priv, mvebu_gpioreg_level_mask(mvchip));
 	irq_gc_unlock(gc);
 }
 
@@ -356,11 +346,13 @@ static void mvebu_gpio_level_irq_unmask(struct irq_data *d)
 {
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
 	struct mvebu_gpio_chip *mvchip = gc->private;
+	struct irq_chip_type *ct = irq_data_get_chip_type(d);
+
 	u32 mask = 1 << (d->irq - gc->irq_base);
 
 	irq_gc_lock(gc);
-	gc->mask_cache |= mask;
-	writel_relaxed(gc->mask_cache, mvebu_gpioreg_level_mask(mvchip));
+	ct->mask_cache_priv |= mask;
+	writel_relaxed(ct->mask_cache_priv, mvebu_gpioreg_level_mask(mvchip));
 	irq_gc_unlock(gc);
 }
 
@@ -450,9 +442,9 @@ static int mvebu_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 	return 0;
 }
 
-static void mvebu_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
+static void mvebu_gpio_irq_handler(struct irq_desc *desc)
 {
-	struct mvebu_gpio_chip *mvchip = irq_get_handler_data(irq);
+	struct mvebu_gpio_chip *mvchip = irq_desc_get_handler_data(desc);
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	u32 cause, type;
 	int i;
@@ -496,8 +488,7 @@ static void mvebu_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 
 static void mvebu_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 {
-	struct mvebu_gpio_chip *mvchip =
-		container_of(chip, struct mvebu_gpio_chip, chip);
+	struct mvebu_gpio_chip *mvchip = gpiochip_get_data(chip);
 	u32 out, io_conf, blink, in_pol, data_in, cause, edg_msk, lvl_msk;
 	int i;
 
@@ -700,9 +691,9 @@ static int mvebu_gpio_probe(struct platform_device *pdev)
 
 	mvchip->soc_variant = soc_variant;
 	mvchip->chip.label = dev_name(&pdev->dev);
-	mvchip->chip.dev = &pdev->dev;
-	mvchip->chip.request = mvebu_gpio_request;
-	mvchip->chip.free = mvebu_gpio_free;
+	mvchip->chip.parent = &pdev->dev;
+	mvchip->chip.request = gpiochip_generic_request;
+	mvchip->chip.free = gpiochip_generic_free;
 	mvchip->chip.direction_input = mvebu_gpio_direction_input;
 	mvchip->chip.get = mvebu_gpio_get;
 	mvchip->chip.direction_output = mvebu_gpio_direction_output;
@@ -765,7 +756,7 @@ static int mvebu_gpio_probe(struct platform_device *pdev)
 		BUG();
 	}
 
-	gpiochip_add(&mvchip->chip);
+	devm_gpiochip_add_data(&pdev->dev, &mvchip->chip, mvchip);
 
 	/* Some gpio controllers do not provide irq support */
 	if (!of_irq_count(np))
@@ -779,23 +770,21 @@ static int mvebu_gpio_probe(struct platform_device *pdev)
 
 		if (irq < 0)
 			continue;
-		irq_set_handler_data(irq, mvchip);
-		irq_set_chained_handler(irq, mvebu_gpio_irq_handler);
+		irq_set_chained_handler_and_data(irq, mvebu_gpio_irq_handler,
+						 mvchip);
 	}
 
 	mvchip->irqbase = irq_alloc_descs(-1, 0, ngpios, -1);
 	if (mvchip->irqbase < 0) {
 		dev_err(&pdev->dev, "no irqs\n");
-		err = mvchip->irqbase;
-		goto err_gpiochip_add;
+		return mvchip->irqbase;
 	}
 
 	gc = irq_alloc_generic_chip("mvebu_gpio_irq", 2, mvchip->irqbase,
 				    mvchip->membase, handle_level_irq);
 	if (!gc) {
 		dev_err(&pdev->dev, "Cannot allocate generic irq_chip\n");
-		err = -ENOMEM;
-		goto err_gpiochip_add;
+		return -ENOMEM;
 	}
 
 	gc->private = mvchip;
@@ -836,9 +825,6 @@ err_generic_chip:
 	irq_remove_generic_chip(gc, IRQ_MSK(ngpios), IRQ_NOREQUEST,
 				IRQ_LEVEL | IRQ_NOPROBE);
 	kfree(gc);
-
-err_gpiochip_add:
-	gpiochip_remove(&mvchip->chip);
 
 	return err;
 }

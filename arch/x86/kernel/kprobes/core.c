@@ -49,6 +49,7 @@
 #include <linux/kdebug.h>
 #include <linux/kallsyms.h>
 #include <linux/ftrace.h>
+#include <linux/frame.h>
 
 #include <asm/cacheflush.h>
 #include <asm/desc.h>
@@ -354,6 +355,7 @@ int __copy_instruction(u8 *dest, u8 *src)
 {
 	struct insn insn;
 	kprobe_opcode_t buf[MAX_INSN_SIZE];
+	int length;
 	unsigned long recovered_insn =
 		recover_probed_instruction(buf, (unsigned long)src);
 
@@ -361,16 +363,18 @@ int __copy_instruction(u8 *dest, u8 *src)
 		return 0;
 	kernel_insn_init(&insn, (void *)recovered_insn, MAX_INSN_SIZE);
 	insn_get_length(&insn);
+	length = insn.length;
+
 	/* Another subsystem puts a breakpoint, failed to recover */
 	if (insn.opcode.bytes[0] == BREAKPOINT_INSTRUCTION)
 		return 0;
-	memcpy(dest, insn.kaddr, insn.length);
+	memcpy(dest, insn.kaddr, length);
 
 #ifdef CONFIG_X86_64
 	if (insn_rip_relative(&insn)) {
 		s64 newdisp;
 		u8 *disp;
-		kernel_insn_init(&insn, dest, insn.length);
+		kernel_insn_init(&insn, dest, length);
 		insn_get_displacement(&insn);
 		/*
 		 * The copied instruction uses the %rip-relative addressing
@@ -394,7 +398,7 @@ int __copy_instruction(u8 *dest, u8 *src)
 		*(s32 *) disp = (s32) newdisp;
 	}
 #endif
-	return insn.length;
+	return length;
 }
 
 static int arch_copy_kprobe(struct kprobe *p)
@@ -602,7 +606,7 @@ int kprobe_int3_handler(struct pt_regs *regs)
 	struct kprobe *p;
 	struct kprobe_ctlblk *kcb;
 
-	if (user_mode_vm(regs))
+	if (user_mode(regs))
 		return 0;
 
 	addr = (kprobe_opcode_t *)(regs->ip - sizeof(kprobe_opcode_t));
@@ -668,39 +672,39 @@ NOKPROBE_SYMBOL(kprobe_int3_handler);
  * When a retprobed function returns, this code saves registers and
  * calls trampoline_handler() runs, which calls the kretprobe's handler.
  */
-static void __used kretprobe_trampoline_holder(void)
-{
-	asm volatile (
-			".global kretprobe_trampoline\n"
-			"kretprobe_trampoline: \n"
+asm(
+	".global kretprobe_trampoline\n"
+	".type kretprobe_trampoline, @function\n"
+	"kretprobe_trampoline:\n"
 #ifdef CONFIG_X86_64
-			/* We don't bother saving the ss register */
-			"	pushq %rsp\n"
-			"	pushfq\n"
-			SAVE_REGS_STRING
-			"	movq %rsp, %rdi\n"
-			"	call trampoline_handler\n"
-			/* Replace saved sp with true return address. */
-			"	movq %rax, 152(%rsp)\n"
-			RESTORE_REGS_STRING
-			"	popfq\n"
+	/* We don't bother saving the ss register */
+	"	pushq %rsp\n"
+	"	pushfq\n"
+	SAVE_REGS_STRING
+	"	movq %rsp, %rdi\n"
+	"	call trampoline_handler\n"
+	/* Replace saved sp with true return address. */
+	"	movq %rax, 152(%rsp)\n"
+	RESTORE_REGS_STRING
+	"	popfq\n"
 #else
-			"	pushf\n"
-			SAVE_REGS_STRING
-			"	movl %esp, %eax\n"
-			"	call trampoline_handler\n"
-			/* Move flags to cs */
-			"	movl 56(%esp), %edx\n"
-			"	movl %edx, 52(%esp)\n"
-			/* Replace saved flags with true return address. */
-			"	movl %eax, 56(%esp)\n"
-			RESTORE_REGS_STRING
-			"	popf\n"
+	"	pushf\n"
+	SAVE_REGS_STRING
+	"	movl %esp, %eax\n"
+	"	call trampoline_handler\n"
+	/* Move flags to cs */
+	"	movl 56(%esp), %edx\n"
+	"	movl %edx, 52(%esp)\n"
+	/* Replace saved flags with true return address. */
+	"	movl %eax, 56(%esp)\n"
+	RESTORE_REGS_STRING
+	"	popf\n"
 #endif
-			"	ret\n");
-}
-NOKPROBE_SYMBOL(kretprobe_trampoline_holder);
+	"	ret\n"
+	".size kretprobe_trampoline, .-kretprobe_trampoline\n"
+);
 NOKPROBE_SYMBOL(kretprobe_trampoline);
+STACK_FRAME_NON_STANDARD(kretprobe_trampoline);
 
 /*
  * Called from kretprobe_trampoline
@@ -985,7 +989,7 @@ int kprobe_fault_handler(struct pt_regs *regs, int trapnr)
 		 * In case the user-specified fault handler returned
 		 * zero, try to fix up.
 		 */
-		if (fixup_exception(regs))
+		if (fixup_exception(regs, trapnr))
 			return 1;
 
 		/*
@@ -1007,7 +1011,7 @@ int kprobe_exceptions_notify(struct notifier_block *self, unsigned long val,
 	struct die_args *args = data;
 	int ret = NOTIFY_DONE;
 
-	if (args->regs && user_mode_vm(args->regs))
+	if (args->regs && user_mode(args->regs))
 		return ret;
 
 	if (val == DIE_GPF) {

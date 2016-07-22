@@ -279,17 +279,17 @@ nfs3_list_one_acl(struct inode *inode, int type, const char *name, void *data,
 ssize_t
 nfs3_listxattr(struct dentry *dentry, char *data, size_t size)
 {
-	struct inode *inode = dentry->d_inode;
+	struct inode *inode = d_inode(dentry);
 	ssize_t result = 0;
 	int error;
 
 	error = nfs3_list_one_acl(inode, ACL_TYPE_ACCESS,
-			POSIX_ACL_XATTR_ACCESS, data, size, &result);
+			XATTR_NAME_POSIX_ACL_ACCESS, data, size, &result);
 	if (error)
 		return error;
 
 	error = nfs3_list_one_acl(inode, ACL_TYPE_DEFAULT,
-			POSIX_ACL_XATTR_DEFAULT, data, size, &result);
+			XATTR_NAME_POSIX_ACL_DEFAULT, data, size, &result);
 	if (error)
 		return error;
 	return result;

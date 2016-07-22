@@ -16,6 +16,7 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/of.h>
+#include <linux/of_gpio.h>
 #include <linux/phy.h>
 #include <linux/phy_fixed.h>
 #include <linux/ethtool.h>
@@ -64,6 +65,13 @@ struct dsa_chip_data {
 	 * NULL if there is only one switch chip.
 	 */
 	s8		*rtable;
+
+	/*
+	 * A switch may have a GPIO line tied to its reset pin. Parse
+	 * this from the device tree, and use it before performing
+	 * switch soft reset.
+	 */
+	struct gpio_desc *reset;
 };
 
 struct dsa_platform_data {
@@ -72,6 +80,7 @@ struct dsa_platform_data {
 	 * to the root switch chip of the tree.
 	 */
 	struct device	*netdev;
+	struct net_device *of_netdev;
 
 	/*
 	 * Info structs describing each of the switch chips
@@ -108,13 +117,6 @@ struct dsa_switch_tree {
 	s8			cpu_port;
 
 	/*
-	 * Link state polling.
-	 */
-	int			link_poll_needed;
-	struct work_struct	link_poll_work;
-	struct timer_list	link_poll_timer;
-
-	/*
 	 * Data for the individual switch chips.
 	 */
 	struct dsa_switch	*ds[DSA_MAX_SWITCHES];
@@ -126,6 +128,11 @@ struct dsa_switch {
 	 */
 	struct dsa_switch_tree	*dst;
 	int			index;
+
+	/*
+	 * Tagging protocol understood by this switch
+	 */
+	enum dsa_tag_protocol	tag_protocol;
 
 	/*
 	 * Configuration data for this switch.
@@ -165,6 +172,16 @@ static inline bool dsa_is_cpu_port(struct dsa_switch *ds, int p)
 	return !!(ds->index == ds->dst->cpu_switch && p == ds->dst->cpu_port);
 }
 
+static inline bool dsa_is_dsa_port(struct dsa_switch *ds, int p)
+{
+	return !!((ds->dsa_port_mask) & (1 << p));
+}
+
+static inline bool dsa_is_port_initialized(struct dsa_switch *ds, int p)
+{
+	return ds->phys_port_mask & (1 << p) && ds->ports[p];
+}
+
 static inline u8 dsa_upstream_port(struct dsa_switch *ds)
 {
 	struct dsa_switch_tree *dst = ds->dst;
@@ -180,6 +197,11 @@ static inline u8 dsa_upstream_port(struct dsa_switch *ds)
 	else
 		return ds->pd->rtable[dst->cpu_switch];
 }
+
+struct switchdev_trans;
+struct switchdev_obj;
+struct switchdev_obj_port_fdb;
+struct switchdev_obj_port_vlan;
 
 struct dsa_switch_driver {
 	struct list_head	list;
@@ -201,11 +223,6 @@ struct dsa_switch_driver {
 	int	(*phy_read)(struct dsa_switch *ds, int port, int regnum);
 	int	(*phy_write)(struct dsa_switch *ds, int port,
 			     int regnum, u16 val);
-
-	/*
-	 * Link state polling and IRQ handling.
-	 */
-	void	(*poll_link)(struct dsa_switch *ds);
 
 	/*
 	 * Link state adjustment (called from libphy)
@@ -275,6 +292,47 @@ struct dsa_switch_driver {
 	int	(*get_regs_len)(struct dsa_switch *ds, int port);
 	void	(*get_regs)(struct dsa_switch *ds, int port,
 			    struct ethtool_regs *regs, void *p);
+
+	/*
+	 * Bridge integration
+	 */
+	int	(*port_bridge_join)(struct dsa_switch *ds, int port,
+				    struct net_device *bridge);
+	void	(*port_bridge_leave)(struct dsa_switch *ds, int port);
+	int	(*port_stp_update)(struct dsa_switch *ds, int port,
+				   u8 state);
+
+	/*
+	 * VLAN support
+	 */
+	int	(*port_vlan_filtering)(struct dsa_switch *ds, int port,
+				       bool vlan_filtering);
+	int	(*port_vlan_prepare)(struct dsa_switch *ds, int port,
+				     const struct switchdev_obj_port_vlan *vlan,
+				     struct switchdev_trans *trans);
+	int	(*port_vlan_add)(struct dsa_switch *ds, int port,
+				 const struct switchdev_obj_port_vlan *vlan,
+				 struct switchdev_trans *trans);
+	int	(*port_vlan_del)(struct dsa_switch *ds, int port,
+				 const struct switchdev_obj_port_vlan *vlan);
+	int	(*port_vlan_dump)(struct dsa_switch *ds, int port,
+				  struct switchdev_obj_port_vlan *vlan,
+				  int (*cb)(struct switchdev_obj *obj));
+
+	/*
+	 * Forwarding database
+	 */
+	int	(*port_fdb_prepare)(struct dsa_switch *ds, int port,
+				    const struct switchdev_obj_port_fdb *fdb,
+				    struct switchdev_trans *trans);
+	int	(*port_fdb_add)(struct dsa_switch *ds, int port,
+				const struct switchdev_obj_port_fdb *fdb,
+				struct switchdev_trans *trans);
+	int	(*port_fdb_del)(struct dsa_switch *ds, int port,
+				const struct switchdev_obj_port_fdb *fdb);
+	int	(*port_fdb_dump)(struct dsa_switch *ds, int port,
+				 struct switchdev_obj_port_fdb *fdb,
+				 int (*cb)(struct switchdev_obj *obj));
 };
 
 void register_switch_driver(struct dsa_switch_driver *type);

@@ -310,7 +310,7 @@ check_smb_hdr(struct smb_hdr *smb)
 }
 
 int
-checkSMB(char *buf, unsigned int total_read)
+checkSMB(char *buf, unsigned int total_read, struct TCP_Server_Info *server)
 {
 	struct smb_hdr *smb = (struct smb_hdr *)buf;
 	__u32 rfclen = be32_to_cpu(smb->smb_buf_length);
@@ -473,7 +473,7 @@ is_valid_oplock_break(char *buffer, struct TCP_Server_Info *srv)
 					continue;
 
 				cifs_dbg(FYI, "file id match, oplock break\n");
-				pCifsInode = CIFS_I(netfile->dentry->d_inode);
+				pCifsInode = CIFS_I(d_inode(netfile->dentry));
 
 				set_bit(CIFS_INODE_PENDING_OPLOCK_BREAK,
 					&pCifsInode->flags);

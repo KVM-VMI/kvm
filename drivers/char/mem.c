@@ -26,7 +26,7 @@
 #include <linux/pfn.h>
 #include <linux/export.h>
 #include <linux/io.h>
-#include <linux/aio.h>
+#include <linux/uio.h>
 
 #include <linux/uaccess.h>
 
@@ -607,16 +607,16 @@ static ssize_t write_null(struct file *file, const char __user *buf,
 	return count;
 }
 
-static ssize_t aio_read_null(struct kiocb *iocb, const struct iovec *iov,
-			     unsigned long nr_segs, loff_t pos)
+static ssize_t read_iter_null(struct kiocb *iocb, struct iov_iter *to)
 {
 	return 0;
 }
 
-static ssize_t aio_write_null(struct kiocb *iocb, const struct iovec *iov,
-			      unsigned long nr_segs, loff_t pos)
+static ssize_t write_iter_null(struct kiocb *iocb, struct iov_iter *from)
 {
-	return iov_length(iov, nr_segs);
+	size_t count = iov_iter_count(from);
+	iov_iter_advance(from, count);
+	return count;
 }
 
 static int pipe_to_null(struct pipe_inode_info *info, struct pipe_buffer *buf,
@@ -689,13 +689,13 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 {
 	loff_t ret;
 
-	mutex_lock(&file_inode(file)->i_mutex);
+	inode_lock(file_inode(file));
 	switch (orig) {
 	case SEEK_CUR:
 		offset += file->f_pos;
 	case SEEK_SET:
 		/* to avoid userland mistaking f_pos=-9 as -EBADF=-9 */
-		if (IS_ERR_VALUE((unsigned long long)offset)) {
+		if ((unsigned long long)offset >= -MAX_ERRNO) {
 			ret = -EOVERFLOW;
 			break;
 		}
@@ -706,7 +706,7 @@ static loff_t memory_lseek(struct file *file, loff_t offset, int orig)
 	default:
 		ret = -EINVAL;
 	}
-	mutex_unlock(&file_inode(file)->i_mutex);
+	inode_unlock(file_inode(file));
 	return ret;
 }
 
@@ -718,7 +718,7 @@ static int open_port(struct inode *inode, struct file *filp)
 #define zero_lseek	null_lseek
 #define full_lseek      null_lseek
 #define write_zero	write_null
-#define aio_write_zero	aio_write_null
+#define write_iter_zero	write_iter_null
 #define open_mem	open_port
 #define open_kmem	open_mem
 
@@ -750,8 +750,8 @@ static const struct file_operations null_fops = {
 	.llseek		= null_lseek,
 	.read		= read_null,
 	.write		= write_null,
-	.aio_read	= aio_read_null,
-	.aio_write	= aio_write_null,
+	.read_iter	= read_iter_null,
+	.write_iter	= write_iter_null,
 	.splice_write	= splice_write_null,
 };
 
@@ -764,10 +764,9 @@ static const struct file_operations __maybe_unused port_fops = {
 
 static const struct file_operations zero_fops = {
 	.llseek		= zero_lseek,
-	.read		= new_sync_read,
 	.write		= write_zero,
 	.read_iter	= read_iter_zero,
-	.aio_write	= aio_write_zero,
+	.write_iter	= write_iter_zero,
 	.mmap		= mmap_zero,
 #ifndef CONFIG_MMU
 	.mmap_capabilities = zero_mmap_capabilities,
@@ -776,7 +775,6 @@ static const struct file_operations zero_fops = {
 
 static const struct file_operations full_fops = {
 	.llseek		= full_lseek,
-	.read		= new_sync_read,
 	.read_iter	= read_iter_zero,
 	.write		= write_full,
 };

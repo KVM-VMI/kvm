@@ -6,7 +6,8 @@
 # for more details.
 #
 #
-KASAN_SANITIZE := n
+KASAN_SANITIZE			:= n
+OBJECT_FILES_NON_STANDARD	:= y
 
 always := realmode.bin realmode.relocs
 
@@ -70,3 +71,4 @@ KBUILD_CFLAGS	:= $(LINUXINCLUDE) $(REALMODE_CFLAGS) -D_SETUP -D_WAKEUP \
 		   -I$(srctree)/arch/x86/boot
 KBUILD_AFLAGS	:= $(KBUILD_CFLAGS) -D__ASSEMBLY__
 GCOV_PROFILE := n
+UBSAN_SANITIZE := n

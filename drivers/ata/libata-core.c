@@ -50,6 +50,7 @@
 #include <linux/blkdev.h>
 #include <linux/delay.h>
 #include <linux/timer.h>
+#include <linux/time.h>
 #include <linux/interrupt.h>
 #include <linux/completion.h>
 #include <linux/suspend.h>
@@ -69,6 +70,9 @@
 #include <linux/ratelimit.h>
 #include <linux/pm_runtime.h>
 #include <linux/platform_device.h>
+
+#define CREATE_TRACE_POINTS
+#include <trace/events/libata.h>
 
 #include "libata.h"
 #include "libata-transport.h"
@@ -2457,6 +2461,10 @@ int ata_dev_configure(struct ata_device *dev)
 		dev->max_sectors = min_t(unsigned int, ATA_MAX_SECTORS_128,
 					 dev->max_sectors);
 
+	if (dev->horkage & ATA_HORKAGE_MAX_SEC_1024)
+		dev->max_sectors = min_t(unsigned int, ATA_MAX_SECTORS_1024,
+					 dev->max_sectors);
+
 	if (dev->horkage & ATA_HORKAGE_MAX_SEC_LBA48)
 		dev->max_sectors = ATA_MAX_SECTORS_LBA48;
 
@@ -3590,7 +3598,8 @@ int sata_link_resume(struct ata_link *link, const unsigned long *params,
 		 * immediately after resuming.  Delay 200ms before
 		 * debouncing.
 		 */
-		ata_msleep(link->ap, 200);
+		if (!(link->flags & ATA_LFLAG_NO_DB_DELAY))
+			ata_msleep(link->ap, 200);
 
 		/* is SControl restored correctly? */
 		if ((rc = sata_scr_read(link, SCR_CONTROL, &scontrol)))
@@ -3633,7 +3642,7 @@ int sata_link_resume(struct ata_link *link, const unsigned long *params,
  *	EH context.
  *
  *	RETURNS:
- *	0 on succes, -errno otherwise.
+ *	0 on success, -errno otherwise.
  */
 int sata_link_scr_lpm(struct ata_link *link, enum ata_lpm_policy policy,
 		      bool spm_wakeup)
@@ -4116,6 +4125,7 @@ static const struct ata_blacklist_entry ata_device_blacklist [] = {
 	{ "SAMSUNG CD-ROM SN-124", "N001",	ATA_HORKAGE_NODMA },
 	{ "Seagate STT20000A", NULL,		ATA_HORKAGE_NODMA },
 	{ " 2GB ATA Flash Disk", "ADMA428M",	ATA_HORKAGE_NODMA },
+	{ "VRFDFC22048UCHC-TE*", NULL,		ATA_HORKAGE_NODMA },
 	/* Odd clown on sil3726/4726 PMPs */
 	{ "Config  Disk",	NULL,		ATA_HORKAGE_DISABLE },
 
@@ -4124,6 +4134,12 @@ static const struct ata_blacklist_entry ata_device_blacklist [] = {
 	{ "QUANTUM DAT    DAT72-000", NULL,	ATA_HORKAGE_ATAPI_MOD16_DMA },
 	{ "Slimtype DVD A  DS8A8SH", NULL,	ATA_HORKAGE_MAX_SEC_LBA48 },
 	{ "Slimtype DVD A  DS8A9SH", NULL,	ATA_HORKAGE_MAX_SEC_LBA48 },
+
+	/*
+	 * Causes silent data corruption with higher max sects.
+	 * http://lkml.kernel.org/g/x49wpy40ysk.fsf@segfault.boston.devel.redhat.com
+	 */
+	{ "ST380013AS",		"3.20",		ATA_HORKAGE_MAX_SEC_1024 },
 
 	/* Devices we expect to fail diagnostics */
 
@@ -4153,9 +4169,10 @@ static const struct ata_blacklist_entry ata_device_blacklist [] = {
 	{ "ST3320[68]13AS",	"SD1[5-9]",	ATA_HORKAGE_NONCQ |
 						ATA_HORKAGE_FIRMWARE_WARN },
 
-	/* Seagate Momentus SpinPoint M8 seem to have FPMDA_AA issues */
+	/* drives which fail FPDMA_AA activation (some may freeze afterwards) */
 	{ "ST1000LM024 HN-M101MBB", "2AR10001",	ATA_HORKAGE_BROKEN_FPDMA_AA },
 	{ "ST1000LM024 HN-M101MBB", "2BA30001",	ATA_HORKAGE_BROKEN_FPDMA_AA },
+	{ "VB0250EAVER",	"HPG7",		ATA_HORKAGE_BROKEN_FPDMA_AA },
 
 	/* Blacklist entries taken from Silicon Image 3124/3132
 	   Windows driver .inf file - also several Linux problem reports */
@@ -4204,9 +4221,23 @@ static const struct ata_blacklist_entry ata_device_blacklist [] = {
 	{ "PIONEER DVD-RW  DVR-216D",	NULL,	ATA_HORKAGE_NOSETXFER },
 
 	/* devices that don't properly handle queued TRIM commands */
-	{ "Micron_M[56]*",		NULL,	ATA_HORKAGE_NO_NCQ_TRIM |
+	{ "Micron_M500_*",		NULL,	ATA_HORKAGE_NO_NCQ_TRIM |
 						ATA_HORKAGE_ZERO_AFTER_TRIM, },
-	{ "Crucial_CT*SSD*",		NULL,	ATA_HORKAGE_NO_NCQ_TRIM, },
+	{ "Crucial_CT*M500*",		NULL,	ATA_HORKAGE_NO_NCQ_TRIM |
+						ATA_HORKAGE_ZERO_AFTER_TRIM, },
+	{ "Micron_M5[15]0_*",		"MU01",	ATA_HORKAGE_NO_NCQ_TRIM |
+						ATA_HORKAGE_ZERO_AFTER_TRIM, },
+	{ "Crucial_CT*M550*",		"MU01",	ATA_HORKAGE_NO_NCQ_TRIM |
+						ATA_HORKAGE_ZERO_AFTER_TRIM, },
+	{ "Crucial_CT*MX100*",		"MU01",	ATA_HORKAGE_NO_NCQ_TRIM |
+						ATA_HORKAGE_ZERO_AFTER_TRIM, },
+	{ "Samsung SSD 8*",		NULL,	ATA_HORKAGE_NO_NCQ_TRIM |
+						ATA_HORKAGE_ZERO_AFTER_TRIM, },
+	{ "FCCT*M500*",			NULL,	ATA_HORKAGE_NO_NCQ_TRIM |
+						ATA_HORKAGE_ZERO_AFTER_TRIM, },
+
+	/* devices that don't properly handle TRIM commands */
+	{ "SuperSSpeed S238*",		NULL,	ATA_HORKAGE_NOTRIM, },
 
 	/*
 	 * As defined, the DRAT (Deterministic Read After Trim) and RZAT
@@ -4226,6 +4257,8 @@ static const struct ata_blacklist_entry ata_device_blacklist [] = {
 	 */
 	{ "INTEL*SSDSC2MH*",		NULL,	0, },
 
+	{ "Micron*",			NULL,	ATA_HORKAGE_ZERO_AFTER_TRIM, },
+	{ "Crucial*",			NULL,	ATA_HORKAGE_ZERO_AFTER_TRIM, },
 	{ "INTEL*SSD*", 		NULL,	ATA_HORKAGE_ZERO_AFTER_TRIM, },
 	{ "SSD*INTEL*",			NULL,	ATA_HORKAGE_ZERO_AFTER_TRIM, },
 	{ "Samsung*SSD*",		NULL,	ATA_HORKAGE_ZERO_AFTER_TRIM, },
@@ -4469,7 +4502,8 @@ static unsigned int ata_dev_set_xfermode(struct ata_device *dev)
 	else /* In the ancient relic department - skip all of this */
 		return 0;
 
-	err_mask = ata_exec_internal(dev, &tf, NULL, DMA_NONE, NULL, 0, 0);
+	/* On some disks, this command causes spin-up, so we need longer timeout */
+	err_mask = ata_exec_internal(dev, &tf, NULL, DMA_NONE, NULL, 0, 15000);
 
 	DPRINTK("EXIT, err_mask=%x\n", err_mask);
 	return err_mask;
@@ -4722,6 +4756,7 @@ void swap_buf_le16(u16 *buf, unsigned int buf_words)
 /**
  *	ata_qc_new_init - Request an available ATA command, and initialize it
  *	@dev: Device from whom we request an available command structure
+ *	@tag: tag
  *
  *	LOCKING:
  *	None.
@@ -4737,7 +4772,7 @@ struct ata_queued_cmd *ata_qc_new_init(struct ata_device *dev, int tag)
 		return NULL;
 
 	/* libsas case */
-	if (!ap->scsi_host) {
+	if (ap->flags & ATA_FLAG_SAS_HOST) {
 		tag = ata_sas_allocate_tag(ap);
 		if (tag < 0)
 			return NULL;
@@ -4776,7 +4811,7 @@ void ata_qc_free(struct ata_queued_cmd *qc)
 	tag = qc->tag;
 	if (likely(ata_tag_valid(tag))) {
 		qc->tag = ATA_TAG_POISON;
-		if (!ap->scsi_host)
+		if (ap->flags & ATA_FLAG_SAS_HOST)
 			ata_sas_free_tag(tag, ap);
 	}
 }
@@ -4886,6 +4921,7 @@ void ata_qc_complete(struct ata_queued_cmd *qc)
 		 */
 		if (unlikely(ata_tag_internal(qc->tag))) {
 			fill_result_tf(qc);
+			trace_ata_qc_complete_internal(qc);
 			__ata_qc_complete(qc);
 			return;
 		}
@@ -4896,6 +4932,7 @@ void ata_qc_complete(struct ata_queued_cmd *qc)
 		 */
 		if (unlikely(qc->flags & ATA_QCFLAG_FAILED)) {
 			fill_result_tf(qc);
+			trace_ata_qc_complete_failed(qc);
 			ata_qc_schedule_eh(qc);
 			return;
 		}
@@ -4906,6 +4943,7 @@ void ata_qc_complete(struct ata_queued_cmd *qc)
 		if (qc->flags & ATA_QCFLAG_RESULT_TF)
 			fill_result_tf(qc);
 
+		trace_ata_qc_complete_done(qc);
 		/* Some commands need post-processing after successful
 		 * completion.
 		 */
@@ -5053,7 +5091,7 @@ void ata_qc_issue(struct ata_queued_cmd *qc)
 	}
 
 	ap->ops->qc_prep(qc);
-
+	trace_ata_qc_issue(qc);
 	qc->err_mask |= ap->ops->qc_issue(qc);
 	if (unlikely(qc->err_mask))
 		goto err;
@@ -6188,6 +6226,7 @@ int ata_host_activate(struct ata_host *host, int irq,
 		      struct scsi_host_template *sht)
 {
 	int i, rc;
+	char *irq_desc;
 
 	rc = ata_host_start(host);
 	if (rc)
@@ -6199,8 +6238,14 @@ int ata_host_activate(struct ata_host *host, int irq,
 		return ata_host_register(host, sht);
 	}
 
+	irq_desc = devm_kasprintf(host->dev, GFP_KERNEL, "%s[%s]",
+				  dev_driver_string(host->dev),
+				  dev_name(host->dev));
+	if (!irq_desc)
+		return -ENOMEM;
+
 	rc = devm_request_irq(host->dev, irq, irq_handler, irq_flags,
-			      dev_name(host->dev), host);
+			      irq_desc, host);
 	if (rc)
 		return rc;
 
@@ -6421,12 +6466,7 @@ static int __init ata_parse_force_one(char **cur,
 				      struct ata_force_ent *force_ent,
 				      const char **reason)
 {
-	/* FIXME: Currently, there's no way to tag init const data and
-	 * using __initdata causes build failure on some versions of
-	 * gcc.  Once __initdataconst is implemented, add const to the
-	 * following structure.
-	 */
-	static struct ata_force_param force_tbl[] __initdata = {
+	static const struct ata_force_param force_tbl[] __initconst = {
 		{ "40c",	.cbl		= ATA_CBL_PATA40 },
 		{ "80c",	.cbl		= ATA_CBL_PATA80 },
 		{ "short40c",	.cbl		= ATA_CBL_PATA40_SHORT },
@@ -6437,6 +6477,8 @@ static int __init ata_parse_force_one(char **cur,
 		{ "3.0Gbps",	.spd_limit	= 2 },
 		{ "noncq",	.horkage_on	= ATA_HORKAGE_NONCQ },
 		{ "ncq",	.horkage_off	= ATA_HORKAGE_NONCQ },
+		{ "noncqtrim",	.horkage_on	= ATA_HORKAGE_NO_NCQ_TRIM },
+		{ "ncqtrim",	.horkage_off	= ATA_HORKAGE_NO_NCQ_TRIM },
 		{ "dump_id",	.horkage_on	= ATA_HORKAGE_DUMP_ID },
 		{ "pio0",	.xfer_mask	= 1 << (ATA_SHIFT_PIO + 0) },
 		{ "pio1",	.xfer_mask	= 1 << (ATA_SHIFT_PIO + 1) },
@@ -6665,7 +6707,12 @@ void ata_msleep(struct ata_port *ap, unsigned int msecs)
 	if (owns_eh)
 		ata_eh_release(ap);
 
-	msleep(msecs);
+	if (msecs < 20) {
+		unsigned long usecs = msecs * USEC_PER_MSEC;
+		usleep_range(usecs, usecs + 50);
+	} else {
+		msleep(msecs);
+	}
 
 	if (owns_eh)
 		ata_eh_acquire(ap);
@@ -6716,6 +6763,38 @@ u32 ata_wait_register(struct ata_port *ap, void __iomem *reg, u32 mask, u32 val,
 
 	return tmp;
 }
+
+/**
+ *	sata_lpm_ignore_phy_events - test if PHY event should be ignored
+ *	@link: Link receiving the event
+ *
+ *	Test whether the received PHY event has to be ignored or not.
+ *
+ *	LOCKING:
+ *	None:
+ *
+ *	RETURNS:
+ *	True if the event has to be ignored.
+ */
+bool sata_lpm_ignore_phy_events(struct ata_link *link)
+{
+	unsigned long lpm_timeout = link->last_lpm_change +
+				    msecs_to_jiffies(ATA_TMOUT_SPURIOUS_PHY);
+
+	/* if LPM is enabled, PHYRDY doesn't mean anything */
+	if (link->lpm_policy > ATA_LPM_MAX_POWER)
+		return true;
+
+	/* ignore the first PHY event after the LPM policy changed
+	 * as it is might be spurious
+	 */
+	if ((link->flags & ATA_LFLAG_CHANGED) &&
+	    time_before(jiffies, lpm_timeout))
+		return true;
+
+	return false;
+}
+EXPORT_SYMBOL_GPL(sata_lpm_ignore_phy_events);
 
 /*
  * Dummy port_ops
