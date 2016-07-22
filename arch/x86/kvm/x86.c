@@ -4061,10 +4061,6 @@ long kvm_arch_vm_ioctl(struct file *filp,
         r = nitro_set_syscall_trap(kvm, enabled);
         break;
 	}
-	case KVM_NITRO_UNSET_SYSCALL_TRAP: {
-		r = nitro_unset_syscall_trap(kvm);
-		break;
-	}
 	default:
 		r = kvm_vm_ioctl_assigned_device(kvm, ioctl, arg);
 	}
@@ -7438,12 +7434,8 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 	kvm_mmu_unload(vcpu);
 	vcpu_put(vcpu);
 
-<<<<<<< HEAD
-=======
 	nitro_destroy_vcpu_hook(vcpu);
 	
-	fx_free(vcpu);
->>>>>>> syscall trap
 	kvm_x86_ops->vcpu_free(vcpu);
 }
 
@@ -8460,9 +8452,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_intercepts);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_write_tsc_offset);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_ple_window);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pml_full);
-<<<<<<< HEAD
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pi_irte_update);
-=======
 
 int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 {
@@ -8479,4 +8469,3 @@ int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
         return 0;
 }
 EXPORT_SYMBOL_GPL(is_sysenter_sysexit);
->>>>>>> add detection of natural GP
