@@ -311,11 +311,11 @@ static int formula_fprintf(struct hist_entry *he, struct hist_entry *pair,
 }
 
 static int hists__add_entry(struct hists *hists,
-			    struct addr_location *al, u64 period,
-			    u64 weight, u64 transaction)
+			    struct addr_location *al,
+			    struct perf_sample *sample)
 {
-	if (__hists__add_entry(hists, al, NULL, NULL, NULL, period, weight,
-			       transaction, true) != NULL)
+	if (__hists__add_entry(hists, al, NULL, NULL, NULL,
+			       sample, true) != NULL)
 		return 0;
 	return -ENOMEM;
 }
@@ -328,6 +328,7 @@ static int diff__process_sample_event(struct perf_tool *tool __maybe_unused,
 {
 	struct addr_location al;
 	struct hists *hists = evsel__hists(evsel);
+	int ret = -1;
 
 	if (perf_event__preprocess_sample(event, machine, &al, sample) < 0) {
 		pr_warning("problem processing %d event, skipping it.\n",
@@ -335,10 +336,9 @@ static int diff__process_sample_event(struct perf_tool *tool __maybe_unused,
 		return -1;
 	}
 
-	if (hists__add_entry(hists, &al, sample->period,
-			     sample->weight, sample->transaction)) {
+	if (hists__add_entry(hists, &al, sample)) {
 		pr_warning("problem incrementing symbol period, skipping event\n");
-		return -1;
+		goto out_put;
 	}
 
 	/*
@@ -350,8 +350,10 @@ static int diff__process_sample_event(struct perf_tool *tool __maybe_unused,
 	hists->stats.total_period += sample->period;
 	if (!al.filtered)
 		hists->stats.total_non_filtered_period += sample->period;
-
-	return 0;
+	ret = 0;
+out_put:
+	addr_location__put(&al);
+	return ret;
 }
 
 static struct perf_tool tool = {
@@ -719,6 +721,9 @@ static void data_process(void)
 		if (verbose || data__files_cnt > 2)
 			data__fprintf();
 
+		/* Don't sort callchain for perf diff */
+		perf_evsel__reset_sample_bit(evsel_base, CALLCHAIN);
+
 		hists__process(hists_base);
 	}
 }
@@ -747,7 +752,7 @@ static int __cmd_diff(void)
 			goto out_delete;
 		}
 
-		ret = perf_session__process_events(d->session, &tool);
+		ret = perf_session__process_events(d->session);
 		if (ret) {
 			pr_err("Failed to process %s\n", d->file.path);
 			goto out_delete;
@@ -791,6 +796,8 @@ static const struct option options[] = {
 	OPT_BOOLEAN('D', "dump-raw-trace", &dump_trace,
 		    "dump raw trace in ASCII"),
 	OPT_BOOLEAN('f', "force", &force, "don't complain, do it"),
+	OPT_STRING(0, "kallsyms", &symbol_conf.kallsyms_name,
+		   "file", "kallsyms pathname"),
 	OPT_BOOLEAN('m', "modules", &symbol_conf.use_modules,
 		    "load module symbols - WARNING: use only with -k and LIVE kernel"),
 	OPT_STRING('d', "dsos", &symbol_conf.dso_list_str, "dso[,dso...]",
@@ -802,7 +809,7 @@ static const struct option options[] = {
 	OPT_STRING('s', "sort", &sort_order, "key[,key2...]",
 		   "sort by key(s): pid, comm, dso, symbol, parent, cpu, srcline, ..."
 		   " Please refer the man page for the complete list."),
-	OPT_STRING('t', "field-separator", &symbol_conf.field_sep, "separator",
+	OPT_STRING_NOEMPTY('t', "field-separator", &symbol_conf.field_sep, "separator",
 		   "separator for columns, no spaces will be added between "
 		   "columns '.' is reserved."),
 	OPT_STRING(0, "symfs", &symbol_conf.symfs, "directory",
@@ -1200,7 +1207,7 @@ static int ui_init(void)
 		BUG_ON(1);
 	}
 
-	list_add(&fmt->sort_list, &perf_hpp__sort_list);
+	perf_hpp__register_sort_field(fmt);
 	return 0;
 }
 
@@ -1257,8 +1264,6 @@ int cmd_diff(int argc, const char **argv, const char *prefix __maybe_unused)
 	if (ret < 0)
 		return ret;
 
-	perf_config(perf_default_config, NULL);
-
 	argc = parse_options(argc, argv, options, diff_usage, 0);
 
 	if (symbol__init(NULL) < 0)
@@ -1272,7 +1277,7 @@ int cmd_diff(int argc, const char **argv, const char *prefix __maybe_unused)
 
 	sort__mode = SORT_MODE__DIFF;
 
-	if (setup_sorting() < 0)
+	if (setup_sorting(NULL) < 0)
 		usage_with_options(diff_usage, options);
 
 	setup_pager();

@@ -11,6 +11,7 @@
 #include <linux/seq_file.h>
 #include <linux/delay.h>
 #include <linux/cpu.h>
+#include <asm/diag.h>
 #include <asm/elf.h>
 #include <asm/lowcore.h>
 #include <asm/param.h>
@@ -20,8 +21,10 @@ static DEFINE_PER_CPU(struct cpuid, cpu_id);
 
 void notrace cpu_relax(void)
 {
-	if (!smp_cpu_mtid && MACHINE_HAS_DIAG44)
+	if (!smp_cpu_mtid && MACHINE_HAS_DIAG44) {
+		diag_stat_inc(DIAG_STAT_X044);
 		asm volatile("diag 0,0,0x44");
+	}
 	barrier();
 }
 EXPORT_SYMBOL(cpu_relax);
@@ -41,6 +44,15 @@ void cpu_init(void)
 }
 
 /*
+ * cpu_have_feature - Test CPU features on module initialization
+ */
+int cpu_have_feature(unsigned int num)
+{
+	return elf_hwcap & (1UL << num);
+}
+EXPORT_SYMBOL(cpu_have_feature);
+
+/*
  * show_cpuinfo - Get information on one CPU for use by procfs.
  */
 static int show_cpuinfo(struct seq_file *m, void *v)
@@ -48,6 +60,9 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	static const char *hwcap_str[] = {
 		"esan3", "zarch", "stfle", "msa", "ldisp", "eimm", "dfp",
 		"edat", "etf3eh", "highgprs", "te", "vx"
+	};
+	static const char * const int_hwcap_str[] = {
+		"sie"
 	};
 	unsigned long n = (unsigned long) v - 1;
 	int i;
@@ -63,6 +78,9 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		for (i = 0; i < ARRAY_SIZE(hwcap_str); i++)
 			if (hwcap_str[i] && (elf_hwcap & (1UL << i)))
 				seq_printf(m, "%s ", hwcap_str[i]);
+		for (i = 0; i < ARRAY_SIZE(int_hwcap_str); i++)
+			if (int_hwcap_str[i] && (int_hwcap & (1UL << i)))
+				seq_printf(m, "%s ", int_hwcap_str[i]);
 		seq_puts(m, "\n");
 		show_cacheinfo(m);
 	}

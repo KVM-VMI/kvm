@@ -63,6 +63,10 @@ mark_free(struct i915_vma *vma, struct list_head *unwind)
  *
  * This function is used by the object/vma binding code.
  *
+ * Since this function is only used to free up virtual address space it only
+ * ignores pinned vmas, and not object where the backing storage itself is
+ * pinned. Hence obj->pages_pin_count does not protect against eviction.
+ *
  * To clarify: This is for freeing up virtual address space, not for freeing
  * memory in e.g. the shrinker.
  */
@@ -195,6 +199,45 @@ found:
 	return ret;
 }
 
+int
+i915_gem_evict_for_vma(struct i915_vma *target)
+{
+	struct drm_mm_node *node, *next;
+
+	list_for_each_entry_safe(node, next,
+			&target->vm->mm.head_node.node_list,
+			node_list) {
+		struct i915_vma *vma;
+		int ret;
+
+		if (node->start + node->size <= target->node.start)
+			continue;
+		if (node->start >= target->node.start + target->node.size)
+			break;
+
+		vma = container_of(node, typeof(*vma), node);
+
+		if (vma->pin_count) {
+			if (!vma->exec_entry || (vma->pin_count > 1))
+				/* Object is pinned for some other use */
+				return -EBUSY;
+
+			/* We need to evict a buffer in the same batch */
+			if (vma->exec_entry->flags & EXEC_OBJECT_PINNED)
+				/* Overlapping fixed objects in the same batch */
+				return -EINVAL;
+
+			return -ENOSPC;
+		}
+
+		ret = i915_vma_unbind(vma);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 /**
  * i915_gem_evict_vm - Evict all idle vmas from a vm
  * @vm: Address space to cleanse
@@ -230,51 +273,6 @@ int i915_gem_evict_vm(struct i915_address_space *vm, bool do_idle)
 	list_for_each_entry_safe(vma, next, &vm->inactive_list, mm_list)
 		if (vma->pin_count == 0)
 			WARN_ON(i915_vma_unbind(vma));
-
-	return 0;
-}
-
-/**
- * i915_gem_evict_everything - Try to evict all objects
- * @dev: Device to evict objects for
- *
- * This functions tries to evict all gem objects from all address spaces. Used
- * by the shrinker as a last-ditch effort and for suspend, before releasing the
- * backing storage of all unbound objects.
- */
-int
-i915_gem_evict_everything(struct drm_device *dev)
-{
-	struct drm_i915_private *dev_priv = dev->dev_private;
-	struct i915_address_space *vm, *v;
-	bool lists_empty = true;
-	int ret;
-
-	list_for_each_entry(vm, &dev_priv->vm_list, global_link) {
-		lists_empty = (list_empty(&vm->inactive_list) &&
-			       list_empty(&vm->active_list));
-		if (!lists_empty)
-			lists_empty = false;
-	}
-
-	if (lists_empty)
-		return -ENOSPC;
-
-	trace_i915_gem_evict_everything(dev);
-
-	/* The gpu_idle will flush everything in the write domain to the
-	 * active list. Then we must move everything off the active list
-	 * with retire requests.
-	 */
-	ret = i915_gpu_idle(dev);
-	if (ret)
-		return ret;
-
-	i915_gem_retire_requests(dev);
-
-	/* Having flushed everything, unbind() should never raise an error */
-	list_for_each_entry_safe(vm, v, &dev_priv->vm_list, global_link)
-		WARN_ON(i915_gem_evict_vm(vm, false));
 
 	return 0;
 }

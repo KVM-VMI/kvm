@@ -176,7 +176,7 @@ void ttm_bo_add_to_lru(struct ttm_buffer_object *bo)
 		list_add_tail(&bo->lru, &man->lru);
 		kref_get(&bo->list_kref);
 
-		if (bo->ttm != NULL) {
+		if (bo->ttm && !(bo->ttm->page_flags & TTM_PAGE_FLAG_SG)) {
 			list_add_tail(&bo->swap, &bo->glob->swap_lru);
 			kref_get(&bo->list_kref);
 		}
@@ -227,6 +227,27 @@ void ttm_bo_del_sub_from_lru(struct ttm_buffer_object *bo)
 	ttm_bo_list_ref_sub(bo, put_count, true);
 }
 EXPORT_SYMBOL(ttm_bo_del_sub_from_lru);
+
+void ttm_bo_move_to_lru_tail(struct ttm_buffer_object *bo)
+{
+	struct ttm_bo_device *bdev = bo->bdev;
+	struct ttm_mem_type_manager *man;
+
+	lockdep_assert_held(&bo->resv->lock.base);
+
+	if (bo->mem.placement & TTM_PL_FLAG_NO_EVICT) {
+		list_del_init(&bo->swap);
+		list_del_init(&bo->lru);
+
+	} else {
+		if (bo->ttm && !(bo->ttm->page_flags & TTM_PAGE_FLAG_SG))
+			list_move_tail(&bo->swap, &bo->glob->swap_lru);
+
+		man = &bdev->man[bo->mem.mem_type];
+		list_move_tail(&bo->lru, &man->lru);
+	}
+}
+EXPORT_SYMBOL(ttm_bo_move_to_lru_tail);
 
 /*
  * Call bo->mutex locked.
@@ -882,6 +903,8 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		if (ret)
 			return ret;
 		man = &bdev->man[mem_type];
+		if (!man->has_type || !man->use_type)
+			continue;
 
 		type_ok = ttm_bo_mt_compatible(man, mem_type, place,
 						&cur_flags);
@@ -889,6 +912,7 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		if (!type_ok)
 			continue;
 
+		type_found = true;
 		cur_flags = ttm_bo_select_caching(man, bo->mem.placement,
 						  cur_flags);
 		/*
@@ -901,12 +925,10 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		if (mem_type == TTM_PL_SYSTEM)
 			break;
 
-		if (man->has_type && man->use_type) {
-			type_found = true;
-			ret = (*man->func->get_node)(man, bo, place, mem);
-			if (unlikely(ret))
-				return ret;
-		}
+		ret = (*man->func->get_node)(man, bo, place, mem);
+		if (unlikely(ret))
+			return ret;
+		
 		if (mem->mm_node)
 			break;
 	}
@@ -917,9 +939,6 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		return 0;
 	}
 
-	if (!type_found)
-		return -EINVAL;
-
 	for (i = 0; i < placement->num_busy_placement; ++i) {
 		const struct ttm_place *place = &placement->busy_placement[i];
 
@@ -927,11 +946,12 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		if (ret)
 			return ret;
 		man = &bdev->man[mem_type];
-		if (!man->has_type)
+		if (!man->has_type || !man->use_type)
 			continue;
 		if (!ttm_bo_mt_compatible(man, mem_type, place, &cur_flags))
 			continue;
 
+		type_found = true;
 		cur_flags = ttm_bo_select_caching(man, bo->mem.placement,
 						  cur_flags);
 		/*
@@ -957,8 +977,13 @@ int ttm_bo_mem_space(struct ttm_buffer_object *bo,
 		if (ret == -ERESTARTSYS)
 			has_erestartsys = true;
 	}
-	ret = (has_erestartsys) ? -ERESTARTSYS : -ENOMEM;
-	return ret;
+
+	if (!type_found) {
+		printk(KERN_ERR TTM_PFX "No compatible memory type found.\n");
+		return -EINVAL;
+	}
+
+	return (has_erestartsys) ? -ERESTARTSYS : -ENOMEM;
 }
 EXPORT_SYMBOL(ttm_bo_mem_space);
 
@@ -1166,8 +1191,14 @@ int ttm_bo_init(struct ttm_bo_device *bdev,
 	if (likely(!ret))
 		ret = ttm_bo_validate(bo, placement, interruptible, false);
 
-	if (!resv)
+	if (!resv) {
 		ttm_bo_unreserve(bo);
+
+	} else if (!(bo->mem.placement & TTM_PL_FLAG_NO_EVICT)) {
+		spin_lock(&bo->glob->lru_lock);
+		ttm_bo_add_to_lru(bo);
+		spin_unlock(&bo->glob->lru_lock);
+	}
 
 	if (unlikely(ret))
 		ttm_bo_unref(&bo);

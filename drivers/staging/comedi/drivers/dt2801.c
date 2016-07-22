@@ -68,17 +68,17 @@ Configuration options:
 /* Command modifiers (only used with read/write), EXTTRIG can be
    used with some other commands.
 */
-#define DT_MOD_DMA     (1<<4)
-#define DT_MOD_CONT    (1<<5)
-#define DT_MOD_EXTCLK  (1<<6)
-#define DT_MOD_EXTTRIG (1<<7)
+#define DT_MOD_DMA     BIT(4)
+#define DT_MOD_CONT    BIT(5)
+#define DT_MOD_EXTCLK  BIT(6)
+#define DT_MOD_EXTTRIG BIT(7)
 
 /* Bits in status register */
-#define DT_S_DATA_OUT_READY   (1<<0)
-#define DT_S_DATA_IN_FULL     (1<<1)
-#define DT_S_READY            (1<<2)
-#define DT_S_COMMAND          (1<<3)
-#define DT_S_COMPOSITE_ERROR  (1<<7)
+#define DT_S_DATA_OUT_READY   BIT(0)
+#define DT_S_DATA_IN_FULL     BIT(1)
+#define DT_S_READY            BIT(2)
+#define DT_S_COMMAND          BIT(3)
+#define DT_S_COMPOSITE_ERROR  BIT(7)
 
 /* registers */
 #define DT2801_DATA		0
@@ -126,7 +126,6 @@ static const struct comedi_lrange range_dt2801_ai_pgl_unipolar = {
 };
 
 struct dt2801_board {
-
 	const char *name;
 	int boardcode;
 	int ad_diff;
@@ -280,7 +279,7 @@ static int dt2801_writedata2(struct comedi_device *dev, unsigned int data)
 	ret = dt2801_writedata(dev, data & 0xff);
 	if (ret < 0)
 		return ret;
-	ret = dt2801_writedata(dev, (data >> 8));
+	ret = dt2801_writedata(dev, data >> 8);
 	if (ret < 0)
 		return ret;
 

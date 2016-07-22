@@ -5,6 +5,7 @@ menuconfig INFINIBAND
 	depends on NET
 	depends on INET
 	depends on m || IPV6 != m
+	select IRQ_POLL
 	---help---
 	  Core support for InfiniBand (IB).  Make sure to also select
 	  any protocols you wish to use as well as drivers for your
@@ -54,11 +55,17 @@ config INFINIBAND_ADDR_TRANS
 	depends on INFINIBAND
 	default y
 
+config INFINIBAND_ADDR_TRANS_CONFIGFS
+	bool
+	depends on INFINIBAND_ADDR_TRANS && CONFIGFS_FS && !(INFINIBAND=y && CONFIGFS_FS=m)
+	default y
+	---help---
+	  ConfigFS support for RDMA communication manager (CM).
+	  This allows the user to config the default GID type that the CM
+	  uses for each device, when initiaing new connections.
+
 source "drivers/infiniband/hw/mthca/Kconfig"
-source "drivers/infiniband/hw/ipath/Kconfig"
 source "drivers/infiniband/hw/qib/Kconfig"
-source "drivers/infiniband/hw/ehca/Kconfig"
-source "drivers/infiniband/hw/amso1100/Kconfig"
 source "drivers/infiniband/hw/cxgb3/Kconfig"
 source "drivers/infiniband/hw/cxgb4/Kconfig"
 source "drivers/infiniband/hw/mlx4/Kconfig"

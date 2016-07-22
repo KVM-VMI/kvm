@@ -195,8 +195,6 @@ void au0828_card_setup(struct au0828_dev *dev)
 
 	dprintk(1, "%s()\n", __func__);
 
-	dev->board = au0828_boards[dev->boardnr];
-
 	if (dev->i2c_rc == 0) {
 		dev->i2c_client.addr = 0xa0 >> 1;
 		tveeprom_read(&dev->i2c_client, eeprom, sizeof(eeprom));
@@ -230,6 +228,10 @@ void au0828_card_analog_fe_setup(struct au0828_dev *dev)
 				"au8522", 0x8e >> 1, NULL);
 		if (sd == NULL)
 			pr_err("analog subdev registration failed\n");
+#ifdef CONFIG_MEDIA_CONTROLLER
+		if (sd)
+			dev->decoder = &sd->entity;
+#endif
 	}
 
 	/* Setup tuners */

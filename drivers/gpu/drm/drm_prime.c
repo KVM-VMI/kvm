@@ -309,21 +309,19 @@ static const struct dma_buf_ops drm_gem_prime_dmabuf_ops =  {
  * Drivers can implement @gem_prime_export and @gem_prime_import in terms of
  * simpler APIs by using the helper functions @drm_gem_prime_export and
  * @drm_gem_prime_import.  These functions implement dma-buf support in terms of
- * five lower-level driver callbacks:
+ * six lower-level driver callbacks:
  *
  * Export callbacks:
  *
- *  - @gem_prime_pin (optional): prepare a GEM object for exporting
- *
- *  - @gem_prime_get_sg_table: provide a scatter/gather table of pinned pages
- *
- *  - @gem_prime_vmap: vmap a buffer exported by your driver
- *
- *  - @gem_prime_vunmap: vunmap a buffer exported by your driver
+ *  * @gem_prime_pin (optional): prepare a GEM object for exporting
+ *  * @gem_prime_get_sg_table: provide a scatter/gather table of pinned pages
+ *  * @gem_prime_vmap: vmap a buffer exported by your driver
+ *  * @gem_prime_vunmap: vunmap a buffer exported by your driver
+ *  * @gem_prime_mmap (optional): mmap a buffer exported by your driver
  *
  * Import callback:
  *
- *  - @gem_prime_import_sg_table (import): produce a GEM object from another
+ *  * @gem_prime_import_sg_table (import): produce a GEM object from another
  *    driver's scatter/gather table
  */
 
@@ -339,13 +337,17 @@ static const struct dma_buf_ops drm_gem_prime_dmabuf_ops =  {
 struct dma_buf *drm_gem_prime_export(struct drm_device *dev,
 				     struct drm_gem_object *obj, int flags)
 {
-	struct reservation_object *robj = NULL;
+	DEFINE_DMA_BUF_EXPORT_INFO(exp_info);
+
+	exp_info.ops = &drm_gem_prime_dmabuf_ops;
+	exp_info.size = obj->size;
+	exp_info.flags = flags;
+	exp_info.priv = obj;
 
 	if (dev->driver->gem_prime_res_obj)
-		robj = dev->driver->gem_prime_res_obj(obj);
+		exp_info.resv = dev->driver->gem_prime_res_obj(obj);
 
-	return dma_buf_export(obj, &drm_gem_prime_dmabuf_ops, obj->size,
-			      flags, robj);
+	return dma_buf_export(&exp_info);
 }
 EXPORT_SYMBOL(drm_gem_prime_export);
 
@@ -498,9 +500,6 @@ struct drm_gem_object *drm_gem_prime_import(struct drm_device *dev,
 	struct drm_gem_object *obj;
 	int ret;
 
-	if (!dev->driver->gem_prime_import_sg_table)
-		return ERR_PTR(-EINVAL);
-
 	if (dma_buf->ops == &drm_gem_prime_dmabuf_ops) {
 		obj = dma_buf->priv;
 		if (obj->dev == dev) {
@@ -512,6 +511,9 @@ struct drm_gem_object *drm_gem_prime_import(struct drm_device *dev,
 			return obj;
 		}
 	}
+
+	if (!dev->driver->gem_prime_import_sg_table)
+		return ERR_PTR(-EINVAL);
 
 	attach = dma_buf_attach(dma_buf, dev->dev);
 	if (IS_ERR(attach))

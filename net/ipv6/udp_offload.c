@@ -54,7 +54,7 @@ static struct sk_buff *udp6_ufo_fragment(struct sk_buff *skb,
 
 		/* Set the IPv6 fragment id if not set yet */
 		if (!skb_shinfo(skb)->ip6_frag_id)
-			ipv6_proxy_select_ident(skb);
+			ipv6_proxy_select_ident(dev_net(skb->dev), skb);
 
 		segs = NULL;
 		goto out;
@@ -81,11 +81,17 @@ static struct sk_buff *udp6_ufo_fragment(struct sk_buff *skb,
 		csum = skb_checksum(skb, 0, skb->len, 0);
 		uh->check = udp_v6_check(skb->len, &ipv6h->saddr,
 					  &ipv6h->daddr, csum);
-
 		if (uh->check == 0)
 			uh->check = CSUM_MANGLED_0;
 
 		skb->ip_summed = CHECKSUM_NONE;
+
+		/* If there is no outer header we can fake a checksum offload
+		 * due to the fact that we have already done the checksum in
+		 * software prior to segmenting the frame.
+		 */
+		if (!skb->encap_hdr_csum)
+			features |= NETIF_F_HW_CSUM;
 
 		/* Check if there is enough headroom to insert fragment header. */
 		tnl_hlen = skb_tnl_header_len(skb);
@@ -112,11 +118,9 @@ static struct sk_buff *udp6_ufo_fragment(struct sk_buff *skb,
 		fptr = (struct frag_hdr *)(skb_network_header(skb) + unfrag_ip6hlen);
 		fptr->nexthdr = nexthdr;
 		fptr->reserved = 0;
-		if (skb_shinfo(skb)->ip6_frag_id)
-			fptr->identification = skb_shinfo(skb)->ip6_frag_id;
-		else
-			ipv6_select_ident(fptr,
-					  (struct rt6_info *)skb_dst(skb));
+		if (!skb_shinfo(skb)->ip6_frag_id)
+			ipv6_proxy_select_ident(dev_net(skb->dev), skb);
+		fptr->identification = skb_shinfo(skb)->ip6_frag_id;
 
 		/* Fragment the skb. ipv6 header and the remaining fields of the
 		 * fragment header are updated in ipv6_gso_segment()

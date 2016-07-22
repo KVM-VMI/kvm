@@ -77,7 +77,7 @@ static int wlcore_smart_config_sync_event(struct wl1271 *wl, u8 sync_channel,
 	wl1271_debug(DEBUG_EVENT,
 		     "SMART_CONFIG_SYNC_EVENT_ID, freq: %d (chan: %d band %d)",
 		     freq, sync_channel, sync_band);
-	skb = cfg80211_vendor_event_alloc(wl->hw->wiphy, 20,
+	skb = cfg80211_vendor_event_alloc(wl->hw->wiphy, NULL, 20,
 					  WLCORE_VENDOR_EVENT_SC_SYNC,
 					  GFP_KERNEL);
 
@@ -98,7 +98,7 @@ static int wlcore_smart_config_decode_event(struct wl1271 *wl,
 	wl1271_debug(DEBUG_EVENT, "SMART_CONFIG_DECODE_EVENT_ID");
 	wl1271_dump_ascii(DEBUG_EVENT, "SSID:", ssid, ssid_len);
 
-	skb = cfg80211_vendor_event_alloc(wl->hw->wiphy,
+	skb = cfg80211_vendor_event_alloc(wl->hw->wiphy, NULL,
 					  ssid_len + pwd_len + 20,
 					  WLCORE_VENDOR_EVENT_SC_DECODE,
 					  GFP_KERNEL);
@@ -110,6 +110,14 @@ static int wlcore_smart_config_decode_event(struct wl1271 *wl,
 	}
 	cfg80211_vendor_event(skb, GFP_KERNEL);
 	return 0;
+}
+
+static void wlcore_event_time_sync(struct wl1271 *wl, u16 tsf_msb, u16 tsf_lsb)
+{
+	u32 clock;
+	/* convert the MSB+LSB to a u32 TSF value */
+	clock = (tsf_msb << 16) | tsf_lsb;
+	wl1271_info("TIME_SYNC_EVENT_ID: clock %u", clock);
 }
 
 int wl18xx_process_mailbox_events(struct wl1271 *wl)
@@ -128,12 +136,18 @@ int wl18xx_process_mailbox_events(struct wl1271 *wl)
 			wl18xx_scan_completed(wl, wl->scan_wlvif);
 	}
 
+	if (vector & TIME_SYNC_EVENT_ID)
+		wlcore_event_time_sync(wl,
+				mbox->time_sync_tsf_msb,
+				mbox->time_sync_tsf_lsb);
+
 	if (vector & RADAR_DETECTED_EVENT_ID) {
 		wl1271_info("radar event: channel %d type %s",
 			    mbox->radar_channel,
 			    wl18xx_radar_type_decode(mbox->radar_type));
 
-		ieee80211_radar_detected(wl->hw);
+		if (!wl->radar_debug_mode)
+			ieee80211_radar_detected(wl->hw);
 	}
 
 	if (vector & PERIODIC_SCAN_REPORT_EVENT_ID) {
@@ -192,6 +206,8 @@ int wl18xx_process_mailbox_events(struct wl1271 *wl)
 						 mbox->sc_ssid,
 						 mbox->sc_pwd_len,
 						 mbox->sc_pwd);
+	if (vector & FW_LOGGER_INDICATION)
+		wlcore_event_fw_logger(wl);
 
 	return 0;
 }

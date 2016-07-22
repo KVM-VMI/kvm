@@ -176,16 +176,9 @@ int cx231xx_send_usb_command(struct cx231xx_i2c *i2c_bus,
 	saddr_len = req_data->saddr_len;
 
 	/* Set wValue */
-	if (saddr_len == 1)	/* need check saddr_len == 0  */
-		ven_req.wValue =
-		    req_data->
-		    dev_addr << 9 | _i2c_period << 4 | saddr_len << 2 |
-		    _i2c_nostop << 1 | I2C_SYNC | _i2c_reserve << 6;
-	else
-		ven_req.wValue =
-		    req_data->
-		    dev_addr << 9 | _i2c_period << 4 | saddr_len << 2 |
-		    _i2c_nostop << 1 | I2C_SYNC | _i2c_reserve << 6;
+	ven_req.wValue = (req_data->dev_addr << 9 | _i2c_period << 4 |
+			  saddr_len << 2 | _i2c_nostop << 1 | I2C_SYNC |
+			  _i2c_reserve << 6);
 
 	/* set channel number */
 	if (req_data->direction & I2C_M_RD) {
@@ -660,22 +653,20 @@ int cx231xx_demod_reset(struct cx231xx *dev)
 
 	cx231xx_coredbg("Enter cx231xx_demod_reset()\n");
 
-		value[1] = (u8) 0x3;
-		status = cx231xx_write_ctrl_reg(dev, VRT_SET_REGISTER,
-						PWR_CTL_EN, value, 4);
-			msleep(10);
+	value[1] = (u8) 0x3;
+	status = cx231xx_write_ctrl_reg(dev, VRT_SET_REGISTER,
+					PWR_CTL_EN, value, 4);
+	msleep(10);
 
-		value[1] = (u8) 0x0;
-		status = cx231xx_write_ctrl_reg(dev, VRT_SET_REGISTER,
-						PWR_CTL_EN, value, 4);
-			msleep(10);
+	value[1] = (u8) 0x0;
+	status = cx231xx_write_ctrl_reg(dev, VRT_SET_REGISTER,
+					PWR_CTL_EN, value, 4);
+	msleep(10);
 
-		value[1] = (u8) 0x3;
-		status = cx231xx_write_ctrl_reg(dev, VRT_SET_REGISTER,
-						PWR_CTL_EN, value, 4);
-			msleep(10);
-
-
+	value[1] = (u8) 0x3;
+	status = cx231xx_write_ctrl_reg(dev, VRT_SET_REGISTER,
+					PWR_CTL_EN, value, 4);
+	msleep(10);
 
 	status = cx231xx_read_ctrl_reg(dev, VRT_GET_REGISTER, PWR_CTL_EN,
 				 value, 4);
@@ -923,6 +914,7 @@ EXPORT_SYMBOL_GPL(cx231xx_uninit_isoc);
  */
 void cx231xx_uninit_bulk(struct cx231xx *dev)
 {
+	struct cx231xx_dmaqueue *dma_q = &dev->video_mode.vidq;
 	struct urb *urb;
 	int i;
 
@@ -940,7 +932,7 @@ void cx231xx_uninit_bulk(struct cx231xx *dev)
 			if (dev->video_mode.bulk_ctl.transfer_buffer[i]) {
 				usb_free_coherent(dev->udev,
 						urb->transfer_buffer_length,
-						dev->video_mode.isoc_ctl.
+						dev->video_mode.bulk_ctl.
 						transfer_buffer[i],
 						urb->transfer_dma);
 			}
@@ -952,10 +944,12 @@ void cx231xx_uninit_bulk(struct cx231xx *dev)
 
 	kfree(dev->video_mode.bulk_ctl.urb);
 	kfree(dev->video_mode.bulk_ctl.transfer_buffer);
+	kfree(dma_q->p_left_data);
 
 	dev->video_mode.bulk_ctl.urb = NULL;
 	dev->video_mode.bulk_ctl.transfer_buffer = NULL;
 	dev->video_mode.bulk_ctl.num_bufs = 0;
+	dma_q->p_left_data = NULL;
 
 	if (dev->mode_tv == 0)
 		cx231xx_capture_start(dev, 0, Raw_Video);
@@ -1203,6 +1197,16 @@ int cx231xx_init_bulk(struct cx231xx *dev, int max_packets,
 		usb_fill_bulk_urb(urb, dev->udev, pipe,
 				  dev->video_mode.bulk_ctl.transfer_buffer[i],
 				  sb_size, cx231xx_bulk_irq_callback, dma_q);
+	}
+
+	/* clear halt */
+	rc = usb_clear_halt(dev->udev, dev->video_mode.bulk_ctl.urb[0]->pipe);
+	if (rc < 0) {
+		dev_err(dev->dev,
+			"failed to clear USB bulk endpoint stall/halt condition (error=%i)\n",
+			rc);
+		cx231xx_uninit_bulk(dev);
+		return rc;
 	}
 
 	init_waitqueue_head(&dma_q->wq);

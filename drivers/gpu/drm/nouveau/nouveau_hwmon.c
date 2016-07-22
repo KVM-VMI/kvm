@@ -34,6 +34,8 @@
 #include "nouveau_drm.h"
 #include "nouveau_hwmon.h"
 
+#include <nvkm/subdev/volt.h>
+
 #if defined(CONFIG_HWMON) || (defined(MODULE) && defined(CONFIG_HWMON_MODULE))
 static ssize_t
 nouveau_hwmon_show_temp(struct device *d, struct device_attribute *a, char *buf)
@@ -41,7 +43,7 @@ nouveau_hwmon_show_temp(struct device *d, struct device_attribute *a, char *buf)
 	struct drm_device *dev = dev_get_drvdata(d);
 	struct nouveau_drm *drm = nouveau_drm(dev);
 	struct nvkm_therm *therm = nvxx_therm(&drm->device);
-	int temp = therm->temp_get(therm);
+	int temp = nvkm_therm_temp_get(therm);
 
 	if (temp < 0)
 		return temp;
@@ -348,7 +350,7 @@ nouveau_hwmon_show_fan1_input(struct device *d, struct device_attribute *attr,
 	struct nouveau_drm *drm = nouveau_drm(dev);
 	struct nvkm_therm *therm = nvxx_therm(&drm->device);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", therm->fan_sense(therm));
+	return snprintf(buf, PAGE_SIZE, "%d\n", nvkm_therm_fan_sense(therm));
 }
 static SENSOR_DEVICE_ATTR(fan1_input, S_IRUGO, nouveau_hwmon_show_fan1_input,
 			  NULL, 0);
@@ -512,6 +514,35 @@ static SENSOR_DEVICE_ATTR(pwm1_max, S_IRUGO | S_IWUSR,
 			  nouveau_hwmon_get_pwm1_max,
 			  nouveau_hwmon_set_pwm1_max, 0);
 
+static ssize_t
+nouveau_hwmon_get_in0_input(struct device *d,
+			    struct device_attribute *a, char *buf)
+{
+	struct drm_device *dev = dev_get_drvdata(d);
+	struct nouveau_drm *drm = nouveau_drm(dev);
+	struct nvkm_volt *volt = nvxx_volt(&drm->device);
+	int ret;
+
+	ret = nvkm_volt_get(volt);
+	if (ret < 0)
+		return ret;
+
+	return sprintf(buf, "%i\n", ret / 1000);
+}
+
+static SENSOR_DEVICE_ATTR(in0_input, S_IRUGO,
+			  nouveau_hwmon_get_in0_input, NULL, 0);
+
+static ssize_t
+nouveau_hwmon_get_in0_label(struct device *d,
+			    struct device_attribute *a, char *buf)
+{
+	return sprintf(buf, "GPU core\n");
+}
+
+static SENSOR_DEVICE_ATTR(in0_label, S_IRUGO,
+			  nouveau_hwmon_get_in0_label, NULL, 0);
+
 static struct attribute *hwmon_default_attributes[] = {
 	&sensor_dev_attr_name.dev_attr.attr,
 	&sensor_dev_attr_update_rate.dev_attr.attr,
@@ -542,6 +573,12 @@ static struct attribute *hwmon_pwm_fan_attributes[] = {
 	NULL
 };
 
+static struct attribute *hwmon_in0_attributes[] = {
+	&sensor_dev_attr_in0_input.dev_attr.attr,
+	&sensor_dev_attr_in0_label.dev_attr.attr,
+	NULL
+};
+
 static const struct attribute_group hwmon_default_attrgroup = {
 	.attrs = hwmon_default_attributes,
 };
@@ -554,6 +591,9 @@ static const struct attribute_group hwmon_fan_rpm_attrgroup = {
 static const struct attribute_group hwmon_pwm_fan_attrgroup = {
 	.attrs = hwmon_pwm_fan_attributes,
 };
+static const struct attribute_group hwmon_in0_attrgroup = {
+	.attrs = hwmon_in0_attributes,
+};
 #endif
 
 int
@@ -562,6 +602,7 @@ nouveau_hwmon_init(struct drm_device *dev)
 #if defined(CONFIG_HWMON) || (defined(MODULE) && defined(CONFIG_HWMON_MODULE))
 	struct nouveau_drm *drm = nouveau_drm(dev);
 	struct nvkm_therm *therm = nvxx_therm(&drm->device);
+	struct nvkm_volt *volt = nvxx_volt(&drm->device);
 	struct nouveau_hwmon *hwmon;
 	struct device *hwmon_dev;
 	int ret = 0;
@@ -571,7 +612,7 @@ nouveau_hwmon_init(struct drm_device *dev)
 		return -ENOMEM;
 	hwmon->dev = dev;
 
-	if (!therm || !therm->temp_get || !therm->attr_get || !therm->attr_set)
+	if (!therm || !therm->attr_get || !therm->attr_set)
 		return -ENODEV;
 
 	hwmon_dev = hwmon_device_register(&dev->pdev->dev);
@@ -588,7 +629,7 @@ nouveau_hwmon_init(struct drm_device *dev)
 		goto error;
 
 	/* if the card has a working thermal sensor */
-	if (therm->temp_get(therm) >= 0) {
+	if (nvkm_therm_temp_get(therm) >= 0) {
 		ret = sysfs_create_group(&hwmon_dev->kobj, &hwmon_temp_attrgroup);
 		if (ret)
 			goto error;
@@ -606,9 +647,17 @@ nouveau_hwmon_init(struct drm_device *dev)
 	}
 
 	/* if the card can read the fan rpm */
-	if (therm->fan_sense(therm) >= 0) {
+	if (nvkm_therm_fan_sense(therm) >= 0) {
 		ret = sysfs_create_group(&hwmon_dev->kobj,
 					 &hwmon_fan_rpm_attrgroup);
+		if (ret)
+			goto error;
+	}
+
+	if (volt && nvkm_volt_get(volt) >= 0) {
+		ret = sysfs_create_group(&hwmon_dev->kobj,
+					 &hwmon_in0_attrgroup);
+
 		if (ret)
 			goto error;
 	}
@@ -638,6 +687,7 @@ nouveau_hwmon_fini(struct drm_device *dev)
 		sysfs_remove_group(&hwmon->hwmon->kobj, &hwmon_temp_attrgroup);
 		sysfs_remove_group(&hwmon->hwmon->kobj, &hwmon_pwm_fan_attrgroup);
 		sysfs_remove_group(&hwmon->hwmon->kobj, &hwmon_fan_rpm_attrgroup);
+		sysfs_remove_group(&hwmon->hwmon->kobj, &hwmon_in0_attrgroup);
 
 		hwmon_device_unregister(hwmon->hwmon);
 	}

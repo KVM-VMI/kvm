@@ -31,9 +31,9 @@ static const char *gfs2_acl_name(int type)
 {
 	switch (type) {
 	case ACL_TYPE_ACCESS:
-		return GFS2_POSIX_ACL_ACCESS;
+		return XATTR_POSIX_ACL_ACCESS;
 	case ACL_TYPE_DEFAULT:
-		return GFS2_POSIX_ACL_DEFAULT;
+		return XATTR_POSIX_ACL_DEFAULT;
 	}
 	return NULL;
 }
@@ -110,11 +110,7 @@ int gfs2_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 	error = __gfs2_xattr_set(inode, name, data, len, 0, GFS2_EATYPE_SYS);
 	if (error)
 		goto out;
-
-	if (acl)
-		set_cached_acl(inode, type, acl);
-	else
-		forget_cached_acl(inode, type);
+	set_cached_acl(inode, type, acl);
 out:
 	kfree(data);
 	return error;

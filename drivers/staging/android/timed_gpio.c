@@ -25,7 +25,6 @@
 #include "timed_output.h"
 #include "timed_gpio.h"
 
-
 struct timed_gpio_data {
 	struct timed_output_dev dev;
 	struct hrtimer timer;
@@ -61,9 +60,9 @@ static int gpio_get_time(struct timed_output_dev *dev)
 
 static void gpio_enable(struct timed_output_dev *dev, int value)
 {
-	struct timed_gpio_data	*data =
+	struct timed_gpio_data *data =
 		container_of(dev, struct timed_gpio_data, dev);
-	unsigned long	flags;
+	unsigned long flags;
 
 	spin_lock_irqsave(&data->lock, flags);
 
@@ -76,8 +75,8 @@ static void gpio_enable(struct timed_output_dev *dev, int value)
 			value = data->max_timeout;
 
 		hrtimer_start(&data->timer,
-			ktime_set(value / 1000, (value % 1000) * 1000000),
-			HRTIMER_MODE_REL);
+			      ktime_set(value / 1000, (value % 1000) * 1000000),
+			      HRTIMER_MODE_REL);
 	}
 
 	spin_unlock_irqrestore(&data->lock, flags);
@@ -93,9 +92,8 @@ static int timed_gpio_probe(struct platform_device *pdev)
 	if (!pdata)
 		return -EBUSY;
 
-	gpio_data = devm_kzalloc(&pdev->dev,
-			sizeof(struct timed_gpio_data) * pdata->num_gpios,
-			GFP_KERNEL);
+	gpio_data = devm_kcalloc(&pdev->dev, pdata->num_gpios,
+				 sizeof(*gpio_data), GFP_KERNEL);
 	if (!gpio_data)
 		return -ENOMEM;
 
@@ -104,7 +102,7 @@ static int timed_gpio_probe(struct platform_device *pdev)
 		gpio_dat = &gpio_data[i];
 
 		hrtimer_init(&gpio_dat->timer, CLOCK_MONOTONIC,
-				HRTIMER_MODE_REL);
+			     HRTIMER_MODE_REL);
 		gpio_dat->timer.function = gpio_timer_func;
 		spin_lock_init(&gpio_dat->lock);
 

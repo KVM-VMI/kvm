@@ -121,6 +121,7 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 		goto out;
 	}
 
+	r->total++;
 	hseq = r->head_seq_num;
 
 	/** Due to the race between WMI events, where BACK establishment
@@ -153,6 +154,9 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 	/* frame with out of date sequence number */
 	if (seq_less(seq, r->head_seq_num)) {
 		r->ssn_last_drop = seq;
+		r->drop_old++;
+		wil_dbg_txrx(wil, "Rx drop: old seq 0x%03x head 0x%03x\n",
+			     seq, r->head_seq_num);
 		dev_kfree_skb(skb);
 		goto out;
 	}
@@ -173,6 +177,8 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 
 	/* check if we already stored this frame */
 	if (r->reorder_buf[index]) {
+		r->drop_dup++;
+		wil_dbg_txrx(wil, "Rx drop: dup seq 0x%03x\n", seq);
 		dev_kfree_skb(skb);
 		goto out;
 	}
@@ -194,6 +200,32 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 	r->reorder_time[index] = jiffies;
 	r->stored_mpdu_num++;
 	wil_reorder_release(wil, r);
+
+out:
+	spin_unlock(&sta->tid_rx_lock);
+}
+
+/* process BAR frame, called in NAPI context */
+void wil_rx_bar(struct wil6210_priv *wil, u8 cid, u8 tid, u16 seq)
+{
+	struct wil_sta_info *sta = &wil->sta[cid];
+	struct wil_tid_ampdu_rx *r;
+
+	spin_lock(&sta->tid_rx_lock);
+
+	r = sta->tid_rx[tid];
+	if (!r) {
+		wil_err(wil, "BAR for non-existing CID %d TID %d\n", cid, tid);
+		goto out;
+	}
+	if (seq_less(seq, r->head_seq_num)) {
+		wil_err(wil, "BAR Seq 0x%03x preceding head 0x%03x\n",
+			seq, r->head_seq_num);
+		goto out;
+	}
+	wil_dbg_txrx(wil, "BAR: CID %d TID %d Seq 0x%03x head 0x%03x\n",
+		     cid, tid, seq, r->head_seq_num);
+	wil_release_reorder_frames(wil, r, seq);
 
 out:
 	spin_unlock(&sta->tid_rx_lock);
@@ -229,9 +261,19 @@ struct wil_tid_ampdu_rx *wil_tid_ampdu_rx_alloc(struct wil6210_priv *wil,
 void wil_tid_ampdu_rx_free(struct wil6210_priv *wil,
 			   struct wil_tid_ampdu_rx *r)
 {
+	int i;
+
 	if (!r)
 		return;
-	wil_release_reorder_frames(wil, r, r->head_seq_num + r->buf_size);
+
+	/* Do not pass remaining frames to the network stack - it may be
+	 * not expecting to get any more Rx. Rx from here may lead to
+	 * kernel OOPS since some per-socket accounting info was already
+	 * released.
+	 */
+	for (i = 0; i < r->buf_size; i++)
+		kfree_skb(r->reorder_buf[i]);
+
 	kfree(r->reorder_buf);
 	kfree(r->reorder_time);
 	kfree(r);

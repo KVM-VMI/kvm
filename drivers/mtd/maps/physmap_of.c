@@ -130,6 +130,8 @@ static const char * const *of_get_probes(struct device_node *dp)
 			count++;
 
 	res = kzalloc((count + 1)*sizeof(*res), GFP_KERNEL);
+	if (!res)
+		return NULL;
 	count = 0;
 	while (cplen > 0) {
 		res[count] = cp;
@@ -147,7 +149,7 @@ static void of_free_probes(const char * const *probes)
 		kfree(probes);
 }
 
-static struct of_device_id of_flash_match[];
+static const struct of_device_id of_flash_match[];
 static int of_flash_probe(struct platform_device *dev)
 {
 	const char * const *part_probe_types;
@@ -164,7 +166,6 @@ static int of_flash_probe(struct platform_device *dev)
 	int reg_tuple_size;
 	struct mtd_info **mtd_list = NULL;
 	resource_size_t res_size;
-	struct mtd_part_parser_data ppdata;
 	bool map_indirect;
 	const char *mtd_name = NULL;
 
@@ -288,7 +289,6 @@ static int of_flash_probe(struct platform_device *dev)
 		} else {
 			info->list_size++;
 		}
-		info->list[i].mtd->owner = THIS_MODULE;
 		info->list[i].mtd->dev.parent = &dev->dev;
 	}
 
@@ -309,9 +309,14 @@ static int of_flash_probe(struct platform_device *dev)
 	if (err)
 		goto err_out;
 
-	ppdata.of_node = dp;
+	info->cmtd->dev.parent = &dev->dev;
+	mtd_set_of_node(info->cmtd, dp);
 	part_probe_types = of_get_probes(dp);
-	mtd_device_parse_register(info->cmtd, part_probe_types, &ppdata,
+	if (!part_probe_types) {
+		err = -ENOMEM;
+		goto err_out;
+	}
+	mtd_device_parse_register(info->cmtd, part_probe_types, NULL,
 			NULL, 0);
 	of_free_probes(part_probe_types);
 
@@ -327,7 +332,7 @@ err_flash_remove:
 	return err;
 }
 
-static struct of_device_id of_flash_match[] = {
+static const struct of_device_id of_flash_match[] = {
 	{
 		.compatible	= "cfi-flash",
 		.data		= (void *)"cfi_probe",

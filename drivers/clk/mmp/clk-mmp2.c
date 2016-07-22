@@ -9,14 +9,13 @@
  * warranty of any kind, whether express or implied.
  */
 
+#include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/err.h>
-
-#include <mach/addr-map.h>
 
 #include "clk.h"
 
@@ -63,10 +62,8 @@ static struct mmp_clk_factor_masks uart_factor_masks = {
 };
 
 static struct mmp_clk_factor_tbl uart_factor_tbl[] = {
-	{.num = 14634, .den = 2165},	/*14.745MHZ */
+	{.num = 8125, .den = 1536},	/*14.745MHZ */
 	{.num = 3521, .den = 689},	/*19.23MHZ */
-	{.num = 9679, .den = 5728},	/*58.9824MHZ */
-	{.num = 15850, .den = 9451},	/*59.429MHZ */
 };
 
 static const char *uart_parent[] = {"uart_pll", "vctcxo"};
@@ -75,7 +72,8 @@ static const char *sdh_parent[] = {"pll1_4", "pll2", "usb_pll", "pll1"};
 static const char *disp_parent[] = {"pll1", "pll1_16", "pll2", "vctcxo"};
 static const char *ccic_parent[] = {"pll1_2", "pll1_16", "vctcxo"};
 
-void __init mmp2_clk_init(void)
+void __init mmp2_clk_init(phys_addr_t mpmu_phys, phys_addr_t apmu_phys,
+			  phys_addr_t apbc_phys)
 {
 	struct clk *clk;
 	struct clk *vctcxo;
@@ -83,19 +81,19 @@ void __init mmp2_clk_init(void)
 	void __iomem *apmu_base;
 	void __iomem *apbc_base;
 
-	mpmu_base = ioremap(APB_PHYS_BASE + 0x50000, SZ_4K);
+	mpmu_base = ioremap(mpmu_phys, SZ_4K);
 	if (mpmu_base == NULL) {
 		pr_err("error to ioremap MPMU base\n");
 		return;
 	}
 
-	apmu_base = ioremap(AXI_PHYS_BASE + 0x82800, SZ_4K);
+	apmu_base = ioremap(apmu_phys, SZ_4K);
 	if (apmu_base == NULL) {
 		pr_err("error to ioremap APMU base\n");
 		return;
 	}
 
-	apbc_base = ioremap(APB_PHYS_BASE + 0x15000, SZ_4K);
+	apbc_base = ioremap(apbc_phys, SZ_4K);
 	if (apbc_base == NULL) {
 		pr_err("error to ioremap APBC base\n");
 		return;

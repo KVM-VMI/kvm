@@ -1487,12 +1487,11 @@ void do_unaligned(struct pt_regs *regs, int vecnum)
 						(int)unaligned_fixup,
 						(unsigned long long)regs->ex1,
 						(unsigned long long)regs->pc);
-				return;
+			} else {
+				/* Not fixable. Go panic. */
+				panic("Unalign exception in Kernel. pc=%lx",
+				      regs->pc);
 			}
-			/* Not fixable. Go panic. */
-			panic("Unalign exception in Kernel. pc=%lx",
-			      regs->pc);
-			return;
 		} else {
 			/*
 			 * Try to fix the exception. If we can't, panic the
@@ -1501,8 +1500,8 @@ void do_unaligned(struct pt_regs *regs, int vecnum)
 			bundle = GX_INSN_BSWAP(
 				*((tilegx_bundle_bits *)(regs->pc)));
 			jit_bundle_gen(regs, bundle, align_ctl);
-			return;
 		}
+		return;
 	}
 
 	/*

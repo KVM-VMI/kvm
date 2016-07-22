@@ -114,6 +114,22 @@ static int fan53555_set_suspend_voltage(struct regulator_dev *rdev, int uV)
 	return 0;
 }
 
+static int fan53555_set_suspend_enable(struct regulator_dev *rdev)
+{
+	struct fan53555_device_info *di = rdev_get_drvdata(rdev);
+
+	return regmap_update_bits(di->regmap, di->sleep_reg,
+				  VSEL_BUCK_EN, VSEL_BUCK_EN);
+}
+
+static int fan53555_set_suspend_disable(struct regulator_dev *rdev)
+{
+	struct fan53555_device_info *di = rdev_get_drvdata(rdev);
+
+	return regmap_update_bits(di->regmap, di->sleep_reg,
+				  VSEL_BUCK_EN, 0);
+}
+
 static int fan53555_set_mode(struct regulator_dev *rdev, unsigned int mode)
 {
 	struct fan53555_device_info *di = rdev_get_drvdata(rdev);
@@ -182,6 +198,7 @@ static int fan53555_set_ramp(struct regulator_dev *rdev, int ramp)
 static struct regulator_ops fan53555_regulator_ops = {
 	.set_voltage_sel = regulator_set_voltage_sel_regmap,
 	.get_voltage_sel = regulator_get_voltage_sel_regmap,
+	.set_voltage_time_sel = regulator_set_voltage_time_sel,
 	.map_voltage = regulator_map_voltage_linear,
 	.list_voltage = regulator_list_voltage_linear,
 	.set_suspend_voltage = fan53555_set_suspend_voltage,
@@ -191,6 +208,8 @@ static struct regulator_ops fan53555_regulator_ops = {
 	.set_mode = fan53555_set_mode,
 	.get_mode = fan53555_get_mode,
 	.set_ramp_delay = fan53555_set_ramp,
+	.set_suspend_enable = fan53555_set_suspend_enable,
+	.set_suspend_disable = fan53555_set_suspend_disable,
 };
 
 static int fan53555_voltages_setup_fairchild(struct fan53555_device_info *di)
@@ -438,6 +457,7 @@ static const struct i2c_device_id fan53555_id[] = {
 	},
 	{ },
 };
+MODULE_DEVICE_TABLE(i2c, fan53555_id);
 
 static struct i2c_driver fan53555_regulator_driver = {
 	.driver = {

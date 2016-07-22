@@ -12,7 +12,6 @@
 #include <linux/dmi.h>
 #include <linux/slab.h>
 
-#include <asm-generic/pci-bridge.h>
 #include <asm/acpi.h>
 #include <asm/segment.h>
 #include <asm/io.h>
@@ -490,7 +489,9 @@ void pcibios_scan_root(int busnum)
 	if (!bus) {
 		pci_free_resource_list(&resources);
 		kfree(sd);
+		return;
 	}
+	pci_bus_add_devices(bus);
 }
 
 void __init pcibios_set_cache_line_size(void)
@@ -513,31 +514,6 @@ void __init pcibios_set_cache_line_size(void)
 	}
 }
 
-/*
- * Some device drivers assume dev->irq won't change after calling
- * pci_disable_device(). So delay releasing of IRQ resource to driver
- * unbinding time. Otherwise it will break PM subsystem and drivers
- * like xen-pciback etc.
- */
-static int pci_irq_notifier(struct notifier_block *nb, unsigned long action,
-			    void *data)
-{
-	struct pci_dev *dev = to_pci_dev(data);
-
-	if (action != BUS_NOTIFY_UNBOUND_DRIVER)
-		return NOTIFY_DONE;
-
-	if (pcibios_disable_irq)
-		pcibios_disable_irq(dev);
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block pci_irq_nb = {
-	.notifier_call = pci_irq_notifier,
-	.priority = INT_MIN,
-};
-
 int __init pcibios_init(void)
 {
 	if (!raw_pci_ops) {
@@ -550,9 +526,6 @@ int __init pcibios_init(void)
 
 	if (pci_bf_sort >= pci_force_bf)
 		pci_sort_breadthfirst();
-
-	bus_register_notifier(&pci_bus_type, &pci_irq_nb);
-
 	return 0;
 }
 
@@ -667,6 +640,43 @@ unsigned int pcibios_assign_all_busses(void)
 	return (pci_probe & PCI_ASSIGN_ALL_BUSSES) ? 1 : 0;
 }
 
+#if defined(CONFIG_X86_DEV_DMA_OPS) && defined(CONFIG_PCI_DOMAINS)
+static LIST_HEAD(dma_domain_list);
+static DEFINE_SPINLOCK(dma_domain_list_lock);
+
+void add_dma_domain(struct dma_domain *domain)
+{
+	spin_lock(&dma_domain_list_lock);
+	list_add(&domain->node, &dma_domain_list);
+	spin_unlock(&dma_domain_list_lock);
+}
+EXPORT_SYMBOL_GPL(add_dma_domain);
+
+void del_dma_domain(struct dma_domain *domain)
+{
+	spin_lock(&dma_domain_list_lock);
+	list_del(&domain->node);
+	spin_unlock(&dma_domain_list_lock);
+}
+EXPORT_SYMBOL_GPL(del_dma_domain);
+
+static void set_dma_domain_ops(struct pci_dev *pdev)
+{
+	struct dma_domain *domain;
+
+	spin_lock(&dma_domain_list_lock);
+	list_for_each_entry(domain, &dma_domain_list, node) {
+		if (pci_domain_nr(pdev->bus) == domain->domain_nr) {
+			pdev->dev.archdata.dma_ops = domain->dma_ops;
+			break;
+		}
+	}
+	spin_unlock(&dma_domain_list_lock);
+}
+#else
+static void set_dma_domain_ops(struct pci_dev *pdev) {}
+#endif
+
 int pcibios_add_device(struct pci_dev *dev)
 {
 	struct setup_data *data;
@@ -696,6 +706,7 @@ int pcibios_add_device(struct pci_dev *dev)
 		pa_data = data->next;
 		iounmap(data);
 	}
+	set_dma_domain_ops(dev);
 	return 0;
 }
 
@@ -709,6 +720,12 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 	if (!pci_dev_msi_enabled(dev))
 		return pcibios_enable_irq(dev);
 	return 0;
+}
+
+void pcibios_disable_device (struct pci_dev *dev)
+{
+	if (!pci_dev_msi_enabled(dev) && pcibios_disable_irq)
+		pcibios_disable_irq(dev);
 }
 
 int pci_ext_cfg_avail(void)

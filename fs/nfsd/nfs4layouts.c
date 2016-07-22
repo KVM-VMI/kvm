@@ -22,7 +22,7 @@ struct nfs4_layout {
 static struct kmem_cache *nfs4_layout_cache;
 static struct kmem_cache *nfs4_layout_stateid_cache;
 
-static struct nfsd4_callback_ops nfsd4_cb_layout_ops;
+static const struct nfsd4_callback_ops nfsd4_cb_layout_ops;
 static const struct lock_manager_operations nfsd4_layouts_lm_ops;
 
 const struct nfsd4_layout_ops *nfsd4_layout_ops[LAYOUT_TYPE_MAX] =  {
@@ -118,7 +118,7 @@ void nfsd4_setup_layout_type(struct svc_export *exp)
 {
 	struct super_block *sb = exp->ex_path.mnt->mnt_sb;
 
-	if (exp->ex_flags & NFSEXP_NOPNFS)
+	if (!(exp->ex_flags & NFSEXP_PNFS))
 		return;
 
 	if (sb->s_export_op->get_uuid &&
@@ -201,6 +201,7 @@ nfsd4_alloc_layout_stateid(struct nfsd4_compound_state *cstate,
 	INIT_LIST_HEAD(&ls->ls_perfile);
 	spin_lock_init(&ls->ls_lock);
 	INIT_LIST_HEAD(&ls->ls_layouts);
+	mutex_init(&ls->ls_mutex);
 	ls->ls_layout_type = layout_type;
 	nfsd4_init_cb(&ls->ls_recall, clp, &nfsd4_cb_layout_ops,
 			NFSPROC4_CLNT_CB_LAYOUT);
@@ -212,6 +213,7 @@ nfsd4_alloc_layout_stateid(struct nfsd4_compound_state *cstate,
 	BUG_ON(!ls->ls_file);
 
 	if (nfsd4_layout_setlease(ls)) {
+		fput(ls->ls_file);
 		put_nfs4_file(fp);
 		kmem_cache_free(nfs4_layout_stateid_cache, ls);
 		return NULL;
@@ -261,19 +263,23 @@ nfsd4_preprocess_layout_stateid(struct svc_rqst *rqstp,
 		status = nfserr_jukebox;
 		if (!ls)
 			goto out;
+		mutex_lock(&ls->ls_mutex);
 	} else {
 		ls = container_of(stid, struct nfs4_layout_stateid, ls_stid);
 
 		status = nfserr_bad_stateid;
+		mutex_lock(&ls->ls_mutex);
 		if (stateid->si_generation > stid->sc_stateid.si_generation)
-			goto out_put_stid;
+			goto out_unlock_stid;
 		if (layout_type != ls->ls_layout_type)
-			goto out_put_stid;
+			goto out_unlock_stid;
 	}
 
 	*lsp = ls;
 	return 0;
 
+out_unlock_stid:
+	mutex_unlock(&ls->ls_mutex);
 out_put_stid:
 	nfs4_put_stid(stid);
 out:
@@ -295,8 +301,6 @@ nfsd4_recall_file_layout(struct nfs4_layout_stateid *ls)
 	trace_layout_recall(&ls->ls_stid.sc_stateid);
 
 	atomic_inc(&ls->ls_stid.sc_count);
-	update_stateid(&ls->ls_stid.sc_stateid);
-	memcpy(&ls->ls_recall_sid, &ls->ls_stid.sc_stateid, sizeof(stateid_t));
 	nfsd4_run_cb(&ls->ls_recall);
 
 out_unlock:
@@ -405,8 +409,7 @@ nfsd4_insert_layout(struct nfsd4_layoutget *lgp, struct nfs4_layout_stateid *ls)
 	list_add_tail(&new->lo_perstate, &ls->ls_layouts);
 	new = NULL;
 done:
-	update_stateid(&ls->ls_stid.sc_stateid);
-	memcpy(&lgp->lg_sid, &ls->ls_stid.sc_stateid, sizeof(stateid_t));
+	nfs4_inc_and_copy_stateid(&lgp->lg_sid, &ls->ls_stid);
 	spin_unlock(&ls->ls_lock);
 out:
 	spin_unlock(&fp->fi_lock);
@@ -440,15 +443,14 @@ nfsd4_return_file_layout(struct nfs4_layout *lp, struct nfsd4_layout_seg *seg,
 			list_move_tail(&lp->lo_perstate, reaplist);
 			return;
 		}
-		end = seg->offset;
+		lo->offset = layout_end(seg);
 	} else {
 		/* retain the whole layout segment on a split. */
 		if (layout_end(seg) < end) {
 			dprintk("%s: split not supported\n", __func__);
 			return;
 		}
-
-		lo->offset = layout_end(seg);
+		end = seg->offset;
 	}
 
 	layout_update_len(lo, end);
@@ -481,11 +483,8 @@ nfsd4_return_file_layouts(struct svc_rqst *rqstp,
 		}
 	}
 	if (!list_empty(&ls->ls_layouts)) {
-		if (found) {
-			update_stateid(&ls->ls_stid.sc_stateid);
-			memcpy(&lrp->lr_sid, &ls->ls_stid.sc_stateid,
-				sizeof(stateid_t));
-		}
+		if (found)
+			nfs4_inc_and_copy_stateid(&lrp->lr_sid, &ls->ls_stid);
 		lrp->lrs_present = 1;
 	} else {
 		trace_layoutstate_unhash(&ls->ls_stid.sc_stateid);
@@ -494,6 +493,7 @@ nfsd4_return_file_layouts(struct svc_rqst *rqstp,
 	}
 	spin_unlock(&ls->ls_lock);
 
+	mutex_unlock(&ls->ls_mutex);
 	nfs4_put_stid(&ls->ls_stid);
 	nfsd4_free_layouts(&reaplist);
 	return nfs_ok;
@@ -513,6 +513,9 @@ nfsd4_return_client_layouts(struct svc_rqst *rqstp,
 
 	spin_lock(&clp->cl_lock);
 	list_for_each_entry_safe(ls, n, &clp->cl_lo_states, ls_perclnt) {
+		if (ls->ls_layout_type != lrp->lr_layout_type)
+			continue;
+
 		if (lrp->lr_return_type == RETURN_FSID &&
 		    !fh_fsid_match(&ls->ls_stid.sc_file->fi_fhandle,
 				   &cstate->current_fh.fh_handle))
@@ -587,7 +590,7 @@ nfsd4_cb_layout_fail(struct nfs4_layout_stateid *ls)
 
 	rpc_ntop((struct sockaddr *)&clp->cl_addr, addr_str, sizeof(addr_str));
 
-	nfsd4_cb_layout_fail(ls);
+	trace_layout_recall_fail(&ls->ls_stid.sc_stateid);
 
 	printk(KERN_WARNING
 		"nfsd: client %s failed to respond to layout recall. "
@@ -605,29 +608,55 @@ nfsd4_cb_layout_fail(struct nfs4_layout_stateid *ls)
 	}
 }
 
+static void
+nfsd4_cb_layout_prepare(struct nfsd4_callback *cb)
+{
+	struct nfs4_layout_stateid *ls =
+		container_of(cb, struct nfs4_layout_stateid, ls_recall);
+
+	mutex_lock(&ls->ls_mutex);
+	nfs4_inc_and_copy_stateid(&ls->ls_recall_sid, &ls->ls_stid);
+	mutex_unlock(&ls->ls_mutex);
+}
+
 static int
 nfsd4_cb_layout_done(struct nfsd4_callback *cb, struct rpc_task *task)
 {
 	struct nfs4_layout_stateid *ls =
 		container_of(cb, struct nfs4_layout_stateid, ls_recall);
+	struct nfsd_net *nn;
+	ktime_t now, cutoff;
 	LIST_HEAD(reaplist);
+
 
 	switch (task->tk_status) {
 	case 0:
-		return 1;
+	case -NFS4ERR_DELAY:
+		/*
+		 * Anything left? If not, then call it done. Note that we don't
+		 * take the spinlock since this is an optimization and nothing
+		 * should get added until the cb counter goes to zero.
+		 */
+		if (list_empty(&ls->ls_layouts))
+			return 1;
+
+		/* Poll the client until it's done with the layout */
+		now = ktime_get();
+		nn = net_generic(ls->ls_stid.sc_client->net, nfsd_net_id);
+
+		/* Client gets 2 lease periods to return it */
+		cutoff = ktime_add_ns(task->tk_start,
+					 nn->nfsd4_lease * NSEC_PER_SEC * 2);
+
+		if (ktime_before(now, cutoff)) {
+			rpc_delay(task, HZ/100); /* 10 mili-seconds */
+			return 0;
+		}
+		/* Fallthrough */
 	case -NFS4ERR_NOMATCHING_LAYOUT:
 		trace_layout_recall_done(&ls->ls_stid.sc_stateid);
 		task->tk_status = 0;
 		return 1;
-	case -NFS4ERR_DELAY:
-		/* Poll the client until it's done with the layout */
-		/* FIXME: cap number of retries.
-		 * The pnfs standard states that we need to only expire
-		 * the client after at-least "lease time" .eg lease-time * 2
-		 * when failing to communicate a recall
-		 */
-		rpc_delay(task, HZ/100); /* 10 mili-seconds */
-		return 0;
 	default:
 		/*
 		 * Unknown error or non-responding client, we'll need to fence.
@@ -651,7 +680,8 @@ nfsd4_cb_layout_release(struct nfsd4_callback *cb)
 	nfs4_put_stid(&ls->ls_stid);
 }
 
-static struct nfsd4_callback_ops nfsd4_cb_layout_ops = {
+static const struct nfsd4_callback_ops nfsd4_cb_layout_ops = {
+	.prepare	= nfsd4_cb_layout_prepare,
 	.done		= nfsd4_cb_layout_done,
 	.release	= nfsd4_cb_layout_release,
 };

@@ -30,21 +30,17 @@
 #include <linux/uaccess.h>
 #include <linux/hugetlb.h>
 #include <asm/asm-offsets.h>
+#include <asm/diag.h>
 #include <asm/pgtable.h>
+#include <asm/gmap.h>
 #include <asm/irq.h>
 #include <asm/mmu_context.h>
 #include <asm/facility.h>
 #include "../kernel/entry.h"
 
-#ifndef CONFIG_64BIT
-#define __FAIL_ADDR_MASK 0x7ffff000
-#define __SUBCODE_MASK 0x0200
-#define __PF_RES_FIELD 0ULL
-#else /* CONFIG_64BIT */
 #define __FAIL_ADDR_MASK -4096L
 #define __SUBCODE_MASK 0x0600
 #define __PF_RES_FIELD 0x8000000000000000ULL
-#endif /* CONFIG_64BIT */
 
 #define VM_FAULT_BADCONTEXT	0x010000
 #define VM_FAULT_BADMAP		0x020000
@@ -54,7 +50,6 @@
 
 static unsigned long store_indication __read_mostly;
 
-#ifdef CONFIG_64BIT
 static int __init fault_init(void)
 {
 	if (test_facility(75))
@@ -62,7 +57,6 @@ static int __init fault_init(void)
 	return 0;
 }
 early_initcall(fault_init);
-#endif
 
 static inline int notify_page_fault(struct pt_regs *regs)
 {
@@ -133,7 +127,6 @@ static int bad_address(void *p)
 	return probe_kernel_address((unsigned long *)p, dummy);
 }
 
-#ifdef CONFIG_64BIT
 static void dump_pagetable(unsigned long asce, unsigned long address)
 {
 	unsigned long *table = __va(asce & PAGE_MASK);
@@ -187,37 +180,12 @@ bad:
 	pr_cont("BAD\n");
 }
 
-#else /* CONFIG_64BIT */
-
-static void dump_pagetable(unsigned long asce, unsigned long address)
-{
-	unsigned long *table = __va(asce & PAGE_MASK);
-
-	pr_alert("AS:%08lx ", asce);
-	table = table + ((address >> 20) & 0x7ff);
-	if (bad_address(table))
-		goto bad;
-	pr_cont("S:%08lx ", *table);
-	if (*table & _SEGMENT_ENTRY_INVALID)
-		goto out;
-	table = (unsigned long *)(*table & _SEGMENT_ENTRY_ORIGIN);
-	table = table + ((address >> 12) & 0xff);
-	if (bad_address(table))
-		goto bad;
-	pr_cont("P:%08lx ", *table);
-out:
-	pr_cont("\n");
-	return;
-bad:
-	pr_cont("BAD\n");
-}
-
-#endif /* CONFIG_64BIT */
-
 static void dump_fault_info(struct pt_regs *regs)
 {
 	unsigned long asce;
 
+	pr_alert("Failing address: %016lx TEID: %016lx\n",
+		 regs->int_parm_long & __FAIL_ADDR_MASK, regs->int_parm_long);
 	pr_alert("Fault in ");
 	switch (regs->int_parm_long & 3) {
 	case 3:
@@ -253,7 +221,9 @@ static void dump_fault_info(struct pt_regs *regs)
 	dump_pagetable(asce, regs->int_parm_long & __FAIL_ADDR_MASK);
 }
 
-static inline void report_user_fault(struct pt_regs *regs, long signr)
+int show_unhandled_signals = 1;
+
+void report_user_fault(struct pt_regs *regs, long signr, int is_mm_fault)
 {
 	if ((task_pid_nr(current) > 1) && !show_unhandled_signals)
 		return;
@@ -263,11 +233,10 @@ static inline void report_user_fault(struct pt_regs *regs, long signr)
 		return;
 	printk(KERN_ALERT "User process fault: interruption code %04x ilc:%d ",
 	       regs->int_code & 0xffff, regs->int_code >> 17);
-	print_vma_addr(KERN_CONT "in ", regs->psw.addr & PSW_ADDR_INSN);
+	print_vma_addr(KERN_CONT "in ", regs->psw.addr);
 	printk(KERN_CONT "\n");
-	printk(KERN_ALERT "failing address: %016lx TEID: %016lx\n",
-	       regs->int_parm_long & __FAIL_ADDR_MASK, regs->int_parm_long);
-	dump_fault_info(regs);
+	if (is_mm_fault)
+		dump_fault_info(regs);
 	show_regs(regs);
 }
 
@@ -279,7 +248,7 @@ static noinline void do_sigsegv(struct pt_regs *regs, int si_code)
 {
 	struct siginfo si;
 
-	report_user_fault(regs, SIGSEGV);
+	report_user_fault(regs, SIGSEGV, 1);
 	si.si_signo = SIGSEGV;
 	si.si_code = si_code;
 	si.si_addr = (void __user *)(regs->int_parm_long & __FAIL_ADDR_MASK);
@@ -289,12 +258,11 @@ static noinline void do_sigsegv(struct pt_regs *regs, int si_code)
 static noinline void do_no_context(struct pt_regs *regs)
 {
 	const struct exception_table_entry *fixup;
-	unsigned long address;
 
 	/* Are we prepared to handle this kernel fault?  */
-	fixup = search_exception_tables(regs->psw.addr & PSW_ADDR_INSN);
+	fixup = search_exception_tables(regs->psw.addr);
 	if (fixup) {
-		regs->psw.addr = extable_fixup(fixup) | PSW_ADDR_AMODE;
+		regs->psw.addr = extable_fixup(fixup);
 		return;
 	}
 
@@ -302,15 +270,12 @@ static noinline void do_no_context(struct pt_regs *regs)
 	 * Oops. The kernel tried to access some bad page. We'll have to
 	 * terminate things with extreme prejudice.
 	 */
-	address = regs->int_parm_long & __FAIL_ADDR_MASK;
 	if (!user_space_fault(regs))
 		printk(KERN_ALERT "Unable to handle kernel pointer dereference"
 		       " in virtual kernel address space\n");
 	else
 		printk(KERN_ALERT "Unable to handle kernel paging request"
 		       " in virtual user address space\n");
-	printk(KERN_ALERT "failing address: %016lx TEID: %016lx\n",
-	       regs->int_parm_long & __FAIL_ADDR_MASK, regs->int_parm_long);
 	dump_fault_info(regs);
 	die(regs, "Oops");
 	do_exit(SIGKILL);
@@ -435,7 +400,7 @@ static inline int do_exception(struct pt_regs *regs, int access)
 	 * user context.
 	 */
 	fault = VM_FAULT_BADCONTEXT;
-	if (unlikely(!user_space_fault(regs) || in_atomic() || !mm))
+	if (unlikely(!user_space_fault(regs) || faulthandler_disabled() || !mm))
 		goto out;
 
 	address = trans_exc_code & __FAIL_ADDR_MASK;
@@ -625,7 +590,7 @@ int pfault_init(void)
 		.reffcode = 0,
 		.refdwlen = 5,
 		.refversn = 2,
-		.refgaddr = __LC_CURRENT_PID,
+		.refgaddr = __LC_LPP,
 		.refselmk = 1ULL << 48,
 		.refcmpmk = 1ULL << 48,
 		.reserved = __PF_RES_FIELD };
@@ -633,6 +598,7 @@ int pfault_init(void)
 
 	if (pfault_disable)
 		return -1;
+	diag_stat_inc(DIAG_STAT_X258);
 	asm volatile(
 		"	diag	%1,%0,0x258\n"
 		"0:	j	2f\n"
@@ -654,6 +620,7 @@ void pfault_fini(void)
 
 	if (pfault_disable)
 		return;
+	diag_stat_inc(DIAG_STAT_X258);
 	asm volatile(
 		"	diag	%0,0,0x258\n"
 		"0:\n"
@@ -682,7 +649,7 @@ static void pfault_interrupt(struct ext_code ext_code,
 		return;
 	inc_irq_stat(IRQEXT_PFL);
 	/* Get the token (= pid of the affected task). */
-	pid = sizeof(void *) == 4 ? param32 : param64;
+	pid = param64 & LPP_PFAULT_PID_MASK;
 	rcu_read_lock();
 	tsk = find_task_by_pid_ns(pid, &init_pid_ns);
 	if (tsk)

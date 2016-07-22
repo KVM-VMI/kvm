@@ -37,7 +37,7 @@ static int armada375_usb_phy_init(struct phy *phy)
 	struct armada375_cluster_phy *cluster_phy;
 	u32 reg;
 
-	cluster_phy = dev_get_drvdata(phy->dev.parent);
+	cluster_phy = phy_get_drvdata(phy);
 	if (!cluster_phy)
 		return -ENODEV;
 
@@ -51,7 +51,7 @@ static int armada375_usb_phy_init(struct phy *phy)
 	return 0;
 }
 
-static struct phy_ops armada375_usb_phy_ops = {
+static const struct phy_ops armada375_usb_phy_ops = {
 	.init = armada375_usb_phy_init,
 	.owner = THIS_MODULE,
 };
@@ -131,6 +131,7 @@ static int armada375_usb_phy_probe(struct platform_device *pdev)
 	cluster_phy->reg = usb_cluster_base;
 
 	dev_set_drvdata(dev, cluster_phy);
+	phy_set_drvdata(phy, cluster_phy);
 
 	phy_provider = devm_of_phy_provider_register(&pdev->dev,
 						     armada375_usb_phy_xlate);
@@ -148,7 +149,6 @@ static struct platform_driver armada375_usb_phy_driver = {
 	.driver = {
 		.of_match_table	= of_usb_cluster_table,
 		.name  = "armada-375-usb-cluster",
-		.owner = THIS_MODULE,
 	}
 };
 module_platform_driver(armada375_usb_phy_driver);

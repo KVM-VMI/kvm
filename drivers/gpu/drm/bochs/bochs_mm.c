@@ -454,25 +454,17 @@ int bochs_dumb_mmap_offset(struct drm_file *file, struct drm_device *dev,
 			   uint32_t handle, uint64_t *offset)
 {
 	struct drm_gem_object *obj;
-	int ret;
 	struct bochs_bo *bo;
 
-	mutex_lock(&dev->struct_mutex);
 	obj = drm_gem_object_lookup(dev, file, handle);
-	if (obj == NULL) {
-		ret = -ENOENT;
-		goto out_unlock;
-	}
+	if (obj == NULL)
+		return -ENOENT;
 
 	bo = gem_to_bochs_bo(obj);
 	*offset = bochs_bo_mmap_offset(bo);
 
-	drm_gem_object_unreference(obj);
-	ret = 0;
-out_unlock:
-	mutex_unlock(&dev->struct_mutex);
-	return ret;
-
+	drm_gem_object_unreference_unlocked(obj);
+	return 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -492,7 +484,7 @@ static const struct drm_framebuffer_funcs bochs_fb_funcs = {
 
 int bochs_framebuffer_init(struct drm_device *dev,
 			   struct bochs_framebuffer *gfb,
-			   struct drm_mode_fb_cmd2 *mode_cmd,
+			   const struct drm_mode_fb_cmd2 *mode_cmd,
 			   struct drm_gem_object *obj)
 {
 	int ret;
@@ -510,7 +502,7 @@ int bochs_framebuffer_init(struct drm_device *dev,
 static struct drm_framebuffer *
 bochs_user_framebuffer_create(struct drm_device *dev,
 			      struct drm_file *filp,
-			      struct drm_mode_fb_cmd2 *mode_cmd)
+			      const struct drm_mode_fb_cmd2 *mode_cmd)
 {
 	struct drm_gem_object *obj;
 	struct bochs_framebuffer *bochs_fb;

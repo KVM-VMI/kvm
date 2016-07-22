@@ -35,6 +35,8 @@ struct pci_controller {
 	struct resource *io_resource;
 	unsigned long io_offset;
 	unsigned long io_map_base;
+	struct resource *busn_resource;
+	unsigned long busn_offset;
 
 	unsigned int index;
 	/* For compatibility with current (as of July 2003) pciutils
@@ -97,10 +99,9 @@ static inline void pci_resource_to_user(const struct pci_dev *dev, int bar,
 
 #include <linux/types.h>
 #include <linux/slab.h>
-#include <asm/scatterlist.h>
+#include <linux/scatterlist.h>
 #include <linux/string.h>
 #include <asm/io.h>
-#include <asm-generic/pci-bridge.h>
 
 struct pci_dev;
 
@@ -110,16 +111,6 @@ struct pci_dev;
  * decisions.  This is set if any hose does not have an IOMMU.
  */
 extern unsigned int PCI_DMA_BUS_IS_PHYS;
-
-#ifdef CONFIG_PCI
-static inline void pci_dma_burst_advice(struct pci_dev *pdev,
-					enum pci_dma_burst_strategy *strat,
-					unsigned long *strategy_parameter)
-{
-	*strat = PCI_DMA_BURST_INFINITY;
-	*strategy_parameter = ~0UL;
-}
-#endif
 
 #ifdef CONFIG_PCI_DOMAINS
 #define pci_domain_nr(bus) ((struct pci_controller *)(bus)->sysdata)->index
@@ -132,9 +123,6 @@ static inline int pci_proc_domain(struct pci_bus *bus)
 #endif /* CONFIG_PCI_DOMAINS */
 
 #endif /* __KERNEL__ */
-
-/* implement the pci_ DMA API in terms of the generic device dma_ one */
-#include <asm-generic/pci-dma-compat.h>
 
 /* Do platform specific device initialization at pci_enable_device() time */
 extern int pcibios_plat_dev_init(struct pci_dev *dev);

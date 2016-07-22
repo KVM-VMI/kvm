@@ -69,7 +69,7 @@ struct phy_rx_agc_info {
 };
 
 struct phy_status_rpt {
-	struct phy_rx_agc_info path_agc[3];
+	struct phy_rx_agc_info path_agc[RF_PATH_MAX];
 	u8	ch_corr[2];
 	u8	cck_sig_qual_ofdm_pwdb_all;
 	u8	cck_agc_rpt_ofdm_cfosho_a;
@@ -119,8 +119,5 @@ void ODM_MacStatusQuery(struct odm_dm_struct *pDM_Odm,
 			bool	bPacketMatchBSSID,
 			bool	bPacketToSelf,
 			bool	bPacketBeacon);
-
-enum HAL_STATUS ODM_ConfigBBWithHeaderFile(struct odm_dm_struct *pDM_Odm,
-					   enum odm_bb_config_type ConfigType);
 
 #endif

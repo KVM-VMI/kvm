@@ -338,8 +338,9 @@ ENTRY(sun4v_mach_set_watchdog)
 	mov	%o1, %o4
 	mov	HV_FAST_MACH_SET_WATCHDOG, %o5
 	ta	HV_FAST_TRAP
+	brnz,a,pn %o4, 0f
 	stx	%o1, [%o4]
-	retl
+0:	retl
 	 nop
 ENDPROC(sun4v_mach_set_watchdog)
 
@@ -837,3 +838,19 @@ ENTRY(sun4v_t5_set_perfreg)
 	retl
 	 nop
 ENDPROC(sun4v_t5_set_perfreg)
+
+ENTRY(sun4v_m7_get_perfreg)
+	mov	%o1, %o4
+	mov	HV_FAST_M7_GET_PERFREG, %o5
+	ta	HV_FAST_TRAP
+	stx	%o1, [%o4]
+	retl
+	nop
+ENDPROC(sun4v_m7_get_perfreg)
+
+ENTRY(sun4v_m7_set_perfreg)
+	mov	HV_FAST_M7_SET_PERFREG, %o5
+	ta	HV_FAST_TRAP
+	retl
+	nop
+ENDPROC(sun4v_m7_set_perfreg)

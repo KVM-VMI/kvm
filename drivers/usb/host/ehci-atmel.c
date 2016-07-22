@@ -34,7 +34,6 @@ static const char hcd_name[] = "ehci-atmel";
 
 struct atmel_ehci_priv {
 	struct clk *iclk;
-	struct clk *fclk;
 	struct clk *uclk;
 	bool clocked;
 };
@@ -51,12 +50,9 @@ static void atmel_start_clock(struct atmel_ehci_priv *atmel_ehci)
 {
 	if (atmel_ehci->clocked)
 		return;
-	if (IS_ENABLED(CONFIG_COMMON_CLK)) {
-		clk_set_rate(atmel_ehci->uclk, 48000000);
-		clk_prepare_enable(atmel_ehci->uclk);
-	}
+
+	clk_prepare_enable(atmel_ehci->uclk);
 	clk_prepare_enable(atmel_ehci->iclk);
-	clk_prepare_enable(atmel_ehci->fclk);
 	atmel_ehci->clocked = true;
 }
 
@@ -64,10 +60,9 @@ static void atmel_stop_clock(struct atmel_ehci_priv *atmel_ehci)
 {
 	if (!atmel_ehci->clocked)
 		return;
-	clk_disable_unprepare(atmel_ehci->fclk);
+
 	clk_disable_unprepare(atmel_ehci->iclk);
-	if (IS_ENABLED(CONFIG_COMMON_CLK))
-		clk_disable_unprepare(atmel_ehci->uclk);
+	clk_disable_unprepare(atmel_ehci->uclk);
 	atmel_ehci->clocked = false;
 }
 
@@ -146,19 +141,12 @@ static int ehci_atmel_drv_probe(struct platform_device *pdev)
 		retval = -ENOENT;
 		goto fail_request_resource;
 	}
-	atmel_ehci->fclk = devm_clk_get(&pdev->dev, "uhpck");
-	if (IS_ERR(atmel_ehci->fclk)) {
-		dev_err(&pdev->dev, "Error getting function clock\n");
-		retval = -ENOENT;
+
+	atmel_ehci->uclk = devm_clk_get(&pdev->dev, "usb_clk");
+	if (IS_ERR(atmel_ehci->uclk)) {
+		dev_err(&pdev->dev, "failed to get uclk\n");
+		retval = PTR_ERR(atmel_ehci->uclk);
 		goto fail_request_resource;
-	}
-	if (IS_ENABLED(CONFIG_COMMON_CLK)) {
-		atmel_ehci->uclk = devm_clk_get(&pdev->dev, "usb_clk");
-		if (IS_ERR(atmel_ehci->uclk)) {
-			dev_err(&pdev->dev, "failed to get uclk\n");
-			retval = PTR_ERR(atmel_ehci->uclk);
-			goto fail_request_resource;
-		}
 	}
 
 	ehci = hcd_to_ehci(hcd);
@@ -197,8 +185,7 @@ static int ehci_atmel_drv_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM
-static int ehci_atmel_drv_suspend(struct device *dev)
+static int __maybe_unused ehci_atmel_drv_suspend(struct device *dev)
 {
 	struct usb_hcd *hcd = dev_get_drvdata(dev);
 	struct atmel_ehci_priv *atmel_ehci = hcd_to_atmel_ehci_priv(hcd);
@@ -212,7 +199,7 @@ static int ehci_atmel_drv_suspend(struct device *dev)
 	return 0;
 }
 
-static int ehci_atmel_drv_resume(struct device *dev)
+static int __maybe_unused ehci_atmel_drv_resume(struct device *dev)
 {
 	struct usb_hcd *hcd = dev_get_drvdata(dev);
 	struct atmel_ehci_priv *atmel_ehci = hcd_to_atmel_ehci_priv(hcd);
@@ -220,7 +207,6 @@ static int ehci_atmel_drv_resume(struct device *dev)
 	atmel_start_clock(atmel_ehci);
 	return ehci_resume(hcd, false);
 }
-#endif
 
 #ifdef CONFIG_OF
 static const struct of_device_id atmel_ehci_dt_ids[] = {

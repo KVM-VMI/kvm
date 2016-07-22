@@ -13,9 +13,12 @@
  */
 
 #include <linux/efi.h>
+#include <linux/sort.h>
 #include <asm/efi.h>
 
 #include "efistub.h"
+
+bool __nokaslr;
 
 static int efi_secureboot_enabled(efi_system_table_t *sys_table_arg)
 {
@@ -175,7 +178,7 @@ unsigned long efi_entry(void *handle, efi_system_table_t *sys_table,
 	unsigned long initrd_addr;
 	u64 initrd_size = 0;
 	unsigned long fdt_addr = 0;  /* Original DTB */
-	u64 fdt_size = 0;  /* We don't get size from configuration table */
+	unsigned long fdt_size = 0;
 	char *cmdline_ptr = NULL;
 	int cmdline_size = 0;
 	unsigned long new_fdt_addr;
@@ -188,6 +191,10 @@ unsigned long efi_entry(void *handle, efi_system_table_t *sys_table,
 		goto fail;
 
 	pr_efi(sys_table, "Booting Linux Kernel...\n");
+
+	status = check_platform_features(sys_table);
+	if (status != EFI_SUCCESS)
+		goto fail;
 
 	/*
 	 * Get a handle to the loaded image protocol.  This is used to get
@@ -206,14 +213,6 @@ unsigned long efi_entry(void *handle, efi_system_table_t *sys_table,
 		pr_efi_err(sys_table, "Failed to find DRAM base\n");
 		goto fail;
 	}
-	status = handle_kernel_image(sys_table, image_addr, &image_size,
-				     &reserve_addr,
-				     &reserve_size,
-				     dram_base, image);
-	if (status != EFI_SUCCESS) {
-		pr_efi_err(sys_table, "Failed to relocate kernel\n");
-		goto fail;
-	}
 
 	/*
 	 * Get the command line from EFI, using the LOADED_IMAGE
@@ -223,7 +222,28 @@ unsigned long efi_entry(void *handle, efi_system_table_t *sys_table,
 	cmdline_ptr = efi_convert_cmdline(sys_table, image, &cmdline_size);
 	if (!cmdline_ptr) {
 		pr_efi_err(sys_table, "getting command line via LOADED_IMAGE_PROTOCOL\n");
-		goto fail_free_image;
+		goto fail;
+	}
+
+	/* check whether 'nokaslr' was passed on the command line */
+	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE)) {
+		static const u8 default_cmdline[] = CONFIG_CMDLINE;
+		const u8 *str, *cmdline = cmdline_ptr;
+
+		if (IS_ENABLED(CONFIG_CMDLINE_FORCE))
+			cmdline = default_cmdline;
+		str = strstr(cmdline, "nokaslr");
+		if (str == cmdline || (str > cmdline && *(str - 1) == ' '))
+			__nokaslr = true;
+	}
+
+	status = handle_kernel_image(sys_table, image_addr, &image_size,
+				     &reserve_addr,
+				     &reserve_size,
+				     dram_base, image);
+	if (status != EFI_SUCCESS) {
+		pr_efi_err(sys_table, "Failed to relocate kernel\n");
+		goto fail_free_cmdline;
 	}
 
 	status = efi_parse_options(cmdline_ptr);
@@ -239,12 +259,11 @@ unsigned long efi_entry(void *handle, efi_system_table_t *sys_table,
 	} else {
 		status = handle_cmdline_files(sys_table, image, cmdline_ptr,
 					      "dtb=",
-					      ~0UL, (unsigned long *)&fdt_addr,
-					      (unsigned long *)&fdt_size);
+					      ~0UL, &fdt_addr, &fdt_size);
 
 		if (status != EFI_SUCCESS) {
 			pr_efi_err(sys_table, "Failed to load device tree!\n");
-			goto fail_free_cmdline;
+			goto fail_free_image;
 		}
 	}
 
@@ -252,7 +271,7 @@ unsigned long efi_entry(void *handle, efi_system_table_t *sys_table,
 		pr_efi(sys_table, "Using DTB from command line\n");
 	} else {
 		/* Look for a device tree configuration table entry. */
-		fdt_addr = (uintptr_t)get_fdt(sys_table);
+		fdt_addr = (uintptr_t)get_fdt(sys_table, &fdt_size);
 		if (fdt_addr)
 			pr_efi(sys_table, "Using DTB from configuration table\n");
 	}
@@ -286,12 +305,11 @@ unsigned long efi_entry(void *handle, efi_system_table_t *sys_table,
 	efi_free(sys_table, initrd_size, initrd_addr);
 	efi_free(sys_table, fdt_size, fdt_addr);
 
-fail_free_cmdline:
-	efi_free(sys_table, cmdline_size, (unsigned long)cmdline_ptr);
-
 fail_free_image:
 	efi_free(sys_table, image_size, *image_addr);
 	efi_free(sys_table, reserve_size, reserve_addr);
+fail_free_cmdline:
+	efi_free(sys_table, cmdline_size, (unsigned long)cmdline_ptr);
 fail:
 	return EFI_ERROR;
 }
@@ -303,8 +321,48 @@ fail:
  * The value chosen is the largest non-zero power of 2 suitable for this purpose
  * both on 32-bit and 64-bit ARM CPUs, to maximize the likelihood that it can
  * be mapped efficiently.
+ * Since 32-bit ARM could potentially execute with a 1G/3G user/kernel split,
+ * map everything below 1 GB.
  */
-#define EFI_RT_VIRTUAL_BASE	0x40000000
+#define EFI_RT_VIRTUAL_BASE	SZ_512M
+
+static int cmp_mem_desc(const void *l, const void *r)
+{
+	const efi_memory_desc_t *left = l, *right = r;
+
+	return (left->phys_addr > right->phys_addr) ? 1 : -1;
+}
+
+/*
+ * Returns whether region @left ends exactly where region @right starts,
+ * or false if either argument is NULL.
+ */
+static bool regions_are_adjacent(efi_memory_desc_t *left,
+				 efi_memory_desc_t *right)
+{
+	u64 left_end;
+
+	if (left == NULL || right == NULL)
+		return false;
+
+	left_end = left->phys_addr + left->num_pages * EFI_PAGE_SIZE;
+
+	return left_end == right->phys_addr;
+}
+
+/*
+ * Returns whether region @left and region @right have compatible memory type
+ * mapping attributes, and are both EFI_MEMORY_RUNTIME regions.
+ */
+static bool regions_have_compatible_memory_type_attrs(efi_memory_desc_t *left,
+						      efi_memory_desc_t *right)
+{
+	static const u64 mem_type_mask = EFI_MEMORY_WB | EFI_MEMORY_WT |
+					 EFI_MEMORY_WC | EFI_MEMORY_UC |
+					 EFI_MEMORY_RUNTIME;
+
+	return ((left->attribute ^ right->attribute) & mem_type_mask) == 0;
+}
 
 /*
  * efi_get_virtmap() - create a virtual mapping for the EFI memory map
@@ -318,33 +376,52 @@ void efi_get_virtmap(efi_memory_desc_t *memory_map, unsigned long map_size,
 		     int *count)
 {
 	u64 efi_virt_base = EFI_RT_VIRTUAL_BASE;
-	efi_memory_desc_t *out = runtime_map;
+	efi_memory_desc_t *in, *prev = NULL, *out = runtime_map;
 	int l;
 
-	for (l = 0; l < map_size; l += desc_size) {
-		efi_memory_desc_t *in = (void *)memory_map + l;
+	/*
+	 * To work around potential issues with the Properties Table feature
+	 * introduced in UEFI 2.5, which may split PE/COFF executable images
+	 * in memory into several RuntimeServicesCode and RuntimeServicesData
+	 * regions, we need to preserve the relative offsets between adjacent
+	 * EFI_MEMORY_RUNTIME regions with the same memory type attributes.
+	 * The easiest way to find adjacent regions is to sort the memory map
+	 * before traversing it.
+	 */
+	sort(memory_map, map_size / desc_size, desc_size, cmp_mem_desc, NULL);
+
+	for (l = 0; l < map_size; l += desc_size, prev = in) {
 		u64 paddr, size;
 
+		in = (void *)memory_map + l;
 		if (!(in->attribute & EFI_MEMORY_RUNTIME))
 			continue;
+
+		paddr = in->phys_addr;
+		size = in->num_pages * EFI_PAGE_SIZE;
 
 		/*
 		 * Make the mapping compatible with 64k pages: this allows
 		 * a 4k page size kernel to kexec a 64k page size kernel and
 		 * vice versa.
 		 */
-		paddr = round_down(in->phys_addr, SZ_64K);
-		size = round_up(in->num_pages * EFI_PAGE_SIZE +
-				in->phys_addr - paddr, SZ_64K);
+		if (!regions_are_adjacent(prev, in) ||
+		    !regions_have_compatible_memory_type_attrs(prev, in)) {
 
-		/*
-		 * Avoid wasting memory on PTEs by choosing a virtual base that
-		 * is compatible with section mappings if this region has the
-		 * appropriate size and physical alignment. (Sections are 2 MB
-		 * on 4k granule kernels)
-		 */
-		if (IS_ALIGNED(in->phys_addr, SZ_2M) && size >= SZ_2M)
-			efi_virt_base = round_up(efi_virt_base, SZ_2M);
+			paddr = round_down(in->phys_addr, SZ_64K);
+			size += in->phys_addr - paddr;
+
+			/*
+			 * Avoid wasting memory on PTEs by choosing a virtual
+			 * base that is compatible with section mappings if this
+			 * region has the appropriate size and physical
+			 * alignment. (Sections are 2 MB on 4k granule kernels)
+			 */
+			if (IS_ALIGNED(in->phys_addr, SZ_2M) && size >= SZ_2M)
+				efi_virt_base = round_up(efi_virt_base, SZ_2M);
+			else
+				efi_virt_base = round_up(efi_virt_base, SZ_64K);
+		}
 
 		in->virt_addr = efi_virt_base + in->phys_addr - paddr;
 		efi_virt_base += size;
