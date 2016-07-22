@@ -92,39 +92,9 @@ void nitro_wait(struct kvm_vcpu *vcpu){
   return;
 }
 
-int nitro_report_syscall(struct kvm_vcpu *vcpu){
+void nitro_report_event(struct kvm_vcpu *vcpu){
   nitro_wait(vcpu);
-  
-  return 0;
-}
-
-int nitro_report_sysret(struct kvm_vcpu *vcpu){
-
-  nitro_wait(vcpu);
-
-  return 0;
-}
-
-int nitro_report_event(struct kvm_vcpu *vcpu){
-  int r;
-  
-  r = 0;
-  
-  switch(vcpu->nitro.event){
-    case KVM_NITRO_EVENT_ERROR:
-      nitro_wait(vcpu);
-      break;
-    case KVM_NITRO_EVENT_SYSCALL:
-      r = nitro_report_syscall(vcpu);
-      break;
-    case KVM_NITRO_EVENT_SYSRET:
-      r = nitro_report_sysret(vcpu);
-      break;
-    default:
-      printk(KERN_INFO "nitro: %s: unknown event encountered (%d)\n",__FUNCTION__,vcpu->nitro.event);
-  }
   vcpu->nitro.event = 0;
-  return r;
 }
 
 inline u64 nitro_get_efer(struct kvm_vcpu *vcpu){
