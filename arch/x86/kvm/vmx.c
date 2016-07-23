@@ -5348,24 +5348,6 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		return 1;
 	}
 
-	if (is_general_protection(intr_info)) {
-		if (vcpu->kvm->nitro.traps)
-		{
-			if (is_sysenter_sysexit(vcpu))
-			{
-				er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-				if (er != EMULATE_DONE)
-					kvm_queue_exception(vcpu, UD_VECTOR);
-				return 1;
-			}
-			else
-			{
-				printk(KERN_INFO "Natural GP\n");
-			}
-		}
-
-	}
-
 	if (is_invalid_opcode(intr_info)) {
 		if (is_guest_mode(vcpu)) {
 			kvm_queue_exception(vcpu, UD_VECTOR);
@@ -5380,6 +5362,25 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	error_code = 0;
 	if (intr_info & INTR_INFO_DELIVER_CODE_MASK)
 		error_code = vmcs_read32(VM_EXIT_INTR_ERROR_CODE);
+
+	if (is_general_protection(intr_info) &&
+			vcpu->kvm->nitro.traps)
+	{
+		printk(KERN_INFO "GP\n");
+		if (is_sysenter_sysexit(vcpu))
+		{
+			er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+			if (er != EMULATE_DONE)
+				kvm_queue_exception(vcpu, UD_VECTOR);
+			return 1;
+		}
+		else
+		{
+			printk(KERN_INFO "Natural GP\n");
+			kvm_queue_exception_e(vcpu, GP_VECTOR, error_code);
+			return 1;
+		}
+	}
 
 	/*
 	 * The #PF with PFEC.RSVD = 1 indicates the guest is accessing
