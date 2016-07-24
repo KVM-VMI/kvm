@@ -18,8 +18,6 @@ struct nitro_vcpu{
   struct semaphore n_wait_sem;
   int event;
 };
-  
-int nitro_vcpu_load(struct kvm_vcpu*);
 
 struct kvm* nitro_get_vm_by_creator(pid_t);
 

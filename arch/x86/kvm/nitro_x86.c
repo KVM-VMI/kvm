@@ -20,7 +20,7 @@ static void nitro_set_trap_sysenter_cs(struct kvm_vcpu* vcpu, bool enabled)
 	{
 		kvm_x86_ops->get_msr(vcpu, &msr_info);
 		old_sysenter_cs = msr_info.data;
-        msr_info.data = 0;
+		msr_info.data = 0;
 	}
     else
         msr_info.data = old_sysenter_cs;
@@ -49,6 +49,7 @@ u64 nitro_get_old_sysenter_cs(void)
 
 int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   int i;
+  int r;
   struct kvm_vcpu *vcpu;
 
   
@@ -70,7 +71,7 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
     }
 
 
-    nitro_vcpu_load(vcpu);
+	r = vcpu_load(vcpu);
 
 	nitro_set_trap_sysenter_cs(vcpu, enabled);
 	nitro_set_trap_efer(vcpu, enabled);
