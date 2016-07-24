@@ -2435,12 +2435,6 @@ out_free2:
 	if (ioctl == KVM_S390_INTERRUPT || ioctl == KVM_S390_IRQ || ioctl == KVM_INTERRUPT)
 		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 #endif
-	
-	//asynchronous nitro calls
-	if (ioctl == KVM_NITRO_GET_EVENT)
-		return nitro_ioctl_get_event(vcpu);
-	else if(ioctl == KVM_NITRO_CONTINUE)
-		return nitro_ioctl_continue(vcpu);
 
 	r = vcpu_load(vcpu);
 	if (r)
