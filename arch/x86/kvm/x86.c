@@ -4048,8 +4048,6 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		r = 0;
 		break;
 	}
-<<<<<<< HEAD
-=======
 	case KVM_ENABLE_CAP: {
 		struct kvm_enable_cap cap;
 		r = -EFAULT;
@@ -4058,7 +4056,6 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_enable_cap(kvm, &cap);
 		break;
 	}
->>>>>>> upgrade
 	case KVM_NITRO_SET_SYSCALL_TRAP: {
         bool enabled;
         r = -EFAULT;
@@ -7444,10 +7441,6 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 
 	nitro_destroy_vcpu_hook(vcpu);
 	
-<<<<<<< HEAD
-	fx_free(vcpu);
-=======
->>>>>>> upgrade
 	kvm_x86_ops->vcpu_free(vcpu);
 }
 
@@ -8464,10 +8457,7 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_intercepts);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_write_tsc_offset);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_ple_window);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pml_full);
-<<<<<<< HEAD
-=======
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pi_irte_update);
->>>>>>> upgrade
 
 int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 {

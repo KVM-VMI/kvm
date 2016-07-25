@@ -16,19 +16,6 @@
 
 extern int create_vcpu_fd(struct kvm_vcpu*);
 
-int nitro_vcpu_load(struct kvm_vcpu *vcpu)
-{
-	int cpu;
-
-	if (mutex_lock_killable(&vcpu->mutex))
-		return -EINTR;
-	cpu = get_cpu();
-	preempt_notifier_register(&vcpu->preempt_notifier);
-	kvm_arch_vcpu_load(vcpu, cpu);
-	put_cpu();
-	return 0;
-}
-
 struct kvm* nitro_get_vm_by_creator(pid_t creator){
   struct kvm *rv;
   struct kvm *kvm;
