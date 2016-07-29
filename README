@@ -1,9 +1,0 @@
-nitro-ng_kmod
-----------------------------------------
-
-This repository is only for development.  If you want to compile the modules see: 
-https://github.com/pfohjo/nitro-ng_kmod_build
-
-Upstream Repo
-----------------------------------------
-git://git.kernel.org/pub/scm/virt/kvm/kvm.git
