@@ -110,3 +110,10 @@ x509.genkey
 # Kconfig presets
 all.config
 
+# qtcreator
+*.config
+*.creator
+*.creator.user
+*.files
+*.includes
+
