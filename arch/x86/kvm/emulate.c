@@ -2781,7 +2781,7 @@ static int em_sysenter(struct x86_emulate_ctxt *ctxt)
 	u64 efer = 0;
     struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
 
-    // printk(KERN_INFO "em_sysenter\n");
+	// printk(KERN_INFO "em_sysenter\n");
 
     if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
         vcpu->nitro.event = KVM_NITRO_EVENT_SYSCALL;
@@ -2843,7 +2843,7 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 	u16 cs_sel = 0, ss_sel = 0;
     struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
 
-    // printk(KERN_INFO "em_sysexit\n");
+	// printk(KERN_INFO "em_sysexit\n");
 
 	/* inject #GP if in real mode or Virtual 8086 mode */
 	if (ctxt->mode == X86EMUL_MODE_REAL ||

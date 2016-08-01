@@ -8471,6 +8471,9 @@ int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
     if (ctxt->b == 0x34 || ctxt->b == 0x35)
         return 1;
     else
+	{
+		printk(KERN_INFO "b = %x", ctxt->b);
         return 0;
+	}
 }
 EXPORT_SYMBOL_GPL(is_sysenter_sysexit);

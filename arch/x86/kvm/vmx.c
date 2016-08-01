@@ -1727,13 +1727,15 @@ static void update_exception_bitmap(struct kvm_vcpu *vcpu)
 	u32 eb;
 
 	eb = (1u << PF_VECTOR) | (1u << UD_VECTOR) | (1u << MC_VECTOR) |
-	     (1u << NM_VECTOR) | (1u << DB_VECTOR) | (1u << AC_VECTOR);
+		 (1u << NM_VECTOR) | (1u << DB_VECTOR) | (1u << AC_VECTOR);
+
 
 	if (vcpu->kvm->nitro.traps)
 	{
 		eb |= 1u << GP_VECTOR;
 		eb |= 1u << UD_VECTOR;
 	}
+
 
 	if ((vcpu->guest_debug &
 	     (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP)) ==
@@ -5333,7 +5335,6 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	u32 vect_info;
 	enum emulation_result er;
 
-
 	vect_info = vmx->idt_vectoring_info;
 	intr_info = vmx->exit_intr_info;
 
@@ -5366,20 +5367,11 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	if (is_general_protection(intr_info) &&
 			vcpu->kvm->nitro.traps)
 	{
-		printk(KERN_INFO "GP\n");
-		if (is_sysenter_sysexit(vcpu))
-		{
-			er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-			if (er != EMULATE_DONE)
-				kvm_queue_exception(vcpu, UD_VECTOR);
-			return 1;
-		}
-		else
-		{
-			printk(KERN_INFO "Natural GP\n");
-			kvm_queue_exception_e(vcpu, GP_VECTOR, error_code);
-			return 1;
-		}
+		// is_sysenter_sysexit(vcpu)
+		er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+		if (er != EMULATE_DONE)
+			kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
 	}
 
 	/*

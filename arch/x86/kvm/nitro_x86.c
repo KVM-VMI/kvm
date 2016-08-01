@@ -20,10 +20,14 @@ static void nitro_set_trap_sysenter_cs(struct kvm_vcpu* vcpu, bool enabled)
 	{
 		kvm_x86_ops->get_msr(vcpu, &msr_info);
 		old_sysenter_cs = msr_info.data;
+		printk(KERN_INFO "nitro: old sysenter cs = 0x%llx\n", old_sysenter_cs);
 		msr_info.data = 0;
 	}
     else
+	{
+		printk(KERN_INFO "nitro: restoring syscenter cs to 0x%llx\n", old_sysenter_cs);
         msr_info.data = old_sysenter_cs;
+	}
 	kvm_x86_ops->set_msr(vcpu, &msr_info);
 }
 
@@ -39,7 +43,7 @@ static void nitro_set_trap_efer(struct kvm_vcpu* vcpu, bool enabled)
 		msr_info.data &= ~EFER_SCE;
     else
 		msr_info.data |= EFER_SCE;
-    kvm_set_msr_common(vcpu, &msr_info);
+	kvm_set_msr_common(vcpu, &msr_info);
 }
 
 u64 nitro_get_old_sysenter_cs(void)
@@ -76,6 +80,8 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
 	nitro_set_trap_sysenter_cs(vcpu, enabled);
 	nitro_set_trap_efer(vcpu, enabled);
 
+	// update exception bitmap
+	kvm_x86_ops->update_bp_intercept(vcpu);
     vcpu_put(vcpu);
   }
   return 0;

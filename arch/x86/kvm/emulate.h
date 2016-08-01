@@ -3,4 +3,3 @@
 
 int do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt,
                            unsigned size);
-
