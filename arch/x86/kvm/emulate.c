@@ -2644,7 +2644,9 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 	struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
 	
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-		vcpu->nitro.event = KVM_NITRO_EVENT_SYSCALL;
+		vcpu->nitro.event.present = true;
+		vcpu->nitro.event.type = SYSCALL;
+		vcpu->nitro.event.direction = ENTER;
 	}
 
 
@@ -2766,7 +2768,9 @@ static int em_sysret(struct x86_emulate_ctxt *ctxt)
 	ctxt->_eip = reg_read(ctxt, VCPU_REGS_RCX);
 	
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-		vcpu->nitro.event = KVM_NITRO_EVENT_SYSRET;
+		vcpu->nitro.event.present = true;
+		vcpu->nitro.event.type = SYSCALL;
+		vcpu->nitro.event.direction = EXIT;
 	}
 
 	return X86EMUL_CONTINUE;
@@ -2784,7 +2788,9 @@ static int em_sysenter(struct x86_emulate_ctxt *ctxt)
 	// printk(KERN_INFO "em_sysenter\n");
 
     if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-        vcpu->nitro.event = KVM_NITRO_EVENT_SYSCALL;
+		vcpu->nitro.event.present = true;
+		vcpu->nitro.event.type = SYSENTER;
+		vcpu->nitro.event.direction = ENTER;
     }
 
 	ops->get_msr(ctxt, MSR_EFER, &efer);
@@ -2897,7 +2903,9 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 	*reg_write(ctxt, VCPU_REGS_RSP) = rcx;
 
     if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-        vcpu->nitro.event = KVM_NITRO_EVENT_SYSRET;
+		vcpu->nitro.event.present = true;
+		vcpu->nitro.event.type = SYSENTER;
+		vcpu->nitro.event.direction = EXIT;
     }
 
 	return X86EMUL_CONTINUE;

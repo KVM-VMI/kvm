@@ -6789,7 +6789,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 			break;
 		
 
-		if(vcpu->nitro.event)
+		if(vcpu->nitro.event.present)
 			nitro_report_event(vcpu);
 
 		clear_bit(KVM_REQ_PENDING_TIMER, &vcpu->requests);

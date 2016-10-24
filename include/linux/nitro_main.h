@@ -16,7 +16,7 @@ struct nitro{
 struct nitro_vcpu{
   struct completion k_wait_cv;
   struct semaphore n_wait_sem;
-  int event;
+  struct event event;
 };
 
 struct kvm* nitro_get_vm_by_creator(pid_t);
@@ -30,7 +30,7 @@ void nitro_destroy_vm_hook(struct kvm*);
 void nitro_create_vcpu_hook(struct kvm_vcpu*);
 void nitro_destroy_vcpu_hook(struct kvm_vcpu*);
 
-int nitro_ioctl_get_event(struct kvm_vcpu*);
+int nitro_ioctl_get_event(struct kvm_vcpu*, struct event *ev);
 int nitro_ioctl_continue(struct kvm_vcpu*);
 
 inline int nitro_is_trap_set(struct kvm*, uint32_t);

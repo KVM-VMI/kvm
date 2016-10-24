@@ -50,13 +50,13 @@ void nitro_destroy_vm_hook(struct kvm *kvm){
 }
 
 void nitro_create_vcpu_hook(struct kvm_vcpu *vcpu){
-  vcpu->nitro.event = 0;
+  vcpu->nitro.event.present = false;
   init_completion(&(vcpu->nitro.k_wait_cv));
   sema_init(&(vcpu->nitro.n_wait_sem),0);
 }
 
 void nitro_destroy_vcpu_hook(struct kvm_vcpu *vcpu){
-  vcpu->nitro.event = 0;
+  vcpu->nitro.event.present = false;
 }
 
 int nitro_iotcl_num_vms(void){
@@ -104,13 +104,15 @@ error_out:
   return -1;
 }
 
-int nitro_ioctl_get_event(struct kvm_vcpu *vcpu){
+int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
   int rv;
   
   rv = down_interruptible(&(vcpu->nitro.n_wait_sem));
   
-  if (rv == 0)
-    rv = vcpu->nitro.event;
+  if (rv == 0) {
+	  ev->direction = vcpu->nitro.event.direction;
+	  ev->type = vcpu->nitro.event.type;
+  }
   
   return rv;
 }

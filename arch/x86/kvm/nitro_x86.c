@@ -61,7 +61,7 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   
   kvm_for_each_vcpu(i, vcpu, kvm){
 
-    vcpu->nitro.event = 0;
+	vcpu->nitro.event.present = false;
 
     if (enabled)
     {
@@ -103,7 +103,7 @@ void nitro_wait(struct kvm_vcpu *vcpu){
 
 void nitro_report_event(struct kvm_vcpu *vcpu){
   nitro_wait(vcpu);
-  vcpu->nitro.event = 0;
+  vcpu->nitro.event.present = false;
 }
 
 inline u64 nitro_get_efer(struct kvm_vcpu *vcpu){

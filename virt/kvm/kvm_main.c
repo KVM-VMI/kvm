@@ -2364,9 +2364,22 @@ static long kvm_vcpu_ioctl(struct file *filp,
 
 	//asynchronous calls that dont require vcpu_load()
 	switch(ioctl){
-	case KVM_NITRO_GET_EVENT:
-		r = nitro_ioctl_get_event(vcpu);
+	case KVM_NITRO_GET_EVENT: {
+		struct event* ev;
+
+		ev = kzalloc(sizeof(struct event), GFP_KERNEL);
+		if (!ev)
+			goto out_no_put;
+
+		r = nitro_ioctl_get_event(vcpu, ev);
+
+		r = 0;
+		if (copy_to_user(argp, ev, sizeof(struct event)))
+			r = -EFAULT;
+
+		kfree(ev);
 		goto out_no_put;
+	}
 	case KVM_NITRO_CONTINUE:
 		r = nitro_ioctl_continue(vcpu);
 		goto out_no_put;
