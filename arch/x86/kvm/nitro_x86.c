@@ -75,14 +75,17 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
     }
 
 
-	r = vcpu_load(vcpu);
+	// wait for vcpu_load mutex
+	do {
+		r = vcpu_load(vcpu);
+	} while (r == -EINTR);
 
 	nitro_set_trap_sysenter_cs(vcpu, enabled);
 	nitro_set_trap_efer(vcpu, enabled);
 
 	// update exception bitmap
 	kvm_x86_ops->update_bp_intercept(vcpu);
-    vcpu_put(vcpu);
+	vcpu_put(vcpu);
   }
   return 0;
 }
