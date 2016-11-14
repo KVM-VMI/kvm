@@ -63,6 +63,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/kvm.h>
 
+#include <linux/nitro.h>
+#include <linux/nitro_main.h>
+
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
 
@@ -646,6 +649,8 @@ static void kvm_destroy_vm(struct kvm *kvm)
 {
 	int i;
 	struct mm_struct *mm = kvm->mm;
+	
+	nitro_destroy_vm_hook(kvm);
 
 	kvm_arch_sync_events(kvm);
 	spin_lock(&kvm_lock);
@@ -2259,7 +2264,7 @@ static struct file_operations kvm_vcpu_fops = {
 /*
  * Allocates an inode for the vcpu.
  */
-static int create_vcpu_fd(struct kvm_vcpu *vcpu)
+int create_vcpu_fd(struct kvm_vcpu *vcpu)
 {
 	return anon_inode_getfd("kvm-vcpu", &kvm_vcpu_fops, vcpu, O_RDWR | O_CLOEXEC);
 }
@@ -2317,6 +2322,8 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 	 */
 	smp_wmb();
 	atomic_inc(&kvm->online_vcpus);
+	
+	nitro_create_vcpu_hook(vcpu);
 
 	mutex_unlock(&kvm->lock);
 	kvm_arch_vcpu_postcreate(vcpu);
@@ -2349,21 +2356,98 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	struct kvm_fpu *fpu = NULL;
 	struct kvm_sregs *kvm_sregs = NULL;
 
-	if (vcpu->kvm->mm != current->mm)
-		return -EIO;
+	//if (vcpu->kvm->mm != current->mm)
+	//	return -EIO;
 
 	if (unlikely(_IOC_TYPE(ioctl) != KVMIO))
 		return -EINVAL;
 
+	//asynchronous calls that dont require vcpu_load()
+	switch(ioctl){
+	case KVM_NITRO_GET_EVENT: {
+		struct event* ev;
+
+		ev = kzalloc(sizeof(struct event), GFP_KERNEL);
+		if (!ev)
+			goto out_no_put;
+
+		r = nitro_ioctl_get_event(vcpu, ev);
+
+		r = 0;
+		if (copy_to_user(argp, ev, sizeof(struct event)))
+			r = -EFAULT;
+
+		kfree(ev);
+		goto out_no_put;
+	}
+	case KVM_NITRO_CONTINUE:
+		r = nitro_ioctl_continue(vcpu);
+		goto out_no_put;
+	case KVM_NITRO_GET_REGS: {
+		struct kvm_regs *kvm_regs;
+
+		r = -ENOMEM;
+		kvm_regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL);
+		if (!kvm_regs)
+			goto out_no_put;
+		r = kvm_arch_vcpu_ioctl_get_regs(vcpu, kvm_regs);
+		if (r)
+			goto out_free2;
+		r = -EFAULT;
+		if (copy_to_user(argp, kvm_regs, sizeof(struct kvm_regs)))
+			goto out_free2;
+		r = 0;
+out_free2:
+		kfree(kvm_regs);
+		goto out_no_put;
+	}
+	case KVM_NITRO_SET_REGS: {
+		struct kvm_regs *kvm_regs;
+
+		r = -ENOMEM;
+		kvm_regs = memdup_user(argp, sizeof(*kvm_regs));
+		if (IS_ERR(kvm_regs)) {
+			r = PTR_ERR(kvm_regs);
+			goto out_no_put;
+		}
+		r = kvm_arch_vcpu_ioctl_set_regs(vcpu, kvm_regs);
+		kfree(kvm_regs);
+		goto out_no_put;
+	}
+	case KVM_NITRO_GET_SREGS: {
+		kvm_sregs = kzalloc(sizeof(struct kvm_sregs), GFP_KERNEL);
+		r = -ENOMEM;
+		if (!kvm_sregs)
+			goto out_no_put;
+		r = kvm_arch_vcpu_ioctl_get_sregs(vcpu, kvm_sregs);
+		if (r)
+			goto out_no_put;
+		r = -EFAULT;
+		if (copy_to_user(argp, kvm_sregs, sizeof(struct kvm_sregs)))
+			goto out_no_put;
+		r = 0;
+		goto out_no_put;
+	}
+	case KVM_NITRO_SET_SREGS: {
+		kvm_sregs = memdup_user(argp, sizeof(*kvm_sregs));
+		if (IS_ERR(kvm_sregs)) {
+			r = PTR_ERR(kvm_sregs);
+			kvm_sregs = NULL;
+			goto out_no_put;
+		}
+		r = kvm_arch_vcpu_ioctl_set_sregs(vcpu, kvm_sregs);
+		goto out_no_put;
+	}
+	}
 #if defined(CONFIG_S390) || defined(CONFIG_PPC) || defined(CONFIG_MIPS)
-	/*
+    /*
+	*
 	 * Special cases: vcpu ioctls that are asynchronous to vcpu execution,
 	 * so vcpu_load() would break it.
 	 */
 	if (ioctl == KVM_S390_INTERRUPT || ioctl == KVM_S390_IRQ || ioctl == KVM_INTERRUPT)
 		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 #endif
-
 
 	r = vcpu_load(vcpu);
 	if (r)
@@ -2538,6 +2622,7 @@ out_free1:
 	}
 out:
 	vcpu_put(vcpu);
+out_no_put:
 	kfree(fpu);
 	kfree(kvm_sregs);
 	return r;
@@ -2759,8 +2844,8 @@ static long kvm_vm_ioctl(struct file *filp,
 	void __user *argp = (void __user *)arg;
 	int r;
 
-	if (kvm->mm != current->mm)
-		return -EIO;
+	//if (kvm->mm != current->mm)
+	//	return -EIO;
 	switch (ioctl) {
 	case KVM_CREATE_VCPU:
 		r = kvm_vm_ioctl_create_vcpu(kvm, arg);
@@ -2909,6 +2994,24 @@ out_free_irq_routing:
 	case KVM_CHECK_EXTENSION:
 		r = kvm_vm_ioctl_check_extension_generic(kvm, arg);
 		break;
+	case KVM_NITRO_ATTACH_VCPUS: {
+		int i;
+		struct nitro_vcpus nvcpus;
+
+		r = nitro_iotcl_attach_vcpus(kvm,&nvcpus);
+		if (r)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_to_user(argp, &nvcpus, sizeof(nvcpus))){
+			for(i=0;i<nvcpus.num_vcpus;i++)
+				kvm_put_kvm(kvm);
+			goto out;
+		}
+
+		r = 0;
+		break;
+	}
 	default:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
@@ -2984,7 +3087,11 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 		return r;
 	}
 #endif
+
+	nitro_create_vm_hook(kvm);
+
 	r = anon_inode_getfd("kvm-vm", &kvm_vm_fops, kvm, O_RDWR | O_CLOEXEC);
+
 	if (r < 0)
 		kvm_put_kvm(kvm);
 
@@ -2994,6 +3101,7 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 static long kvm_dev_ioctl(struct file *filp,
 			  unsigned int ioctl, unsigned long arg)
 {
+	void __user *argp = (void __user *)arg;
 	long r = -EINVAL;
 
 	switch (ioctl) {
@@ -3024,6 +3132,28 @@ static long kvm_dev_ioctl(struct file *filp,
 	case KVM_TRACE_DISABLE:
 		r = -EOPNOTSUPP;
 		break;
+	case KVM_NITRO_NUM_VMS:
+		r = nitro_iotcl_num_vms();
+		break;
+	case KVM_NITRO_ATTACH_VM: {
+		pid_t creator;
+		struct kvm *kvm;
+		
+		r = -EFAULT;
+		if (copy_from_user(&creator, argp, sizeof(pid_t)))
+			goto out;
+		
+		r = -ESRCH;
+		kvm = nitro_get_vm_by_creator(creator);
+		if(kvm == NULL)
+			goto out;
+		
+		kvm_get_kvm(kvm);
+		r = anon_inode_getfd("kvm-vm", &kvm_vm_fops, kvm, O_RDWR | O_CLOEXEC);
+		if(r<0)
+			kvm_put_kvm(kvm);
+		break;
+	}
 	default:
 		return kvm_arch_dev_ioctl(filp, ioctl, arg);
 	}

@@ -1011,6 +1011,13 @@ static inline bool is_machine_check(u32 intr_info)
 		(INTR_TYPE_HARD_EXCEPTION | MC_VECTOR | INTR_INFO_VALID_MASK);
 }
 
+static inline bool is_general_protection(u32 intr_info)
+{
+    return (intr_info & (INTR_INFO_INTR_TYPE_MASK | INTR_INFO_VECTOR_MASK |
+                 INTR_INFO_VALID_MASK)) ==
+        (INTR_TYPE_HARD_EXCEPTION | GP_VECTOR | INTR_INFO_VALID_MASK);
+}
+
 static inline bool cpu_has_vmx_msr_bitmap(void)
 {
 	return vmcs_config.cpu_based_exec_ctrl & CPU_BASED_USE_MSR_BITMAPS;
@@ -1720,7 +1727,16 @@ static void update_exception_bitmap(struct kvm_vcpu *vcpu)
 	u32 eb;
 
 	eb = (1u << PF_VECTOR) | (1u << UD_VECTOR) | (1u << MC_VECTOR) |
-	     (1u << NM_VECTOR) | (1u << DB_VECTOR) | (1u << AC_VECTOR);
+		 (1u << NM_VECTOR) | (1u << DB_VECTOR) | (1u << AC_VECTOR);
+
+
+	if (vcpu->kvm->nitro.traps)
+	{
+		eb |= 1u << GP_VECTOR;
+		eb |= 1u << UD_VECTOR;
+	}
+
+
 	if ((vcpu->guest_debug &
 	     (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP)) ==
 	    (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP))
@@ -5347,6 +5363,16 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	error_code = 0;
 	if (intr_info & INTR_INFO_DELIVER_CODE_MASK)
 		error_code = vmcs_read32(VM_EXIT_INTR_ERROR_CODE);
+
+	if (is_general_protection(intr_info) &&
+			vcpu->kvm->nitro.traps)
+	{
+		// is_sysenter_sysexit(vcpu)
+		er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+		if (er != EMULATE_DONE)
+			kvm_queue_exception(vcpu, UD_VECTOR);
+		return 1;
+	}
 
 	/*
 	 * The #PF with PFEC.RSVD = 1 indicates the guest is accessing

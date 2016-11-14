@@ -68,6 +68,16 @@
 #include <asm/div64.h>
 #include <asm/irq_remapping.h>
 
+#include <linux/nitro.h>
+#include <linux/nitro_main.h>
+#include "nitro_x86.h"
+#include "emulate.h"
+
+#include <linux/nitro.h>
+#include <linux/nitro_main.h>
+#include "nitro_x86.h"
+#include "emulate.h"
+
 #define MAX_IO_MSRS 256
 #define KVM_MAX_MCE_BANKS 32
 #define KVM_MCE_CAP_SUPPORTED (MCG_CTL_P | MCG_SER_P)
@@ -2370,7 +2380,8 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		msr_info->data |= (((uint64_t)4ULL) << 40);
 		break;
 	case MSR_EFER:
-		msr_info->data = vcpu->arch.efer;
+		//msr_info->data = vcpu->arch.efer;
+		msr_info->data = nitro_get_efer(vcpu);
 		break;
 	case MSR_KVM_WALL_CLOCK:
 	case MSR_KVM_WALL_CLOCK_NEW:
@@ -4038,12 +4049,21 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	}
 	case KVM_ENABLE_CAP: {
 		struct kvm_enable_cap cap;
-
 		r = -EFAULT;
 		if (copy_from_user(&cap, argp, sizeof(cap)))
 			goto out;
 		r = kvm_vm_ioctl_enable_cap(kvm, &cap);
 		break;
+	}
+	case KVM_NITRO_SET_SYSCALL_TRAP: {
+        bool enabled;
+        r = -EFAULT;
+        if (copy_from_user(&enabled, argp, sizeof(bool)))
+            goto out;
+
+        printk(KERN_DEBUG "Enabled : %d\n", enabled);
+        r = nitro_set_syscall_trap(kvm, enabled);
+        break;
 	}
 	default:
 		r = kvm_vm_ioctl_assigned_device(kvm, ioctl, arg);
@@ -6702,6 +6722,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		kvm_lapic_sync_from_vapic(vcpu);
 
 	r = kvm_x86_ops->handle_exit(vcpu);
+	
 	return r;
 
 cancel_injection:
@@ -6767,6 +6788,10 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 
 		if (r <= 0)
 			break;
+		
+
+		if(vcpu->nitro.event.present)
+			nitro_report_event(vcpu);
 
 		clear_bit(KVM_REQ_PENDING_TIMER, &vcpu->requests);
 		if (kvm_cpu_has_pending_timer(vcpu))
@@ -7412,6 +7437,8 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 	kvm_mmu_unload(vcpu);
 	vcpu_put(vcpu);
 
+	nitro_destroy_vcpu_hook(vcpu);
+	
 	kvm_x86_ops->vcpu_free(vcpu);
 }
 
@@ -8429,3 +8456,22 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_write_tsc_offset);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_ple_window);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pml_full);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pi_irte_update);
+
+int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
+{
+    struct x86_emulate_ctxt *ctxt;
+
+    init_emulate_ctxt(vcpu);
+    ctxt = &vcpu->arch.emulate_ctxt;
+
+    do_insn_fetch_bytes(ctxt, 8);
+
+    if (ctxt->b == 0x34 || ctxt->b == 0x35)
+        return 1;
+    else
+	{
+		printk(KERN_INFO "b = %x", ctxt->b);
+        return 0;
+	}
+}
+EXPORT_SYMBOL_GPL(is_sysenter_sysexit);
