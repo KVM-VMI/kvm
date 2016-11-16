@@ -8457,20 +8457,24 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_ple_window);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pml_full);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pi_irte_update);
 
+int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len);
+
 int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 {
     struct x86_emulate_ctxt *ctxt;
+	int r = 0;
 
     init_emulate_ctxt(vcpu);
     ctxt = &vcpu->arch.emulate_ctxt;
 
-    do_insn_fetch_bytes(ctxt, 8);
+	r = x86_decode_insn(ctxt, NULL, 0);
 
-    if (ctxt->b == 0x34 || ctxt->b == 0x35)
+	// twobyte and SYSENTER/SYSEXIT
+	if (ctxt->opcode_len == 2 &&  (ctxt->b == 0x34 || ctxt->b == 0x35))
         return 1;
     else
 	{
-		printk(KERN_INFO "b = %x", ctxt->b);
+		printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
         return 0;
 	}
 }

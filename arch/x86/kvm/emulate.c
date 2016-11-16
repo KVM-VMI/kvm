@@ -5604,6 +5604,8 @@ cannot_emulate:
 	return EMULATION_FAILED;
 }
 
+EXPORT_SYMBOL_GPL(x86_decode_insn);
+
 void emulator_invalidate_register_cache(struct x86_emulate_ctxt *ctxt)
 {
 	invalidate_registers(ctxt);
