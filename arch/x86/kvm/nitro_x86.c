@@ -109,7 +109,7 @@ void nitro_report_event(struct kvm_vcpu *vcpu){
   vcpu->nitro.event.present = false;
 }
 
-inline u64 nitro_get_efer(struct kvm_vcpu *vcpu){
+u64 nitro_get_efer(struct kvm_vcpu *vcpu){
   return nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL) ? (vcpu->arch.efer | EFER_SCE) : vcpu->arch.efer;
 }
 

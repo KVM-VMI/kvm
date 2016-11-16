@@ -33,7 +33,7 @@ void nitro_destroy_vcpu_hook(struct kvm_vcpu*);
 int nitro_ioctl_get_event(struct kvm_vcpu*, struct event *ev);
 int nitro_ioctl_continue(struct kvm_vcpu*);
 
-inline int nitro_is_trap_set(struct kvm*, uint32_t);
+int nitro_is_trap_set(struct kvm*, uint32_t);
 
 
 #endif //NITRO_MAIN_H_
