@@ -39,7 +39,7 @@ void nitro_create_vm_hook(struct kvm *kvm){
   //get current pid
   pid = pid_nr(get_task_pid(current, PIDTYPE_PID));
   printk(KERN_INFO "nitro: new VM created, creating process: %d\n", pid);
-  
+
   //init nitro
   kvm->nitro.traps = 0;
 }
@@ -118,13 +118,14 @@ int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
 }
 
 int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
-  
-  //if no waiters
-  if(completion_done(&(vcpu->nitro.k_wait_cv)))
-    return -1;
-  
-  complete(&(vcpu->nitro.k_wait_cv));
-  return 0;
+
+	// if no waiters
+	if(completion_done(&(vcpu->nitro.k_wait_cv)))
+		return -1;
+
+	complete(&(vcpu->nitro.k_wait_cv));
+
+	return 0;
 }
 
 int nitro_is_trap_set(struct kvm *kvm, uint32_t trap){

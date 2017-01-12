@@ -56,23 +56,26 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   int r;
   struct kvm_vcpu *vcpu;
 
-  
+
   printk(KERN_INFO "nitro: set syscall trap\n");
-  
+
   kvm_for_each_vcpu(i, vcpu, kvm){
 
 	vcpu->nitro.event.present = false;
 
-    if (enabled)
-    {
-        kvm->nitro.traps |= NITRO_TRAP_SYSCALL;
-        init_completion(&vcpu->nitro.k_wait_cv);
-    }
-    else
-    {
-        kvm->nitro.traps &= ~(NITRO_TRAP_SYSCALL);
-        complete_all(&(vcpu->nitro.k_wait_cv));
-    }
+	if (enabled)
+	{
+		kvm->nitro.traps |= NITRO_TRAP_SYSCALL;
+		init_completion(&vcpu->nitro.k_wait_cv);
+		sema_init(&(vcpu->nitro.n_wait_sem),0);
+	}
+	else
+	{
+		kvm->nitro.traps &= ~(NITRO_TRAP_SYSCALL);
+		complete_all(&(vcpu->nitro.k_wait_cv));
+		// release all waiters on nitro_get_event
+		up(&(vcpu->nitro.n_wait_sem));
+	}
 
 
 	// wait for vcpu_load mutex
