@@ -112,6 +112,8 @@ int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
   if (rv == 0) {
 	  ev->direction = vcpu->nitro.event.direction;
 	  ev->type = vcpu->nitro.event.type;
+	  ev->regs = vcpu->nitro.event.regs;
+	  ev->sregs = vcpu->nitro.event.sregs;
   }
   
   return rv;

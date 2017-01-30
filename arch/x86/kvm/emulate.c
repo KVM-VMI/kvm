@@ -2647,6 +2647,8 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSCALL;
 		vcpu->nitro.event.direction = ENTER;
+		kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+		kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
 	}
 
 
@@ -2771,6 +2773,8 @@ static int em_sysret(struct x86_emulate_ctxt *ctxt)
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSCALL;
 		vcpu->nitro.event.direction = EXIT;
+		kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+		kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
 	}
 
 	return X86EMUL_CONTINUE;
@@ -2791,6 +2795,8 @@ static int em_sysenter(struct x86_emulate_ctxt *ctxt)
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSENTER;
 		vcpu->nitro.event.direction = ENTER;
+		kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+		kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
     }
 
 	ops->get_msr(ctxt, MSR_EFER, &efer);
@@ -2906,6 +2912,8 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSENTER;
 		vcpu->nitro.event.direction = EXIT;
+		kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+		kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
     }
 
 	return X86EMUL_CONTINUE;
