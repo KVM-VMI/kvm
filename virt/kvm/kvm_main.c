@@ -716,7 +716,9 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	int i;
 	struct mm_struct *mm = kvm->mm;
 
+#ifdef CONFIG_KVM_DEBUG_FS
 	kvm_destroy_vm_debugfs(kvm);
+#endif
 	kvm_arch_sync_events(kvm);
 	spin_lock(&kvm_lock);
 	list_del(&kvm->vm_list);
@@ -2376,7 +2378,9 @@ static int kvm_vcpu_release(struct inode *inode, struct file *filp)
 {
 	struct kvm_vcpu *vcpu = filp->private_data;
 
+#ifdef CONFIG_KVM_DEBUG_FS
 	debugfs_remove_recursive(vcpu->debugfs_dentry);
+#endif
 	kvm_put_kvm(vcpu->kvm);
 	return 0;
 }
@@ -2457,9 +2461,11 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 	if (r)
 		goto vcpu_destroy;
 
+#ifdef CONFIG_KVM_DEBUG_FS
 	r = kvm_create_vcpu_debugfs(vcpu);
 	if (r)
 		goto vcpu_destroy;
+#endif
 
 	mutex_lock(&kvm->lock);
 	if (kvm_get_vcpu_by_id(kvm, id)) {
@@ -2494,7 +2500,9 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 
 unlock_vcpu_destroy:
 	mutex_unlock(&kvm->lock);
+#ifdef CONFIG_KVM_DEBUG_FS
 	debugfs_remove_recursive(vcpu->debugfs_dentry);
+#endif
 vcpu_destroy:
 	kvm_arch_vcpu_destroy(vcpu);
 vcpu_decrement:
@@ -3281,11 +3289,13 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 		return PTR_ERR(file);
 	}
 
+#ifdef CONFIG_KVM_DEBUG_FS
 	if (kvm_create_vm_debugfs(kvm, r) < 0) {
 		put_unused_fd(r);
 		fput(file);
 		return -ENOMEM;
 	}
+#endif
 
 	fd_install(r, file);
 	return r;
@@ -4063,7 +4073,9 @@ EXPORT_SYMBOL_GPL(kvm_init);
 
 void kvm_exit(void)
 {
+#ifdef CONFIG_KVM_DEBUG_FS
 	debugfs_remove_recursive(kvm_debugfs_dir);
+#endif
 	misc_deregister(&kvm_dev);
 	kmem_cache_destroy(kvm_vcpu_cache);
 	kvm_async_pf_deinit();
