@@ -4036,11 +4036,13 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	kvm_preempt_ops.sched_in = kvm_sched_in;
 	kvm_preempt_ops.sched_out = kvm_sched_out;
 
+#ifdef CONFIG_KVM_DEBUG_FS
 	r = kvm_init_debug();
 	if (r) {
 		pr_err("kvm: create debugfs files failed\n");
 		goto out_undebugfs;
 	}
+#endif
 
 	r = kvm_vfio_ops_init();
 	WARN_ON(r);
