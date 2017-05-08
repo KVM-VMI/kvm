@@ -107,7 +107,7 @@ error_out:
 int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
   int rv;
   
-  rv = down_interruptible(&(vcpu->nitro.n_wait_sem));
+  rv = down_timeout(&(vcpu->nitro.n_wait_sem), 1000);
   
   if (rv == 0) {
 	  ev->direction = vcpu->nitro.event.direction;

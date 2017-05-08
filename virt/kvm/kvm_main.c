@@ -2549,7 +2549,6 @@ static long kvm_vcpu_ioctl(struct file *filp,
 
 		r = nitro_ioctl_get_event(vcpu, ev);
 
-		r = 0;
 		if (copy_to_user(argp, ev, sizeof(struct event)))
 			r = -EFAULT;
 
