@@ -3,6 +3,7 @@ FILES=					\
 	test-backtrace.bin		\
 	test-bionic.bin			\
 	test-dwarf.bin			\
+	test-dwarf_getlocations.bin	\
 	test-fortify-source.bin		\
 	test-sync-compare-and-swap.bin	\
 	test-glibc.bin			\
@@ -16,6 +17,8 @@ FILES=					\
 	test-cplus-demangle.bin		\
 	test-libelf.bin			\
 	test-libelf-getphdrnum.bin	\
+	test-libelf-gelf_getnote.bin	\
+	test-libelf-getshdrstrndx.bin	\
 	test-libelf-mmap.bin		\
 	test-libnuma.bin		\
 	test-numa_num_possible_cpus.bin	\
@@ -26,6 +29,12 @@ FILES=					\
 	test-libcrypto.bin		\
 	test-libunwind.bin		\
 	test-libunwind-debug-frame.bin	\
+	test-libunwind-x86.bin		\
+	test-libunwind-x86_64.bin	\
+	test-libunwind-arm.bin		\
+	test-libunwind-aarch64.bin	\
+	test-libunwind-debug-frame-arm.bin	\
+	test-libunwind-debug-frame-aarch64.bin	\
 	test-pthread-attr-setaffinity-np.bin	\
 	test-stackprotector-all.bin	\
 	test-timerfd.bin		\
@@ -36,17 +45,23 @@ FILES=					\
 	test-zlib.bin			\
 	test-lzma.bin			\
 	test-bpf.bin			\
-	test-get_cpuid.bin
+	test-get_cpuid.bin		\
+	test-sdt.bin			\
+	test-cxx.bin
 
 FILES := $(addprefix $(OUTPUT),$(FILES))
 
 CC := $(CROSS_COMPILE)gcc -MD
+CXX := $(CROSS_COMPILE)g++ -MD
 PKG_CONFIG := $(CROSS_COMPILE)pkg-config
 
 all: $(FILES)
 
 __BUILD = $(CC) $(CFLAGS) -Wall -Werror -o $@ $(patsubst %.bin,%.c,$(@F)) $(LDFLAGS)
   BUILD = $(__BUILD) > $(@:.bin=.make.output) 2>&1
+
+__BUILDXX = $(CXX) $(CXXFLAGS) -Wall -Werror -o $@ $(patsubst %.bin,%.cpp,$(@F)) $(LDFLAGS)
+  BUILDXX = $(__BUILDXX) > $(@:.bin=.make.output) 2>&1
 
 ###############################
 
@@ -82,10 +97,19 @@ endif
 $(OUTPUT)test-dwarf.bin:
 	$(BUILD) $(DWARFLIBS)
 
+$(OUTPUT)test-dwarf_getlocations.bin:
+	$(BUILD) $(DWARFLIBS)
+
 $(OUTPUT)test-libelf-mmap.bin:
 	$(BUILD) -lelf
 
 $(OUTPUT)test-libelf-getphdrnum.bin:
+	$(BUILD) -lelf
+
+$(OUTPUT)test-libelf-gelf_getnote.bin:
+	$(BUILD) -lelf
+
+$(OUTPUT)test-libelf-getshdrstrndx.bin:
 	$(BUILD) -lelf
 
 $(OUTPUT)test-libnuma.bin:
@@ -99,6 +123,23 @@ $(OUTPUT)test-libunwind.bin:
 
 $(OUTPUT)test-libunwind-debug-frame.bin:
 	$(BUILD) -lelf
+$(OUTPUT)test-libunwind-x86.bin:
+	$(BUILD) -lelf -lunwind-x86
+
+$(OUTPUT)test-libunwind-x86_64.bin:
+	$(BUILD) -lelf -lunwind-x86_64
+
+$(OUTPUT)test-libunwind-arm.bin:
+	$(BUILD) -lelf -lunwind-arm
+
+$(OUTPUT)test-libunwind-aarch64.bin:
+	$(BUILD) -lelf -lunwind-aarch64
+
+$(OUTPUT)test-libunwind-debug-frame-arm.bin:
+	$(BUILD) -lelf -lunwind-arm
+
+$(OUTPUT)test-libunwind-debug-frame-aarch64.bin:
+	$(BUILD) -lelf -lunwind-aarch64
 
 $(OUTPUT)test-libaudit.bin:
 	$(BUILD) -laudit
@@ -177,6 +218,12 @@ $(OUTPUT)test-get_cpuid.bin:
 
 $(OUTPUT)test-bpf.bin:
 	$(BUILD)
+
+$(OUTPUT)test-sdt.bin:
+	$(BUILD)
+
+$(OUTPUT)test-cxx.bin:
+	$(BUILDXX) -std=gnu++11
 
 -include $(OUTPUT)*.d
 

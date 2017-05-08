@@ -326,8 +326,8 @@ int radeon_dp_get_dp_link_config(struct drm_connector *connector,
 			}
 		}
 	} else {
-		for (lane_num = 1; lane_num <= max_lane_num; lane_num <<= 1) {
-			for (i = 0; i < ARRAY_SIZE(link_rates) && link_rates[i] <= max_link_rate; i++) {
+		for (i = 0; i < ARRAY_SIZE(link_rates) && link_rates[i] <= max_link_rate; i++) {
+			for (lane_num = 1; lane_num <= max_lane_num; lane_num <<= 1) {
 				max_pix_clock = (lane_num * link_rates[i] * 8) / bpp;
 				if (max_pix_clock >= pix_clock) {
 					*dp_lanes = lane_num;
@@ -389,22 +389,21 @@ bool radeon_dp_getdpcd(struct radeon_connector *radeon_connector)
 {
 	struct radeon_connector_atom_dig *dig_connector = radeon_connector->con_priv;
 	u8 msg[DP_DPCD_SIZE];
-	int ret, i;
+	int ret;
 
-	for (i = 0; i < 7; i++) {
-		ret = drm_dp_dpcd_read(&radeon_connector->ddc_bus->aux, DP_DPCD_REV, msg,
-				       DP_DPCD_SIZE);
-		if (ret == DP_DPCD_SIZE) {
-			memcpy(dig_connector->dpcd, msg, DP_DPCD_SIZE);
+	ret = drm_dp_dpcd_read(&radeon_connector->ddc_bus->aux, DP_DPCD_REV, msg,
+			       DP_DPCD_SIZE);
+	if (ret == DP_DPCD_SIZE) {
+		memcpy(dig_connector->dpcd, msg, DP_DPCD_SIZE);
 
-			DRM_DEBUG_KMS("DPCD: %*ph\n", (int)sizeof(dig_connector->dpcd),
-				      dig_connector->dpcd);
+		DRM_DEBUG_KMS("DPCD: %*ph\n", (int)sizeof(dig_connector->dpcd),
+			      dig_connector->dpcd);
 
-			radeon_dp_probe_oui(radeon_connector);
+		radeon_dp_probe_oui(radeon_connector);
 
-			return true;
-		}
+		return true;
 	}
+
 	dig_connector->dpcd[0] = 0;
 	return false;
 }

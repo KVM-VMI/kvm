@@ -69,8 +69,9 @@ static int hash_walk_new_entry(struct crypto_hash_walk *walk)
 	struct scatterlist *sg;
 
 	sg = walk->sg;
-	walk->pg = sg_page(sg);
 	walk->offset = sg->offset;
+	walk->pg = sg_page(walk->sg) + (walk->offset >> PAGE_SHIFT);
+	walk->offset = offset_in_page(walk->offset);
 	walk->entrylen = sg->length;
 
 	if (walk->entrylen > walk->total)
@@ -460,10 +461,10 @@ static int crypto_ahash_init_tfm(struct crypto_tfm *tfm)
 
 static unsigned int crypto_ahash_extsize(struct crypto_alg *alg)
 {
-	if (alg->cra_type == &crypto_ahash_type)
-		return alg->cra_ctxsize;
+	if (alg->cra_type != &crypto_ahash_type)
+		return sizeof(struct crypto_shash *);
 
-	return sizeof(struct crypto_shash *);
+	return crypto_alg_extsize(alg);
 }
 
 #ifdef CONFIG_NET

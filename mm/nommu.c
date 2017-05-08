@@ -15,8 +15,6 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#define __DISABLE_GUP_DEPRECATED
-
 #include <linux/export.h>
 #include <linux/mm.h>
 #include <linux/vmacache.h>
@@ -111,7 +109,7 @@ unsigned int kobjsize(const void *objp)
 	return PAGE_SIZE << compound_order(page);
 }
 
-long __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
+static long __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 		      unsigned long start, unsigned long nr_pages,
 		      unsigned int foll_flags, struct page **pages,
 		      struct vm_area_struct **vmas, int *nonblocking)
@@ -161,34 +159,26 @@ finish_or_fault:
  *   slab page or a secondary page from a compound page
  * - don't permit access to VMAs that don't support it, such as I/O mappings
  */
-long get_user_pages6(unsigned long start, unsigned long nr_pages,
-		    int write, int force, struct page **pages,
+long get_user_pages(unsigned long start, unsigned long nr_pages,
+		    unsigned int gup_flags, struct page **pages,
 		    struct vm_area_struct **vmas)
 {
-	int flags = 0;
-
-	if (write)
-		flags |= FOLL_WRITE;
-	if (force)
-		flags |= FOLL_FORCE;
-
-	return __get_user_pages(current, current->mm, start, nr_pages, flags,
-				pages, vmas, NULL);
+	return __get_user_pages(current, current->mm, start, nr_pages,
+				gup_flags, pages, vmas, NULL);
 }
-EXPORT_SYMBOL(get_user_pages6);
+EXPORT_SYMBOL(get_user_pages);
 
-long get_user_pages_locked6(unsigned long start, unsigned long nr_pages,
-			    int write, int force, struct page **pages,
+long get_user_pages_locked(unsigned long start, unsigned long nr_pages,
+			    unsigned int gup_flags, struct page **pages,
 			    int *locked)
 {
-	return get_user_pages6(start, nr_pages, write, force, pages, NULL);
+	return get_user_pages(start, nr_pages, gup_flags, pages, NULL);
 }
-EXPORT_SYMBOL(get_user_pages_locked6);
+EXPORT_SYMBOL(get_user_pages_locked);
 
 long __get_user_pages_unlocked(struct task_struct *tsk, struct mm_struct *mm,
 			       unsigned long start, unsigned long nr_pages,
-			       int write, int force, struct page **pages,
-			       unsigned int gup_flags)
+			       struct page **pages, unsigned int gup_flags)
 {
 	long ret;
 	down_read(&mm->mmap_sem);
@@ -199,13 +189,13 @@ long __get_user_pages_unlocked(struct task_struct *tsk, struct mm_struct *mm,
 }
 EXPORT_SYMBOL(__get_user_pages_unlocked);
 
-long get_user_pages_unlocked5(unsigned long start, unsigned long nr_pages,
-			     int write, int force, struct page **pages)
+long get_user_pages_unlocked(unsigned long start, unsigned long nr_pages,
+			     struct page **pages, unsigned int gup_flags)
 {
 	return __get_user_pages_unlocked(current, current->mm, start, nr_pages,
-					 write, force, pages, 0);
+					 pages, gup_flags);
 }
-EXPORT_SYMBOL(get_user_pages_unlocked5);
+EXPORT_SYMBOL(get_user_pages_unlocked);
 
 /**
  * follow_pfn - look up PFN at a user virtual address
@@ -1684,7 +1674,7 @@ void exit_mmap(struct mm_struct *mm)
 	}
 }
 
-unsigned long vm_brk(unsigned long addr, unsigned long len)
+int vm_brk(unsigned long addr, unsigned long len)
 {
 	return -ENOMEM;
 }
@@ -1811,16 +1801,18 @@ int filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 }
 EXPORT_SYMBOL(filemap_fault);
 
-void filemap_map_pages(struct vm_area_struct *vma, struct vm_fault *vmf)
+void filemap_map_pages(struct fault_env *fe,
+		pgoff_t start_pgoff, pgoff_t end_pgoff)
 {
 	BUG();
 }
 EXPORT_SYMBOL(filemap_map_pages);
 
 static int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
-		unsigned long addr, void *buf, int len, int write)
+		unsigned long addr, void *buf, int len, unsigned int gup_flags)
 {
 	struct vm_area_struct *vma;
+	int write = gup_flags & FOLL_WRITE;
 
 	down_read(&mm->mmap_sem);
 
@@ -1855,21 +1847,22 @@ static int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
  * @addr:	start address to access
  * @buf:	source or destination buffer
  * @len:	number of bytes to transfer
- * @write:	whether the access is a write
+ * @gup_flags:	flags modifying lookup behaviour
  *
  * The caller must hold a reference on @mm.
  */
 int access_remote_vm(struct mm_struct *mm, unsigned long addr,
-		void *buf, int len, int write)
+		void *buf, int len, unsigned int gup_flags)
 {
-	return __access_remote_vm(NULL, mm, addr, buf, len, write);
+	return __access_remote_vm(NULL, mm, addr, buf, len, gup_flags);
 }
 
 /*
  * Access another process' address space.
  * - source/target buffer must be kernel space
  */
-int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, int len, int write)
+int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, int len,
+		unsigned int gup_flags)
 {
 	struct mm_struct *mm;
 
@@ -1880,7 +1873,7 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 	if (!mm)
 		return 0;
 
-	len = __access_remote_vm(tsk, mm, addr, buf, len, write);
+	len = __access_remote_vm(tsk, mm, addr, buf, len, gup_flags);
 
 	mmput(mm);
 	return len;
@@ -1989,31 +1982,3 @@ static int __meminit init_admin_reserve(void)
 	return 0;
 }
 subsys_initcall(init_admin_reserve);
-
-long get_user_pages8(struct task_struct *tsk, struct mm_struct *mm,
-		     unsigned long start, unsigned long nr_pages,
-		     int write, int force, struct page **pages,
-		     struct vm_area_struct **vmas)
-{
-	return get_user_pages6(start, nr_pages, write, force, pages, vmas);
-}
-EXPORT_SYMBOL(get_user_pages8);
-
-long get_user_pages_locked8(struct task_struct *tsk, struct mm_struct *mm,
-			    unsigned long start, unsigned long nr_pages,
-			    int write, int force, struct page **pages,
-			    int *locked)
-{
-	return get_user_pages_locked6(start, nr_pages, write,
-				      force, pages, locked);
-}
-EXPORT_SYMBOL(get_user_pages_locked8);
-
-long get_user_pages_unlocked7(struct task_struct *tsk, struct mm_struct *mm,
-			      unsigned long start, unsigned long nr_pages,
-			      int write, int force, struct page **pages)
-{
-	return get_user_pages_unlocked5(start, nr_pages, write, force, pages);
-}
-EXPORT_SYMBOL(get_user_pages_unlocked7);
-

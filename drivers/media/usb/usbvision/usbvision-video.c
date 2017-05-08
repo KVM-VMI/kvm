@@ -188,12 +188,10 @@ static ssize_t show_hue(struct device *cd,
 {
 	struct video_device *vdev = to_video_device(cd);
 	struct usb_usbvision *usbvision = video_get_drvdata(vdev);
-	struct v4l2_control ctrl;
-	ctrl.id = V4L2_CID_HUE;
-	ctrl.value = 0;
-	if (usbvision->user)
-		call_all(usbvision, core, g_ctrl, &ctrl);
-	return sprintf(buf, "%d\n", ctrl.value);
+	s32 val = v4l2_ctrl_g_ctrl(v4l2_ctrl_find(&usbvision->hdl,
+						  V4L2_CID_HUE));
+
+	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR(hue, S_IRUGO, show_hue, NULL);
 
@@ -202,12 +200,10 @@ static ssize_t show_contrast(struct device *cd,
 {
 	struct video_device *vdev = to_video_device(cd);
 	struct usb_usbvision *usbvision = video_get_drvdata(vdev);
-	struct v4l2_control ctrl;
-	ctrl.id = V4L2_CID_CONTRAST;
-	ctrl.value = 0;
-	if (usbvision->user)
-		call_all(usbvision, core, g_ctrl, &ctrl);
-	return sprintf(buf, "%d\n", ctrl.value);
+	s32 val = v4l2_ctrl_g_ctrl(v4l2_ctrl_find(&usbvision->hdl,
+						  V4L2_CID_CONTRAST));
+
+	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR(contrast, S_IRUGO, show_contrast, NULL);
 
@@ -216,12 +212,10 @@ static ssize_t show_brightness(struct device *cd,
 {
 	struct video_device *vdev = to_video_device(cd);
 	struct usb_usbvision *usbvision = video_get_drvdata(vdev);
-	struct v4l2_control ctrl;
-	ctrl.id = V4L2_CID_BRIGHTNESS;
-	ctrl.value = 0;
-	if (usbvision->user)
-		call_all(usbvision, core, g_ctrl, &ctrl);
-	return sprintf(buf, "%d\n", ctrl.value);
+	s32 val = v4l2_ctrl_g_ctrl(v4l2_ctrl_find(&usbvision->hdl,
+						  V4L2_CID_BRIGHTNESS));
+
+	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR(brightness, S_IRUGO, show_brightness, NULL);
 
@@ -230,12 +224,10 @@ static ssize_t show_saturation(struct device *cd,
 {
 	struct video_device *vdev = to_video_device(cd);
 	struct usb_usbvision *usbvision = video_get_drvdata(vdev);
-	struct v4l2_control ctrl;
-	ctrl.id = V4L2_CID_SATURATION;
-	ctrl.value = 0;
-	if (usbvision->user)
-		call_all(usbvision, core, g_ctrl, &ctrl);
-	return sprintf(buf, "%d\n", ctrl.value);
+	s32 val = v4l2_ctrl_g_ctrl(v4l2_ctrl_find(&usbvision->hdl,
+						  V4L2_CID_SATURATION));
+
+	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR(saturation, S_IRUGO, show_saturation, NULL);
 
@@ -1451,13 +1443,6 @@ static int usbvision_probe(struct usb_interface *intf,
 	}
 	printk(KERN_INFO "%s: %s found\n", __func__,
 				usbvision_device_data[model].model_string);
-
-	/*
-	 * this is a security check.
-	 * an exploit using an incorrect bInterfaceNumber is known
-	 */
-	if (ifnum >= USB_MAXINTERFACES || !dev->actconfig->interface[ifnum])
-		return -ENODEV;
 
 	if (usbvision_device_data[model].interface >= 0)
 		interface = &dev->actconfig->interface[usbvision_device_data[model].interface]->altsetting[0];

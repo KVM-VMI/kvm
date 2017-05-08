@@ -88,17 +88,17 @@ int nitro_iotcl_attach_vcpus(struct kvm *kvm, struct nitro_vcpus *nvcpus){
     nvcpus->fds[r] = create_vcpu_fd(v);
     if(nvcpus->fds[r]<0){
       for(i=r;r>=0;i--){
-	nvcpus->ids[r] = 0;
+	nvcpus->ids[i] = 0;
 	nvcpus->fds[i] = 0;
 	kvm_put_kvm(kvm);
       }
       goto error_out;
     }
   }
-  
+
   mutex_unlock(&kvm->lock);
   return 0;
-  
+
 error_out:
   mutex_unlock(&kvm->lock);
   return -1;
@@ -106,16 +106,16 @@ error_out:
 
 int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
   int rv;
-  
-  rv = down_interruptible(&(vcpu->nitro.n_wait_sem));
-  
+
+  rv = down_timeout(&(vcpu->nitro.n_wait_sem), 1000);
+
   if (rv == 0) {
 	  ev->direction = vcpu->nitro.event.direction;
 	  ev->type = vcpu->nitro.event.type;
 	  ev->regs = vcpu->nitro.event.regs;
 	  ev->sregs = vcpu->nitro.event.sregs;
   }
-  
+
   return rv;
 }
 

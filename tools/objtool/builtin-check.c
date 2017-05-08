@@ -26,6 +26,7 @@
  */
 
 #include <string.h>
+#include <stdlib.h>
 #include <subcmd/parse-options.h>
 
 #include "builtin.h"
@@ -54,6 +55,7 @@ struct instruction {
 	struct symbol *call_dest;
 	struct instruction *jump_dest;
 	struct list_head alts;
+	struct symbol *func;
 };
 
 struct alternative {
@@ -66,6 +68,7 @@ struct objtool_file {
 	struct list_head insn_list;
 	DECLARE_HASHTABLE(insn_hash, 16);
 	struct section *rodata, *whitelist;
+	bool ignore_unreachables, c_file;
 };
 
 const char *objname;
@@ -94,6 +97,19 @@ static struct instruction *next_insn_same_sec(struct objtool_file *file,
 	return next;
 }
 
+static bool gcov_enabled(struct objtool_file *file)
+{
+	struct section *sec;
+	struct symbol *sym;
+
+	list_for_each_entry(sec, &file->elf->sections, list)
+		list_for_each_entry(sym, &sec->symbol_list, list)
+			if (!strncmp(sym->name, "__gcov_.", 8))
+				return true;
+
+	return false;
+}
+
 #define for_each_insn(file, insn)					\
 	list_for_each_entry(insn, &file->insn_list, list)
 
@@ -103,6 +119,12 @@ static struct instruction *next_insn_same_sec(struct objtool_file *file,
 		insn->sec == func->sec &&				\
 		insn->offset < func->offset + func->len;		\
 	     insn = list_next_entry(insn, list))
+
+#define func_for_each_insn_continue_reverse(file, func, insn)		\
+	for (insn = list_prev_entry(insn, list);			\
+	     &insn->list != &file->insn_list &&				\
+		insn->sec == func->sec && insn->offset >= func->offset;	\
+	     insn = list_prev_entry(insn, list))
 
 #define sec_for_each_insn_from(file, insn)				\
 	for (; insn; insn = next_insn_same_sec(file, insn))
@@ -120,10 +142,14 @@ static bool ignore_func(struct objtool_file *file, struct symbol *func)
 
 	/* check for STACK_FRAME_NON_STANDARD */
 	if (file->whitelist && file->whitelist->rela)
-		list_for_each_entry(rela, &file->whitelist->rela->rela_list, list)
-			if (rela->sym->sec == func->sec &&
+		list_for_each_entry(rela, &file->whitelist->rela->rela_list, list) {
+			if (rela->sym->type == STT_SECTION &&
+			    rela->sym->sec == func->sec &&
 			    rela->addend == func->offset)
 				return true;
+			if (rela->sym->type == STT_FUNC && rela->sym == func)
+				return true;
+		}
 
 	/* check if it has a context switching instruction */
 	func_for_each_insn(file, func, insn)
@@ -162,6 +188,7 @@ static int __dead_end_function(struct objtool_file *file, struct symbol *func,
 		"__stack_chk_fail",
 		"panic",
 		"do_exit",
+		"do_task_dead",
 		"__module_put_and_exit",
 		"complete_and_exit",
 		"kvm_spurious_fault",
@@ -228,7 +255,7 @@ static int __dead_end_function(struct objtool_file *file, struct symbol *func,
 			}
 		}
 
-		if (insn->type == INSN_JUMP_DYNAMIC)
+		if (insn->type == INSN_JUMP_DYNAMIC && list_empty(&insn->alts))
 			/* sibling call */
 			return 0;
 	}
@@ -248,6 +275,7 @@ static int dead_end_function(struct objtool_file *file, struct symbol *func)
 static int decode_instructions(struct objtool_file *file)
 {
 	struct section *sec;
+	struct symbol *func;
 	unsigned long offset;
 	struct instruction *insn;
 	int ret;
@@ -280,6 +308,21 @@ static int decode_instructions(struct objtool_file *file)
 
 			hash_add(file->insn_hash, &insn->hash, insn->offset);
 			list_add_tail(&insn->list, &file->insn_list);
+		}
+
+		list_for_each_entry(func, &sec->symbol_list, list) {
+			if (func->type != STT_FUNC)
+				continue;
+
+			if (!find_insn(file, sec, func->offset)) {
+				WARN("%s(): can't find starting instruction",
+				     func->name);
+				return -1;
+			}
+
+			func_for_each_insn(file, func, insn)
+				if (!insn->func)
+					insn->func = func;
 		}
 	}
 
@@ -641,38 +684,102 @@ static int add_switch_table(struct objtool_file *file, struct symbol *func,
 	return 0;
 }
 
+/*
+ * find_switch_table() - Given a dynamic jump, find the switch jump table in
+ * .rodata associated with it.
+ *
+ * There are 3 basic patterns:
+ *
+ * 1. jmpq *[rodata addr](,%reg,8)
+ *
+ *    This is the most common case by far.  It jumps to an address in a simple
+ *    jump table which is stored in .rodata.
+ *
+ * 2. jmpq *[rodata addr](%rip)
+ *
+ *    This is caused by a rare GCC quirk, currently only seen in three driver
+ *    functions in the kernel, only with certain obscure non-distro configs.
+ *
+ *    As part of an optimization, GCC makes a copy of an existing switch jump
+ *    table, modifies it, and then hard-codes the jump (albeit with an indirect
+ *    jump) to use a single entry in the table.  The rest of the jump table and
+ *    some of its jump targets remain as dead code.
+ *
+ *    In such a case we can just crudely ignore all unreachable instruction
+ *    warnings for the entire object file.  Ideally we would just ignore them
+ *    for the function, but that would require redesigning the code quite a
+ *    bit.  And honestly that's just not worth doing: unreachable instruction
+ *    warnings are of questionable value anyway, and this is such a rare issue.
+ *
+ * 3. mov [rodata addr],%reg1
+ *    ... some instructions ...
+ *    jmpq *(%reg1,%reg2,8)
+ *
+ *    This is a fairly uncommon pattern which is new for GCC 6.  As of this
+ *    writing, there are 11 occurrences of it in the allmodconfig kernel.
+ *
+ *    TODO: Once we have DWARF CFI and smarter instruction decoding logic,
+ *    ensure the same register is used in the mov and jump instructions.
+ */
+static struct rela *find_switch_table(struct objtool_file *file,
+				      struct symbol *func,
+				      struct instruction *insn)
+{
+	struct rela *text_rela, *rodata_rela;
+	struct instruction *orig_insn = insn;
+
+	text_rela = find_rela_by_dest_range(insn->sec, insn->offset, insn->len);
+	if (text_rela && text_rela->sym == file->rodata->sym) {
+		/* case 1 */
+		rodata_rela = find_rela_by_dest(file->rodata,
+						text_rela->addend);
+		if (rodata_rela)
+			return rodata_rela;
+
+		/* case 2 */
+		rodata_rela = find_rela_by_dest(file->rodata,
+						text_rela->addend + 4);
+		if (!rodata_rela)
+			return NULL;
+		file->ignore_unreachables = true;
+		return rodata_rela;
+	}
+
+	/* case 3 */
+	func_for_each_insn_continue_reverse(file, func, insn) {
+		if (insn->type == INSN_JUMP_DYNAMIC)
+			break;
+
+		/* allow small jumps within the range */
+		if (insn->type == INSN_JUMP_UNCONDITIONAL &&
+		    insn->jump_dest &&
+		    (insn->jump_dest->offset <= insn->offset ||
+		     insn->jump_dest->offset > orig_insn->offset))
+		    break;
+
+		text_rela = find_rela_by_dest_range(insn->sec, insn->offset,
+						    insn->len);
+		if (text_rela && text_rela->sym == file->rodata->sym)
+			return find_rela_by_dest(file->rodata,
+						 text_rela->addend);
+	}
+
+	return NULL;
+}
+
 static int add_func_switch_tables(struct objtool_file *file,
 				  struct symbol *func)
 {
-	struct instruction *insn, *prev_jump;
-	struct rela *text_rela, *rodata_rela, *prev_rela;
+	struct instruction *insn, *prev_jump = NULL;
+	struct rela *rela, *prev_rela = NULL;
 	int ret;
-
-	prev_jump = NULL;
 
 	func_for_each_insn(file, func, insn) {
 		if (insn->type != INSN_JUMP_DYNAMIC)
 			continue;
 
-		text_rela = find_rela_by_dest_range(insn->sec, insn->offset,
-						    insn->len);
-		if (!text_rela || text_rela->sym != file->rodata->sym)
-			continue;
-
-		/* common case: jmpq *[addr](,%rax,8) */
-		rodata_rela = find_rela_by_dest(file->rodata,
-						text_rela->addend);
-
-		/*
-		 * TODO: Document where this is needed, or get rid of it.
-		 *
-		 * rare case:   jmpq *[addr](%rip)
-		 */
-		if (!rodata_rela)
-			rodata_rela = find_rela_by_dest(file->rodata,
-							text_rela->addend + 4);
-
-		if (!rodata_rela)
+		rela = find_switch_table(file, func, insn);
+		if (!rela)
 			continue;
 
 		/*
@@ -682,13 +789,13 @@ static int add_func_switch_tables(struct objtool_file *file,
 		 */
 		if (prev_jump) {
 			ret = add_switch_table(file, func, prev_jump, prev_rela,
-					       rodata_rela);
+					       rela);
 			if (ret)
 				return ret;
 		}
 
 		prev_jump = insn;
-		prev_rela = rodata_rela;
+		prev_rela = rela;
 	}
 
 	if (prev_jump) {
@@ -731,9 +838,6 @@ static int add_switch_table_alts(struct objtool_file *file)
 static int decode_sections(struct objtool_file *file)
 {
 	int ret;
-
-	file->whitelist = find_section_by_name(file->elf, "__func_stack_frame_non_standard");
-	file->rodata = find_section_by_name(file->elf, ".rodata");
 
 	ret = decode_instructions(file);
 	if (ret)
@@ -799,6 +903,7 @@ static int validate_branch(struct objtool_file *file,
 	struct alternative *alt;
 	struct instruction *insn;
 	struct section *sec;
+	struct symbol *func = NULL;
 	unsigned char state;
 	int ret;
 
@@ -813,6 +918,16 @@ static int validate_branch(struct objtool_file *file,
 	}
 
 	while (1) {
+		if (file->c_file && insn->func) {
+			if (func && func != insn->func) {
+				WARN("%s() falls through to next function %s()",
+				     func->name, insn->func->name);
+				return 1;
+			}
+
+			func = insn->func;
+		}
+
 		if (insn->visited) {
 			if (frame_state(insn->state) != frame_state(state)) {
 				WARN_FUNC("frame pointer state mismatch",
@@ -822,13 +937,6 @@ static int validate_branch(struct objtool_file *file,
 
 			return 0;
 		}
-
-		/*
-		 * Catch a rare case where a noreturn function falls through to
-		 * the next function.
-		 */
-		if (is_fentry_call(insn) && (state & STATE_FENTRY))
-			return 0;
 
 		insn->visited = true;
 		insn->state = state;
@@ -946,34 +1054,6 @@ static int validate_branch(struct objtool_file *file,
 	return 0;
 }
 
-static bool is_gcov_insn(struct instruction *insn)
-{
-	struct rela *rela;
-	struct section *sec;
-	struct symbol *sym;
-	unsigned long offset;
-
-	rela = find_rela_by_dest_range(insn->sec, insn->offset, insn->len);
-	if (!rela)
-		return false;
-
-	if (rela->sym->type != STT_SECTION)
-		return false;
-
-	sec = rela->sym->sec;
-	offset = rela->addend + insn->offset + insn->len - rela->offset;
-
-	list_for_each_entry(sym, &sec->symbol_list, list) {
-		if (sym->type != STT_OBJECT)
-			continue;
-
-		if (offset >= sym->offset && offset < sym->offset + sym->len)
-			return (!memcmp(sym->name, "__gcov0.", 8));
-	}
-
-	return false;
-}
-
 static bool is_kasan_insn(struct instruction *insn)
 {
 	return (insn->type == INSN_CALL &&
@@ -993,9 +1073,6 @@ static bool ignore_unreachable_insn(struct symbol *func,
 	int i;
 
 	if (insn->type == INSN_NOP)
-		return true;
-
-	if (is_gcov_insn(insn))
 		return true;
 
 	/*
@@ -1035,12 +1112,8 @@ static int validate_functions(struct objtool_file *file)
 				continue;
 
 			insn = find_insn(file, sec, func->offset);
-			if (!insn) {
-				WARN("%s(): can't find starting instruction",
-				     func->name);
-				warnings++;
+			if (!insn)
 				continue;
-			}
 
 			ret = validate_branch(file, insn, 0);
 			warnings += ret;
@@ -1056,13 +1129,27 @@ static int validate_functions(struct objtool_file *file)
 				if (insn->visited)
 					continue;
 
-				if (!ignore_unreachable_insn(func, insn) &&
-				    !warnings) {
-					WARN_FUNC("function has unreachable instruction", insn->sec, insn->offset);
-					warnings++;
+				insn->visited = true;
+
+				if (file->ignore_unreachables || warnings ||
+				    ignore_unreachable_insn(func, insn))
+					continue;
+
+				/*
+				 * gcov produces a lot of unreachable
+				 * instructions.  If we get an unreachable
+				 * warning and the file has gcov enabled, just
+				 * ignore it, and all other such warnings for
+				 * the file.
+				 */
+				if (!file->ignore_unreachables &&
+				    gcov_enabled(file)) {
+					file->ignore_unreachables = true;
+					continue;
 				}
 
-				insn->visited = true;
+				WARN_FUNC("function has unreachable instruction", insn->sec, insn->offset);
+				warnings++;
 			}
 		}
 	}
@@ -1133,6 +1220,10 @@ int cmd_check(int argc, const char **argv)
 
 	INIT_LIST_HEAD(&file.insn_list);
 	hash_init(file.insn_hash);
+	file.whitelist = find_section_by_name(file.elf, "__func_stack_frame_non_standard");
+	file.rodata = find_section_by_name(file.elf, ".rodata");
+	file.ignore_unreachables = false;
+	file.c_file = find_section_by_name(file.elf, ".comment");
 
 	ret = decode_sections(&file);
 	if (ret < 0)

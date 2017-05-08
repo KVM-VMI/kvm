@@ -13,6 +13,7 @@
 #ifndef _REGMAP_INTERNAL_H
 #define _REGMAP_INTERNAL_H
 
+#include <linux/device.h>
 #include <linux/regmap.h>
 #include <linux/fs.h>
 #include <linux/list.h>
@@ -104,8 +105,8 @@ struct regmap {
 
 	bool defer_caching;
 
-	u8 read_flag_mask;
-	u8 write_flag_mask;
+	unsigned long read_flag_mask;
+	unsigned long write_flag_mask;
 
 	/* number of bits to (left) shift the reg value when formatting*/
 	int reg_shift;
@@ -172,6 +173,7 @@ struct regcache_ops {
 	int (*drop)(struct regmap *map, unsigned int min, unsigned int max);
 };
 
+bool regmap_cached(struct regmap *map, unsigned int reg);
 bool regmap_writeable(struct regmap *map, unsigned int reg);
 bool regmap_readable(struct regmap *map, unsigned int reg);
 bool regmap_volatile(struct regmap *map, unsigned int reg);

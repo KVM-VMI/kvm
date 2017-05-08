@@ -818,7 +818,7 @@ static irqreturn_t hsw_irq_thread(int irq, void *context)
 	spin_unlock_irqrestore(&sst->spinlock, flags);
 
 	/* continue to send any remaining messages... */
-	queue_kthread_work(&ipc->kworker, &ipc->kwork);
+	kthread_queue_work(&ipc->kworker, &ipc->kwork);
 
 	return IRQ_HANDLED;
 }
@@ -1345,7 +1345,7 @@ int sst_hsw_stream_reset(struct sst_hsw *hsw, struct sst_hsw_stream *stream)
 		return 0;
 
 	/* wait for pause to complete before we reset the stream */
-	while (stream->running && tries--)
+	while (stream->running && --tries)
 		msleep(1);
 	if (!tries) {
 		dev_err(hsw->dev, "error: reset stream %d still running\n",

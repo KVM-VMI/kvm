@@ -32,17 +32,25 @@ static void xgene_cle_sband_to_hw(u8 frag, enum xgene_cle_prot_version ver,
 		SET_VAL(SB_HDRLEN, len);
 }
 
-static void xgene_cle_idt_to_hw(u32 dstqid, u32 fpsel,
+static void xgene_cle_idt_to_hw(struct xgene_enet_pdata *pdata,
+				u32 dstqid, u32 fpsel,
 				u32 nfpsel, u32 *idt_reg)
 {
-	*idt_reg =  SET_VAL(IDT_DSTQID, dstqid) |
-		    SET_VAL(IDT_FPSEL, fpsel) |
-		    SET_VAL(IDT_NFPSEL, nfpsel);
+	if (pdata->enet_id == XGENE_ENET1) {
+		*idt_reg = SET_VAL(IDT_DSTQID, dstqid) |
+			   SET_VAL(IDT_FPSEL1, fpsel)  |
+			   SET_VAL(IDT_NFPSEL1, nfpsel);
+	} else {
+		*idt_reg = SET_VAL(IDT_DSTQID, dstqid) |
+			   SET_VAL(IDT_FPSEL, fpsel)   |
+			   SET_VAL(IDT_NFPSEL, nfpsel);
+	}
 }
 
 static void xgene_cle_dbptr_to_hw(struct xgene_enet_pdata *pdata,
 				  struct xgene_cle_dbptr *dbptr, u32 *buf)
 {
+	buf[0] = SET_VAL(CLE_DROP, dbptr->drop);
 	buf[4] = SET_VAL(CLE_FPSEL, dbptr->fpsel) |
 		 SET_VAL(CLE_DSTQIDL, dbptr->dstqid);
 
@@ -343,7 +351,7 @@ static int xgene_cle_set_rss_idt(struct xgene_enet_pdata *pdata)
 		nfpsel = 0;
 		idt_reg = 0;
 
-		xgene_cle_idt_to_hw(dstqid, fpsel, nfpsel, &idt_reg);
+		xgene_cle_idt_to_hw(pdata, dstqid, fpsel, nfpsel, &idt_reg);
 		ret = xgene_cle_dram_wr(&pdata->cle, &idt_reg, 1, i,
 					RSS_IDT, CLE_CMD_WR);
 		if (ret)
@@ -412,7 +420,7 @@ static int xgene_enet_cle_init(struct xgene_enet_pdata *pdata)
 			.branch = {
 				{
 					/* IPV4 */
-					.valid = 0,
+					.valid = 1,
 					.next_packet_pointer = 22,
 					.jump_bw = JMP_FW,
 					.jump_rel = JMP_ABS,
@@ -420,7 +428,7 @@ static int xgene_enet_cle_init(struct xgene_enet_pdata *pdata)
 					.next_node = PKT_PROT_NODE,
 					.next_branch = 0,
 					.data = 0x8,
-					.mask = 0xffff
+					.mask = 0x0
 				},
 				{
 					.valid = 0,
@@ -456,7 +464,7 @@ static int xgene_enet_cle_init(struct xgene_enet_pdata *pdata)
 					.next_node = RSS_IPV4_TCP_NODE,
 					.next_branch = 0,
 					.data = 0x0600,
-					.mask = 0xffff
+					.mask = 0x00ff
 				},
 				{
 					/* UDP */
@@ -468,7 +476,7 @@ static int xgene_enet_cle_init(struct xgene_enet_pdata *pdata)
 					.next_node = RSS_IPV4_UDP_NODE,
 					.next_branch = 0,
 					.data = 0x1100,
-					.mask = 0xffff
+					.mask = 0x00ff
 				},
 				{
 					.valid = 0,
@@ -642,7 +650,7 @@ static int xgene_enet_cle_init(struct xgene_enet_pdata *pdata)
 				{
 					/* TCP DST Port */
 					.valid = 0,
-					.next_packet_pointer = 256,
+					.next_packet_pointer = 258,
 					.jump_bw = JMP_FW,
 					.jump_rel = JMP_ABS,
 					.operation = EQT,
@@ -729,6 +737,6 @@ static int xgene_enet_cle_init(struct xgene_enet_pdata *pdata)
 	return xgene_cle_setup_ptree(pdata, enet_cle);
 }
 
-struct xgene_cle_ops xgene_cle3in_ops = {
+const struct xgene_cle_ops xgene_cle3in_ops = {
 	.cle_init = xgene_enet_cle_init,
 };

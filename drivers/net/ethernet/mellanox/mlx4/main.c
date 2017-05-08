@@ -292,6 +292,7 @@ static int _mlx4_dev_port(struct mlx4_dev *dev, int port,
 	dev->caps.pkey_table_len[port] = port_cap->max_pkeys;
 	dev->caps.port_width_cap[port] = port_cap->max_port_width;
 	dev->caps.eth_mtu_cap[port]    = port_cap->eth_mtu;
+	dev->caps.max_tc_eth	       = port_cap->max_tc_eth;
 	dev->caps.def_mac[port]        = port_cap->def_mac;
 	dev->caps.supported_type[port] = port_cap->supported_port_types;
 	dev->caps.suggested_type[port] = port_cap->suggested_type;
@@ -1101,6 +1102,14 @@ static int __set_port_type(struct mlx4_port_info *info,
 	int i;
 	int err = 0;
 
+	if ((port_type & mdev->caps.supported_type[info->port]) != port_type) {
+		mlx4_err(mdev,
+			 "Requested port type for port %d is not supported on this HCA\n",
+			 info->port);
+		err = -EINVAL;
+		goto err_sup;
+	}
+
 	mlx4_stop_sense(mdev);
 	mutex_lock(&priv->port_mutex);
 	info->tmp_type = port_type;
@@ -1146,7 +1155,7 @@ static int __set_port_type(struct mlx4_port_info *info,
 out:
 	mlx4_start_sense(mdev);
 	mutex_unlock(&priv->port_mutex);
-
+err_sup:
 	return err;
 }
 
@@ -2599,7 +2608,7 @@ static int mlx4_setup_hca(struct mlx4_dev *dev)
 	err = mlx4_init_uar_table(dev);
 	if (err) {
 		mlx4_err(dev, "Failed to initialize user access region table, aborting\n");
-		 return err;
+		return err;
 	}
 
 	err = mlx4_uar_alloc(dev, &priv->driver_uar);
@@ -2969,6 +2978,7 @@ static int mlx4_init_port_info(struct mlx4_dev *dev, int port)
 		mlx4_err(dev, "Failed to create mtu file for port %d\n", port);
 		device_remove_file(&info->dev->persist->pdev->dev,
 				   &info->port_attr);
+		devlink_port_unregister(&info->devlink_port);
 		info->port = -1;
 	}
 
@@ -2983,6 +2993,8 @@ static void mlx4_cleanup_port_info(struct mlx4_port_info *info)
 	device_remove_file(&info->dev->persist->pdev->dev, &info->port_attr);
 	device_remove_file(&info->dev->persist->pdev->dev,
 			   &info->port_mtu_attr);
+	devlink_port_unregister(&info->devlink_port);
+
 #ifdef CONFIG_RFS_ACCEL
 	free_irq_cpu_rmap(info->rmap);
 	info->rmap = NULL;
@@ -3172,6 +3184,34 @@ static int mlx4_check_dev_cap(struct mlx4_dev *dev, struct mlx4_dev_cap *dev_cap
 	return 0;
 }
 
+static int mlx4_pci_enable_device(struct mlx4_dev *dev)
+{
+	struct pci_dev *pdev = dev->persist->pdev;
+	int err = 0;
+
+	mutex_lock(&dev->persist->pci_status_mutex);
+	if (dev->persist->pci_status == MLX4_PCI_STATUS_DISABLED) {
+		err = pci_enable_device(pdev);
+		if (!err)
+			dev->persist->pci_status = MLX4_PCI_STATUS_ENABLED;
+	}
+	mutex_unlock(&dev->persist->pci_status_mutex);
+
+	return err;
+}
+
+static void mlx4_pci_disable_device(struct mlx4_dev *dev)
+{
+	struct pci_dev *pdev = dev->persist->pdev;
+
+	mutex_lock(&dev->persist->pci_status_mutex);
+	if (dev->persist->pci_status == MLX4_PCI_STATUS_ENABLED) {
+		pci_disable_device(pdev);
+		dev->persist->pci_status = MLX4_PCI_STATUS_DISABLED;
+	}
+	mutex_unlock(&dev->persist->pci_status_mutex);
+}
+
 static int mlx4_load_one(struct pci_dev *pdev, int pci_dev_data,
 			 int total_vfs, int *nvfs, struct mlx4_priv *priv,
 			 int reset_flow)
@@ -3194,6 +3234,7 @@ static int mlx4_load_one(struct pci_dev *pdev, int pci_dev_data,
 
 	INIT_LIST_HEAD(&priv->pgdir_list);
 	mutex_init(&priv->pgdir_mutex);
+	spin_lock_init(&priv->cmd.context_lock);
 
 	INIT_LIST_HEAD(&priv->bf_list);
 	mutex_init(&priv->bf_mutex);
@@ -3582,7 +3623,7 @@ static int __mlx4_init_one(struct pci_dev *pdev, int pci_dev_data,
 
 	pr_info(DRV_NAME ": Initializing %s\n", pci_name(pdev));
 
-	err = pci_enable_device(pdev);
+	err = mlx4_pci_enable_device(&priv->dev);
 	if (err) {
 		dev_err(&pdev->dev, "Cannot enable PCI device, aborting\n");
 		return err;
@@ -3715,7 +3756,7 @@ err_release_regions:
 	pci_release_regions(pdev);
 
 err_disable_pdev:
-	pci_disable_device(pdev);
+	mlx4_pci_disable_device(&priv->dev);
 	pci_set_drvdata(pdev, NULL);
 	return err;
 }
@@ -3775,6 +3816,7 @@ static int mlx4_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	priv->pci_dev_data = id->driver_data;
 	mutex_init(&dev->persist->device_state_mutex);
 	mutex_init(&dev->persist->interface_state_mutex);
+	mutex_init(&dev->persist->pci_status_mutex);
 
 	ret = devlink_register(devlink, &pdev->dev);
 	if (ret)
@@ -3923,7 +3965,7 @@ static void mlx4_remove_one(struct pci_dev *pdev)
 	}
 
 	pci_release_regions(pdev);
-	pci_disable_device(pdev);
+	mlx4_pci_disable_device(dev);
 	devlink_unregister(devlink);
 	kfree(dev->persist);
 	devlink_free(devlink);
@@ -4042,7 +4084,7 @@ static pci_ers_result_t mlx4_pci_err_detected(struct pci_dev *pdev,
 	if (state == pci_channel_io_perm_failure)
 		return PCI_ERS_RESULT_DISCONNECT;
 
-	pci_disable_device(pdev);
+	mlx4_pci_disable_device(persist->dev);
 	return PCI_ERS_RESULT_NEED_RESET;
 }
 
@@ -4050,45 +4092,53 @@ static pci_ers_result_t mlx4_pci_slot_reset(struct pci_dev *pdev)
 {
 	struct mlx4_dev_persistent *persist = pci_get_drvdata(pdev);
 	struct mlx4_dev	 *dev  = persist->dev;
-	struct mlx4_priv *priv = mlx4_priv(dev);
-	int               ret;
-	int nvfs[MLX4_MAX_PORTS + 1] = {0, 0, 0};
-	int total_vfs;
+	int err;
 
 	mlx4_err(dev, "mlx4_pci_slot_reset was called\n");
-	ret = pci_enable_device(pdev);
-	if (ret) {
-		mlx4_err(dev, "Can not re-enable device, ret=%d\n", ret);
+	err = mlx4_pci_enable_device(dev);
+	if (err) {
+		mlx4_err(dev, "Can not re-enable device, err=%d\n", err);
 		return PCI_ERS_RESULT_DISCONNECT;
 	}
 
 	pci_set_master(pdev);
 	pci_restore_state(pdev);
 	pci_save_state(pdev);
+	return PCI_ERS_RESULT_RECOVERED;
+}
 
+static void mlx4_pci_resume(struct pci_dev *pdev)
+{
+	struct mlx4_dev_persistent *persist = pci_get_drvdata(pdev);
+	struct mlx4_dev	 *dev  = persist->dev;
+	struct mlx4_priv *priv = mlx4_priv(dev);
+	int nvfs[MLX4_MAX_PORTS + 1] = {0, 0, 0};
+	int total_vfs;
+	int err;
+
+	mlx4_err(dev, "%s was called\n", __func__);
 	total_vfs = dev->persist->num_vfs;
 	memcpy(nvfs, dev->persist->nvfs, sizeof(dev->persist->nvfs));
 
 	mutex_lock(&persist->interface_state_mutex);
 	if (!(persist->interface_state & MLX4_INTERFACE_STATE_UP)) {
-		ret = mlx4_load_one(pdev, priv->pci_dev_data, total_vfs, nvfs,
+		err = mlx4_load_one(pdev, priv->pci_dev_data, total_vfs, nvfs,
 				    priv, 1);
-		if (ret) {
-			mlx4_err(dev, "%s: mlx4_load_one failed, ret=%d\n",
-				 __func__,  ret);
+		if (err) {
+			mlx4_err(dev, "%s: mlx4_load_one failed, err=%d\n",
+				 __func__,  err);
 			goto end;
 		}
 
-		ret = restore_current_port_types(dev, dev->persist->
+		err = restore_current_port_types(dev, dev->persist->
 						 curr_port_type, dev->persist->
 						 curr_port_poss_type);
-		if (ret)
-			mlx4_err(dev, "could not restore original port types (%d)\n", ret);
+		if (err)
+			mlx4_err(dev, "could not restore original port types (%d)\n", err);
 	}
 end:
 	mutex_unlock(&persist->interface_state_mutex);
 
-	return ret ? PCI_ERS_RESULT_DISCONNECT : PCI_ERS_RESULT_RECOVERED;
 }
 
 static void mlx4_shutdown(struct pci_dev *pdev)
@@ -4105,6 +4155,7 @@ static void mlx4_shutdown(struct pci_dev *pdev)
 static const struct pci_error_handlers mlx4_err_handler = {
 	.error_detected = mlx4_pci_err_detected,
 	.slot_reset     = mlx4_pci_slot_reset,
+	.resume		= mlx4_pci_resume,
 };
 
 static struct pci_driver mlx4_driver = {

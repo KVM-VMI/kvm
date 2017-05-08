@@ -117,7 +117,7 @@ struct mvebu_mbus_soc_data {
 	unsigned int (*win_remap_offset)(const int win);
 	void (*setup_cpu_target)(struct mvebu_mbus_state *s);
 	int (*save_cpu_target)(struct mvebu_mbus_state *s,
-			       u32 *store_addr);
+			       u32 __iomem *store_addr);
 	int (*show_cpu_target)(struct mvebu_mbus_state *s,
 			       struct seq_file *seq, void *v);
 };
@@ -728,7 +728,7 @@ mvebu_mbus_default_setup_cpu_target(struct mvebu_mbus_state *mbus)
 
 static int
 mvebu_mbus_default_save_cpu_target(struct mvebu_mbus_state *mbus,
-				   u32 *store_addr)
+				   u32 __iomem *store_addr)
 {
 	int i;
 
@@ -780,7 +780,7 @@ mvebu_mbus_dove_setup_cpu_target(struct mvebu_mbus_state *mbus)
 
 static int
 mvebu_mbus_dove_save_cpu_target(struct mvebu_mbus_state *mbus,
-				u32 *store_addr)
+				u32 __iomem *store_addr)
 {
 	int i;
 
@@ -796,7 +796,7 @@ mvebu_mbus_dove_save_cpu_target(struct mvebu_mbus_state *mbus,
 	return 4;
 }
 
-int mvebu_mbus_save_cpu_target(u32 *store_addr)
+int mvebu_mbus_save_cpu_target(u32 __iomem *store_addr)
 {
 	return mbus_state.soc->save_cpu_target(&mbus_state, store_addr);
 }
@@ -972,7 +972,7 @@ int mvebu_mbus_get_dram_win_info(phys_addr_t phyaddr, u8 *target, u8 *attr)
 		}
 	}
 
-	pr_err("invalid dram address 0x%x\n", phyaddr);
+	pr_err("invalid dram address %pa\n", &phyaddr);
 	return -EINVAL;
 }
 EXPORT_SYMBOL_GPL(mvebu_mbus_get_dram_win_info);
@@ -1089,7 +1089,7 @@ static void mvebu_mbus_resume(void)
 	}
 }
 
-struct syscore_ops mvebu_mbus_syscore_ops = {
+static struct syscore_ops mvebu_mbus_syscore_ops = {
 	.suspend	= mvebu_mbus_suspend,
 	.resume		= mvebu_mbus_resume,
 };

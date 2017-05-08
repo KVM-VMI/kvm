@@ -7,7 +7,7 @@ endif
 
 feature_check = $(eval $(feature_check_code))
 define feature_check_code
-  feature-$(1) := $(shell $(MAKE) OUTPUT=$(OUTPUT_FEATURES) CFLAGS="$(EXTRA_CFLAGS) $(FEATURE_CHECK_CFLAGS-$(1))" LDFLAGS="$(LDFLAGS) $(FEATURE_CHECK_LDFLAGS-$(1))" -C $(feature_dir) $(OUTPUT_FEATURES)test-$1.bin >/dev/null 2>/dev/null && echo 1 || echo 0)
+  feature-$(1) := $(shell $(MAKE) OUTPUT=$(OUTPUT_FEATURES) CFLAGS="$(EXTRA_CFLAGS) $(FEATURE_CHECK_CFLAGS-$(1))" CXXFLAGS="$(EXTRA_CXXFLAGS) $(FEATURE_CHECK_CXXFLAGS-$(1))" LDFLAGS="$(LDFLAGS) $(FEATURE_CHECK_LDFLAGS-$(1))" -C $(feature_dir) $(OUTPUT_FEATURES)test-$1.bin >/dev/null 2>/dev/null && echo 1 || echo 0)
 endef
 
 feature_set = $(eval $(feature_set_code))
@@ -30,6 +30,7 @@ endef
 FEATURE_TESTS_BASIC :=			\
 	backtrace			\
 	dwarf				\
+	dwarf_getlocations		\
 	fortify-source			\
 	sync-compare-and-swap		\
 	glibc				\
@@ -39,6 +40,8 @@ FEATURE_TESTS_BASIC :=			\
 	libbfd				\
 	libelf				\
 	libelf-getphdrnum		\
+	libelf-gelf_getnote		\
+	libelf-getshdrstrndx		\
 	libelf-mmap			\
 	libnuma				\
 	numa_num_possible_cpus		\
@@ -48,6 +51,10 @@ FEATURE_TESTS_BASIC :=			\
 	libslang			\
 	libcrypto			\
 	libunwind			\
+	libunwind-x86			\
+	libunwind-x86_64		\
+	libunwind-arm			\
+	libunwind-aarch64		\
 	pthread-attr-setaffinity-np	\
 	stackprotector-all		\
 	timerfd				\
@@ -55,7 +62,8 @@ FEATURE_TESTS_BASIC :=			\
 	zlib				\
 	lzma				\
 	get_cpuid			\
-	bpf
+	bpf				\
+	sdt
 
 # FEATURE_TESTS_BASIC + FEATURE_TESTS_EXTRA is the complete list
 # of all feature tests
@@ -68,7 +76,9 @@ FEATURE_TESTS_EXTRA :=			\
 	libbabeltrace			\
 	liberty				\
 	liberty-z			\
-	libunwind-debug-frame
+	libunwind-debug-frame		\
+	libunwind-debug-frame-arm	\
+	libunwind-debug-frame-aarch64
 
 FEATURE_TESTS ?= $(FEATURE_TESTS_BASIC)
 
@@ -78,6 +88,7 @@ endif
 
 FEATURE_DISPLAY ?=			\
 	dwarf				\
+	dwarf_getlocations		\
 	glibc				\
 	gtk2				\
 	libaudit			\

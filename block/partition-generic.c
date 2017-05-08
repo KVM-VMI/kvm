@@ -361,15 +361,20 @@ struct hd_struct *add_partition(struct gendisk *disk, int partno,
 			goto out_del;
 	}
 
+	err = hd_ref_init(p);
+	if (err) {
+		if (flags & ADDPART_FLAG_WHOLEDISK)
+			goto out_remove_file;
+		goto out_del;
+	}
+
 	/* everything is up and running, commence */
 	rcu_assign_pointer(ptbl->part[partno], p);
 
 	/* suppress uevent if the disk suppresses it */
 	if (!dev_get_uevent_suppress(ddev))
 		kobject_uevent(&pdev->kobj, KOBJ_ADD);
-
-	if (!hd_ref_init(p))
-		return p;
+	return p;
 
 out_free_info:
 	free_part_info(p);
@@ -378,6 +383,8 @@ out_free_stats:
 out_free:
 	kfree(p);
 	return ERR_PTR(err);
+out_remove_file:
+	device_remove_file(pdev, &dev_attr_whole_disk);
 out_del:
 	kobject_put(p->holder_dir);
 	device_del(pdev);
@@ -488,7 +495,6 @@ rescan:
 	/* add partitions */
 	for (p = 1; p < state->limit; p++) {
 		sector_t size, from;
-		struct partition_meta_info *info = NULL;
 
 		size = state->parts[p].size;
 		if (!size)
@@ -523,8 +529,6 @@ rescan:
 			}
 		}
 
-		if (state->parts[p].has_info)
-			info = &state->parts[p].info;
 		part = add_partition(disk, p, from, size,
 				     state->parts[p].flags,
 				     &state->parts[p].info);

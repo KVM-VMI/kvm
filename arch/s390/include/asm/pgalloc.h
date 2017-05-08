@@ -19,8 +19,10 @@ unsigned long *crst_table_alloc(struct mm_struct *);
 void crst_table_free(struct mm_struct *, unsigned long *);
 
 unsigned long *page_table_alloc(struct mm_struct *);
+struct page *page_table_alloc_pgste(struct mm_struct *mm);
 void page_table_free(struct mm_struct *, unsigned long *);
 void page_table_free_rcu(struct mmu_gather *, unsigned long *, unsigned long);
+void page_table_free_pgste(struct page *page);
 extern int page_table_allocate_pgste;
 
 static inline void clear_table(unsigned long *s, unsigned long val, size_t n)
@@ -52,8 +54,8 @@ static inline unsigned long pgd_entry_type(struct mm_struct *mm)
 	return _REGION2_ENTRY_EMPTY;
 }
 
-int crst_table_upgrade(struct mm_struct *, unsigned long limit);
-void crst_table_downgrade(struct mm_struct *, unsigned long limit);
+int crst_table_upgrade(struct mm_struct *);
+void crst_table_downgrade(struct mm_struct *);
 
 static inline pud_t *pud_alloc_one(struct mm_struct *mm, unsigned long address)
 {
