@@ -2551,10 +2551,6 @@ static long kvm_vcpu_ioctl(struct file *filp,
 
 		r = nitro_ioctl_get_event(vcpu, ev);
 
-<<<<<<< HEAD
-		r = 0;
-=======
->>>>>>> linux-vmi
 		if (copy_to_user(argp, ev, sizeof(struct event)))
 			r = -EFAULT;
 
@@ -3282,17 +3278,8 @@ static int kvm_dev_ioctl_create_vm(unsigned long type)
 		return r;
 	}
 #endif
-<<<<<<< HEAD
-
-	nitro_create_vm_hook(kvm);
-
-	r = anon_inode_getfd("kvm-vm", &kvm_vm_fops, kvm, O_RDWR | O_CLOEXEC);
-
-	if (r < 0)
-=======
 	r = get_unused_fd_flags(O_CLOEXEC);
 	if (r < 0) {
->>>>>>> linux-vmi
 		kvm_put_kvm(kvm);
 		return r;
 	}
