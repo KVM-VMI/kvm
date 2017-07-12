@@ -268,11 +268,7 @@ struct kvm_vcpu {
 #endif
 	bool preempted;
 	struct kvm_vcpu_arch arch;
-<<<<<<< HEAD
-	
-=======
 	struct dentry *debugfs_dentry;
->>>>>>> linux-vmi
 	struct nitro_vcpu nitro;
 };
 
@@ -437,12 +433,8 @@ struct kvm {
 #endif
 	long tlbs_dirty;
 	struct list_head devices;
-<<<<<<< HEAD
-	
-=======
 	struct dentry *debugfs_dentry;
 	struct kvm_stat_data **debugfs_stat_data;
->>>>>>> linux-vmi
 	struct nitro nitro;
 };
 
