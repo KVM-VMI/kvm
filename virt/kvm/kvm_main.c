@@ -3200,6 +3200,15 @@ out_free_irq_routing:
 		r = 0;
 		break;
 	}
+	case KVM_NITRO_ADD_SYSCALL_FILTER: {
+		uint64_t syscall_nb;
+		r = -EFAULT;
+		if (copy_from_user(&syscall_nb, argp, sizeof(uint64_t)))
+			goto out;
+
+		r = nitro_add_syscall_filter(kvm, syscall_nb);
+		break;
+	}
 	default:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}

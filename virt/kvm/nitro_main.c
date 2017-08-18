@@ -42,17 +42,20 @@ void nitro_create_vm_hook(struct kvm *kvm){
 
   //init nitro
   kvm->nitro.traps = 0;
+
 }
 
 void nitro_destroy_vm_hook(struct kvm *kvm){
   //deinit nitro
   kvm->nitro.traps = 0;
+
 }
 
 void nitro_create_vcpu_hook(struct kvm_vcpu *vcpu){
   vcpu->nitro.event.present = false;
   init_completion(&(vcpu->nitro.k_wait_cv));
   sema_init(&(vcpu->nitro.n_wait_sem),0);
+  INIT_LIST_HEAD(&vcpu->nitro.stack.list);
 }
 
 void nitro_destroy_vcpu_hook(struct kvm_vcpu *vcpu){
@@ -132,4 +135,36 @@ int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
 
 int nitro_is_trap_set(struct kvm *kvm, uint32_t trap){
   return kvm->nitro.traps & trap;
+}
+
+int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
+{
+
+	// search if already present
+	int i;
+	for (i = 0; i < kvm->nitro.syscall_filter_size; i++)
+		if (kvm->nitro.syscall_filter[i] == syscall_nb)
+			return 0;
+
+	// insert
+	kvm->nitro.syscall_filter_size++;
+	if (kvm->nitro.syscall_filter_size > NITRO_SYSCALL_FILTER_MAX)
+	{
+		// error, already at max size
+		kvm->nitro.syscall_filter_size--;
+		return 1;
+	}
+	int index = kvm->nitro.syscall_filter_size - 1;
+	kvm->nitro.syscall_filter[index] = syscall_nb;
+	return 0;
+}
+
+bool nitro_find_syscall(struct kvm* kvm, uint64_t syscall_nb)
+{
+	int i;
+	for (i = 0; i < kvm->nitro.syscall_filter_size; i++)
+		if (kvm->nitro.syscall_filter[i] == syscall_nb)
+			return true;
+
+	return false;
 }

@@ -107,9 +107,53 @@ void nitro_wait(struct kvm_vcpu *vcpu){
   return;
 }
 
-void nitro_report_event(struct kvm_vcpu *vcpu){
-  nitro_wait(vcpu);
-  vcpu->nitro.event.present = false;
+void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
+	struct kvm* kvm = vcpu->kvm;
+
+	// if no filter, report all events
+	// or if there is a filter
+	if (kvm->nitro.syscall_filter_size == 0
+			|| nitro_find_syscall(kvm, syscall_nb) == true)
+	{
+		nitro_wait(vcpu);
+		vcpu->nitro.event.present = false;
+	}
+}
+
+void nitro_process_event(struct kvm_vcpu *vcpu)
+{
+	uint64_t syscall_nb = 0;
+	if (vcpu->nitro.event.direction == ENTER)
+	{
+		syscall_nb = vcpu->nitro.event.regs.rax;
+		// create new syscall stack item
+		struct syscall_stack_item *item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
+		item->syscall_nb = syscall_nb;
+		// add it at tail
+		list_add_tail(&item->list, &vcpu->nitro.stack.list);
+	}
+	else
+	{
+		// EXIT
+		// pop last syscall nb
+		if (!list_empty(&vcpu->nitro.stack.list))
+		{
+			// take last entry
+			struct syscall_stack_item *item;
+			item = list_last_entry(&vcpu->nitro.stack.list, struct syscall_stack_item, list);
+			syscall_nb = item->syscall_nb;
+			// delete from list
+			list_del(&item->list);
+			// free item
+			kfree(item);
+		}
+		else
+		{
+			printk(KERN_DEBUG "syscall exit without enter, not reporting\n");
+			return;
+		}
+	}
+	nitro_report_event(vcpu, syscall_nb);
 }
 
 u64 nitro_get_efer(struct kvm_vcpu *vcpu){
