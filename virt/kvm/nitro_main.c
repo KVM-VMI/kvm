@@ -87,7 +87,7 @@ int nitro_iotcl_attach_vcpus(struct kvm *kvm, struct nitro_vcpus *nvcpus){
     kvm_get_kvm(kvm);
     nvcpus->fds[r] = create_vcpu_fd(v);
     if(nvcpus->fds[r]<0){
-      for(i=r;r>=0;i--){
+      for(i=r;i>=0;i--){
 	nvcpus->ids[i] = 0;
 	nvcpus->fds[i] = 0;
 	kvm_put_kvm(kvm);
