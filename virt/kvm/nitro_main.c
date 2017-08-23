@@ -146,6 +146,7 @@ int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
 		if (kvm->nitro.syscall_filter[i] == syscall_nb)
 			return 0;
 
+	mutex_lock(&kvm->lock);
 	// insert
 	kvm->nitro.syscall_filter_size++;
 	if (kvm->nitro.syscall_filter_size > NITRO_SYSCALL_FILTER_MAX)
@@ -156,6 +157,7 @@ int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
 	}
 	int index = kvm->nitro.syscall_filter_size - 1;
 	kvm->nitro.syscall_filter[index] = syscall_nb;
+	mutex_unlock(&kvm->lock);
 	return 0;
 }
 
@@ -171,6 +173,7 @@ int nitro_remove_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
 		}
 	if (found == true)
 	{
+		mutex_lock(&kvm->lock);
 		int j;
 		for (j = i + 1; j < kvm->nitro.syscall_filter_size; j++)
 		{
@@ -178,7 +181,10 @@ int nitro_remove_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
 			kvm->nitro.syscall_filter[j-1] = kvm->nitro.syscall_filter[j];
 		}
 		kvm->nitro.syscall_filter_size--;
+		mutex_unlock(&kvm->lock);
 	}
+
+
 	return 0;
 }
 
