@@ -159,6 +159,29 @@ int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
 	return 0;
 }
 
+int nitro_remove_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
+{
+	int i;
+	bool found = false;
+	for (i = 0; i < kvm->nitro.syscall_filter_size; i++)
+		if (kvm->nitro.syscall_filter[i] == syscall_nb)
+		{
+			found = true;
+			break;
+		}
+	if (found == true)
+	{
+		int j;
+		for (j = i + 1; j < kvm->nitro.syscall_filter_size; j++)
+		{
+			// copy
+			kvm->nitro.syscall_filter[j-1] = kvm->nitro.syscall_filter[j];
+		}
+		kvm->nitro.syscall_filter_size--;
+	}
+	return 0;
+}
+
 bool nitro_find_syscall(struct kvm* kvm, uint64_t syscall_nb)
 {
 	int i;

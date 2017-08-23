@@ -45,6 +45,7 @@ int nitro_ioctl_continue(struct kvm_vcpu*);
 
 int nitro_is_trap_set(struct kvm*, uint32_t);
 int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb);
+int nitro_remove_syscall_filter(struct kvm *kvm, uint64_t syscall_nb);
 bool nitro_find_syscall(struct kvm* kvm, uint64_t syscall_nb);
 
 #endif //NITRO_MAIN_H_
