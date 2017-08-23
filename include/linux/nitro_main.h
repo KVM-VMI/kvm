@@ -18,7 +18,7 @@ struct syscall_stack_item
 
 struct nitro{
   uint32_t traps; //determines whether the syscall trap is globally set
-  uint64_t syscall_filter[1024];
+  uint64_t syscall_filter[NITRO_SYSCALL_FILTER_MAX];
   int syscall_filter_size;
 };
 
