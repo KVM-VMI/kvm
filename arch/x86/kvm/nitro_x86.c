@@ -75,6 +75,13 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
 		complete_all(&(vcpu->nitro.k_wait_cv));
 		// release all waiters on nitro_get_event
 		up(&(vcpu->nitro.n_wait_sem));
+		mutex_lock(&kvm->lock);
+		// clear syscall filter
+		int i;
+		for (i = 0; i < kvm->nitro.syscall_filter_size; i++)
+			kvm->nitro.syscall_filter[i] = 0;
+		kvm->nitro.syscall_filter_size = 0;
+		mutex_unlock(&kvm->lock);
 	}
 
 
