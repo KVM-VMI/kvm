@@ -1,6 +1,7 @@
 #ifndef NITRO_MAIN_H_
 #define NITRO_MAIN_H_
 
+#include <linux/hashtable.h>
 #include <linux/list.h>
 #include <linux/types.h>
 #include <linux/kvm_host.h>
@@ -8,7 +9,7 @@
 
 #define NITRO_TRAP_SYSCALL 1UL
 
-#define NITRO_SYSCALL_FILTER_MAX 1024
+#define NITRO_SYSCALL_FILTER_HT_BITS 12
 
 struct syscall_stack_item
 {
@@ -16,10 +17,14 @@ struct syscall_stack_item
 	struct list_head list;
 };
 
+struct syscall_filter_ht_entry
+{
+	struct hlist_node node;
+};
+
 struct nitro{
   uint32_t traps; //determines whether the syscall trap is globally set
-  uint64_t syscall_filter[NITRO_SYSCALL_FILTER_MAX];
-  int syscall_filter_size;
+  DECLARE_HASHTABLE(syscall_filter_ht, NITRO_SYSCALL_FILTER_HT_BITS);
 };
 
 struct nitro_vcpu{
@@ -46,6 +51,7 @@ int nitro_ioctl_continue(struct kvm_vcpu*);
 int nitro_is_trap_set(struct kvm*, uint32_t);
 int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb);
 int nitro_remove_syscall_filter(struct kvm *kvm, uint64_t syscall_nb);
-bool nitro_find_syscall(struct kvm* kvm, uint64_t syscall_nb);
+int nitro_clear_syscall_filter(struct kvm *kvm);
+struct syscall_filter_ht_entry* nitro_find_syscall(struct kvm* kvm, uint64_t syscall_nb);
 
 #endif //NITRO_MAIN_H_
