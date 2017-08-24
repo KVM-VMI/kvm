@@ -59,7 +59,16 @@ void nitro_create_vcpu_hook(struct kvm_vcpu *vcpu){
 }
 
 void nitro_destroy_vcpu_hook(struct kvm_vcpu *vcpu){
-  vcpu->nitro.event.present = false;
+	vcpu->nitro.event.present = false;
+	// destroy vcpu syscall stack
+	struct syscall_stack_item *tmp;
+	struct list_head *pos, *n;
+	list_for_each_safe(pos, n, &vcpu->nitro.stack.list)
+	{
+		tmp = list_entry(pos, struct syscall_stack_item, list);
+		list_del(pos);
+		kfree(tmp);
+	}
 }
 
 int nitro_iotcl_num_vms(void){
