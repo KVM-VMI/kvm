@@ -9,6 +9,7 @@
 
 #define NITRO_TRAP_SYSCALL 1UL
 
+// 12 bits -> 1024 entries
 #define NITRO_SYSCALL_FILTER_HT_BITS 12
 
 struct syscall_stack_item
@@ -17,6 +18,9 @@ struct syscall_stack_item
 	struct list_head list;
 };
 
+// empty entry for the syscall hashtable
+// we only need the hashtable to get a O(1) access and
+// check if a syscall is present in the filter
 struct syscall_filter_ht_entry
 {
 	struct hlist_node node;
