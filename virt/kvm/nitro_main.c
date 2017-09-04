@@ -194,13 +194,15 @@ int nitro_clear_syscall_filter(struct kvm *kvm)
 struct syscall_filter_ht_entry* nitro_find_syscall(struct kvm* kvm, uint64_t syscall_nb)
 {
 	uint64_t key = syscall_nb;
-	struct syscall_filter_ht_entry *found;
+	struct syscall_filter_ht_entry *found = NULL;
 
+	mutex_lock(&kvm->lock);
 	hash_for_each_possible(kvm->nitro.syscall_filter_ht, found, node, key)
 	{
-		return found;
+		break;
 	}
+	mutex_unlock(&kvm->lock);
 
-	return NULL;
+	return found;
 }
 
