@@ -34,29 +34,36 @@ struct kvm* nitro_get_vm_by_creator(pid_t creator){
 }
 
 void nitro_create_vm_hook(struct kvm *kvm){
-  pid_t pid;
-  
-  //get current pid
-  pid = pid_nr(get_task_pid(current, PIDTYPE_PID));
-  printk(KERN_INFO "nitro: new VM created, creating process: %d\n", pid);
-
-  //init nitro
-  kvm->nitro.traps = 0;
+	//init nitro
+	kvm->nitro.traps = 0;
+	// init syscall filter ht
+	hash_init(kvm->nitro.syscall_filter_ht);
 }
 
 void nitro_destroy_vm_hook(struct kvm *kvm){
-  //deinit nitro
-  kvm->nitro.traps = 0;
+	//deinit nitro
+	kvm->nitro.traps = 0;
 }
 
 void nitro_create_vcpu_hook(struct kvm_vcpu *vcpu){
   vcpu->nitro.event.present = false;
   init_completion(&(vcpu->nitro.k_wait_cv));
   sema_init(&(vcpu->nitro.n_wait_sem),0);
+  INIT_LIST_HEAD(&vcpu->nitro.stack.list);
 }
 
 void nitro_destroy_vcpu_hook(struct kvm_vcpu *vcpu){
-  vcpu->nitro.event.present = false;
+	struct syscall_stack_item *tmp;
+	struct list_head *pos, *n;
+
+	vcpu->nitro.event.present = false;
+	// destroy vcpu syscall stack
+	list_for_each_safe(pos, n, &vcpu->nitro.stack.list)
+	{
+		tmp = list_entry(pos, struct syscall_stack_item, list);
+		list_del(pos);
+		kfree(tmp);
+	}
 }
 
 int nitro_iotcl_num_vms(void){
@@ -133,3 +140,69 @@ int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
 int nitro_is_trap_set(struct kvm *kvm, uint32_t trap){
   return kvm->nitro.traps & trap;
 }
+
+int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
+{
+	struct syscall_filter_ht_entry *found;
+	uint64_t key = syscall_nb;
+
+	found = nitro_find_syscall(kvm, syscall_nb);
+
+	if (!found)
+	{
+		mutex_lock(&kvm->lock);
+		found = kmalloc(sizeof(struct syscall_filter_ht_entry), GFP_KERNEL);
+		hash_add(kvm->nitro.syscall_filter_ht, &found->node, key);
+		mutex_unlock(&kvm->lock);
+	}
+	return 0;
+}
+
+int nitro_remove_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
+{
+	struct syscall_filter_ht_entry *found;
+
+	found = nitro_find_syscall(kvm, syscall_nb);
+	if (found)
+	{
+		mutex_lock(&kvm->lock);
+		hash_del(&found->node);
+		kfree(found);
+		mutex_unlock(&kvm->lock);
+	}
+
+	return 0;
+}
+
+int nitro_clear_syscall_filter(struct kvm *kvm)
+{
+	int bkt = 0;
+	struct syscall_filter_ht_entry *entry;
+	struct hlist_node *tmp;
+
+	mutex_lock(&kvm->lock);
+	hash_for_each_safe(kvm->nitro.syscall_filter_ht, bkt, tmp, entry, node)
+	{
+		hash_del(&entry->node);
+		kfree(entry);
+	}
+
+	mutex_unlock(&kvm->lock);
+	return 0;
+}
+
+struct syscall_filter_ht_entry* nitro_find_syscall(struct kvm* kvm, uint64_t syscall_nb)
+{
+	uint64_t key = syscall_nb;
+	struct syscall_filter_ht_entry *found = NULL;
+
+	mutex_lock(&kvm->lock);
+	hash_for_each_possible(kvm->nitro.syscall_filter_ht, found, node, key)
+	{
+		break;
+	}
+	mutex_unlock(&kvm->lock);
+
+	return found;
+}
+

@@ -43,6 +43,8 @@ struct nitro_vcpus{
 //VM functions
 #define KVM_NITRO_ATTACH_VCPUS	_IOR(KVMIO, 0xE2, struct nitro_vcpus)
 #define KVM_NITRO_SET_SYSCALL_TRAP _IOW(KVMIO, 0xE3, bool)
+#define KVM_NITRO_ADD_SYSCALL_FILTER	_IOR(KVMIO, 0xEB, uint64_t)
+#define KVM_NITRO_REMOVE_SYSCALL_FILTER	_IOR(KVMIO, 0xEC, uint64_t)
 
 //VCPU functions
 #define KVM_NITRO_GET_EVENT	_IOR(KVMIO, 0xE5, struct event)
