@@ -14,6 +14,8 @@
 #include <linux/nitro_main.h>
 #include <net/irda/parameters.h>
 
+#include "kvm_cache_regs.h"
+
 extern int create_vcpu_fd(struct kvm_vcpu*);
 
 struct kvm* nitro_get_vm_by_creator(pid_t creator){
@@ -135,6 +137,18 @@ int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
 	complete(&(vcpu->nitro.k_wait_cv));
 
 	return 0;
+}
+
+int nitro_ioctl_continue_step_over(struct kvm_vcpu *vcpu){
+	if(completion_done(&(vcpu->nitro.k_wait_cv)))
+		return -1;
+
+  // Both SYSCALL and SYSENTER are two bytes
+  unsigned long new_rip = kvm_rip_read(vcpu) + 2;
+  kvm_rip_write(vcpu, new_rip);
+
+	complete(&(vcpu->nitro.k_wait_cv));
+  return 0;
 }
 
 int nitro_is_trap_set(struct kvm *kvm, uint32_t trap){

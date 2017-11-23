@@ -2558,6 +2558,9 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	case KVM_NITRO_CONTINUE:
 		r = nitro_ioctl_continue(vcpu);
 		goto out_no_put;
+	case KVM_NITRO_CONTINUE_STEP_OVER:
+		r = nitro_ioctl_continue_step_over(vcpu);
+		goto out_no_put;
 	case KVM_NITRO_GET_REGS: {
 		struct kvm_regs *kvm_regs;
 

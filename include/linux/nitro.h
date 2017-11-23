@@ -49,6 +49,7 @@ struct nitro_vcpus{
 //VCPU functions
 #define KVM_NITRO_GET_EVENT	_IOR(KVMIO, 0xE5, struct event)
 #define KVM_NITRO_CONTINUE	_IO(KVMIO, 0xE6)
+#define KVM_NITRO_CONTINUE_STEP_OVER	_IO(KVMIO, 0xEB)
 
 #define KVM_NITRO_GET_REGS              _IOR(KVMIO,  0xE7, struct kvm_regs)
 #define KVM_NITRO_SET_REGS              _IOW(KVMIO,  0xE8, struct kvm_regs)
