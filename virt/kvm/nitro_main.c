@@ -15,6 +15,7 @@
 #include <net/irda/parameters.h>
 
 #include "kvm_cache_regs.h"
+#include "x86.h"
 
 extern int create_vcpu_fd(struct kvm_vcpu*);
 
@@ -140,14 +141,21 @@ int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
 }
 
 int nitro_ioctl_continue_step_over(struct kvm_vcpu *vcpu){
-	if(completion_done(&(vcpu->nitro.k_wait_cv)))
-		return -1;
+  unsigned long new_rip;
+
+  printk(KERN_INFO "nitro: stepping over system call invocation");
+
+  if(completion_done(&(vcpu->nitro.k_wait_cv)))
+    return -1;
+
+  if (!is_syscall_sysenter(vcpu))
+    return -1;
 
   // Both SYSCALL and SYSENTER are two bytes
-  unsigned long new_rip = kvm_rip_read(vcpu) + 2;
+  new_rip = kvm_rip_read(vcpu) + 2;
   kvm_rip_write(vcpu, new_rip);
 
-	complete(&(vcpu->nitro.k_wait_cv));
+  complete(&(vcpu->nitro.k_wait_cv));
   return 0;
 }
 

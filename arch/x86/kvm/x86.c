@@ -8512,6 +8512,25 @@ int kvm_arch_update_irqfd_routing(struct kvm *kvm, unsigned int host_irq,
 
 int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len);
 
+int is_syscall_sysenter(struct kvm_vcpu* vcpu)
+{
+	struct x86_emulate_ctxt *ctxt;
+	int r = 0;
+
+	init_emulate_ctxt(vcpu);
+	ctxt = &vcpu->arch.emulate_ctxt;
+
+	r = x86_decode_insn(ctxt, NULL, 0);
+
+	if (ctxt->opcode_len == 2 &&  (ctxt->b == 0x34 || ctxt->b == 0x05))
+		return 1;
+	else {
+		printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
+		return 0;
+	}
+}
+EXPORT_SYMBOL_GPL(is_syscall_sysenter);
+
 int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 {
     struct x86_emulate_ctxt *ctxt;
