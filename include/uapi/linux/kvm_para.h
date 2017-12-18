@@ -10,12 +10,17 @@
  * - kvm_para_available
  */
 
-/* Return values for hypercalls */
+/* Return values for hypercalls and VM introspection */
 #define KVM_ENOSYS		1000
 #define KVM_EFAULT		EFAULT
 #define KVM_E2BIG		E2BIG
 #define KVM_EPERM		EPERM
 #define KVM_EOPNOTSUPP		95
+#define KVM_EAGAIN		11
+#define KVM_EBUSY		EBUSY
+#define KVM_EINVAL		EINVAL
+#define KVM_ENOENT		ENOENT
+#define KVM_ENOMEM		ENOMEM
 
 #define KVM_HC_VAPIC_POLL_IRQ		1
 #define KVM_HC_MMU_OP			2
@@ -26,6 +31,9 @@
 #define KVM_HC_MIPS_EXIT_VM		7
 #define KVM_HC_MIPS_CONSOLE_OUTPUT	8
 #define KVM_HC_CLOCK_PAIRING		9
+#define KVM_HC_MEM_MAP			32
+#define KVM_HC_MEM_UNMAP		33
+#define KVM_HC_XEN_HVM_OP		34 /* Xen's __HYPERVISOR_hvm_op */
 
 /*
  * hypercalls use architecture specific

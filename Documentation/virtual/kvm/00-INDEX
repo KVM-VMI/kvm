@@ -10,6 +10,8 @@ halt-polling.txt
 	- notes on halt-polling
 hypercalls.txt
 	- KVM hypercalls.
+kvmi.rst
+	- VM introspection.
 locking.txt
 	- notes on KVM locks.
 mmu.txt
