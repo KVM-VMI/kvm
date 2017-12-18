@@ -138,6 +138,9 @@ module_param(lapic_timer_advance_ns, uint, S_IRUGO | S_IWUSR);
 static bool __read_mostly vector_hashing = true;
 module_param(vector_hashing, bool, S_IRUGO);
 
+bool __read_mostly kvm_eptp_switching_supported;
+EXPORT_SYMBOL_GPL(kvm_eptp_switching_supported);
+
 #define KVM_NR_SHARED_MSRS 16
 
 struct kvm_shared_msrs_global {

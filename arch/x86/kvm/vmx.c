@@ -6898,6 +6898,8 @@ static __init int hardware_setup(void)
 		kvm_x86_ops->cancel_hv_timer = NULL;
 	}
 
+	kvm_eptp_switching_supported = cpu_has_vmx_vmfunc();
+
 	kvm_set_posted_intr_wakeup_handler(wakeup_handler);
 
 	kvm_mce_cap_supported |= MCG_LMCE_P;
