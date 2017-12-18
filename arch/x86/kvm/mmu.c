@@ -5066,6 +5066,9 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gva_t cr2, u64 error_code,
 
 	if (mmio_info_in_cache(vcpu, cr2, direct))
 		emulation_type = 0;
+	if (kvm_page_track_is_active(vcpu, gpa_to_gfn(cr2),
+				     KVM_PAGE_TRACK_PREEXEC))
+		emulation_type = EMULTYPE_NO_REEXECUTE;
 emulate:
 	er = x86_emulate_instruction(vcpu, cr2, emulation_type, insn, insn_len);
 

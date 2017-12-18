@@ -5281,7 +5281,12 @@ done_prefixes:
 					ctxt->memopp->addr.mem.ea + ctxt->_eip);
 
 done:
-	return (rc != X86EMUL_CONTINUE) ? EMULATION_FAILED : EMULATION_OK;
+	if (rc == X86EMUL_RETRY_INSTR)
+		return EMULATION_USER_EXIT;
+	else if (rc == X86EMUL_CONTINUE)
+		return EMULATION_OK;
+	else
+		return EMULATION_FAILED;
 }
 
 bool x86_page_table_writing_insn(struct x86_emulate_ctxt *ctxt)
@@ -5651,6 +5656,8 @@ done:
 	if (rc == X86EMUL_INTERCEPTED)
 		return EMULATION_INTERCEPTED;
 
+	if (rc == X86EMUL_RETRY_INSTR)
+		return EMULATION_USER_EXIT;
 	if (rc == X86EMUL_CONTINUE)
 		writeback_registers(ctxt);
 
