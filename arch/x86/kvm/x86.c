@@ -6333,7 +6333,8 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 	r = kvm_skip_emulated_instruction(vcpu);
 
-	if (kvm_hv_hypercall_enabled(vcpu->kvm))
+	if (kvm_hv_hypercall_enabled(vcpu->kvm)
+			&& !kvmi_is_agent_hypercall(vcpu))
 		return kvm_hv_hypercall(vcpu);
 
 	nr = kvm_register_read(vcpu, VCPU_REGS_RAX);
@@ -6371,6 +6372,16 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		ret = kvm_pv_clock_pairing(vcpu, a0, a1);
 		break;
 #endif
+	case KVM_HC_MEM_MAP:
+		ret = kvmi_host_mem_map(vcpu, (gva_t)a0, (gpa_t)a1, (gpa_t)a2);
+		break;
+	case KVM_HC_MEM_UNMAP:
+		ret = kvmi_host_mem_unmap(vcpu, (gpa_t)a0);
+		break;
+	case KVM_HC_XEN_HVM_OP:
+		kvmi_hypercall_event(vcpu);
+		ret = 0;
+		break;
 	default:
 		ret = -KVM_ENOSYS;
 		break;
