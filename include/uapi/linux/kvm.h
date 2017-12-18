@@ -1359,6 +1359,14 @@ struct kvm_s390_ucas_mapping {
 #define KVM_S390_GET_CMMA_BITS      _IOWR(KVMIO, 0xb8, struct kvm_s390_cmma_log)
 #define KVM_S390_SET_CMMA_BITS      _IOW(KVMIO, 0xb9, struct kvm_s390_cmma_log)
 
+struct kvm_introspection {
+	int fd;
+	__u32 padding;
+	__u32 commands;
+	__u32 events;
+};
+#define KVM_INTROSPECTION      _IOW(KVMIO, 0xff, struct kvm_introspection)
+
 #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
 #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)
 #define KVM_DEV_ASSIGN_MASK_INTX	(1 << 2)

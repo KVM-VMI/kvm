@@ -1115,6 +1115,9 @@ void page_address_init(void);
 #define page_address_init()  do { } while(0)
 #endif
 
+/* rmap.c */
+extern pmd_t *mm_find_pmd(struct mm_struct *mm, unsigned long address);
+
 extern void *page_rmapping(struct page *page);
 extern struct anon_vma *page_anon_vma(struct page *page);
 extern struct address_space *page_mapping(struct page *page);

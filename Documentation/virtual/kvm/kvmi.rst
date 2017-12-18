@@ -562,7 +562,6 @@ In order to 'forget' an address, all the access bits ('rwx') must be set.
 
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EINVAL - the specified access bits combination is invalid
-* -KVM_EINVAL - one of the specified gpa-s is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_EBUSY - the selected vCPU has another queued command
 * -KVM_ENOSYS - a SPT view was selected but the hardware has no support for

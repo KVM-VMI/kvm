@@ -9,6 +9,7 @@ CFLAGS_vmx.o := -I.
 KVM := ../../../virt/kvm
 
 kvm-y			+= $(KVM)/kvm_main.o $(KVM)/coalesced_mmio.o \
+				$(KVM)/kvmi.o $(KVM)/kvmi_msg.o $(KVM)/kvmi_mem.o \
 				$(KVM)/eventfd.o $(KVM)/irqchip.o $(KVM)/vfio.o
 kvm-$(CONFIG_KVM_ASYNC_PF)	+= $(KVM)/async_pf.o
 
