@@ -8047,6 +8047,31 @@ static int handle_preemption_timer(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int handle_descriptor_access(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	u32 exit_reason = vmx->exit_reason;
+	unsigned long exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+	u32 vmx_instruction_info = vmcs_read32(VMX_INSTRUCTION_INFO);
+	unsigned char store = (vmx_instruction_info >> 29) & 0x1;
+	unsigned char descriptor = 0;
+
+	if (exit_reason == EXIT_REASON_GDTR_IDTR) {
+		if ((vmx_instruction_info >> 28) & 0x1)
+			descriptor = KVMI_DESC_IDTR;
+		else
+			descriptor = KVMI_DESC_GDTR;
+	} else {
+		if ((vmx_instruction_info >> 28) & 0x1)
+			descriptor = KVMI_DESC_TR;
+		else
+			descriptor = KVMI_DESC_LDTR;
+	}
+
+	return kvmi_descriptor_event(vcpu, vmx_instruction_info,
+				     exit_qualification, descriptor, store);
+}
+
 static bool valid_ept_address(struct kvm_vcpu *vcpu, u64 address)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -8219,6 +8244,8 @@ static int (*const kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_PML_FULL]		      = handle_pml_full,
 	[EXIT_REASON_VMFUNC]                  = handle_vmfunc,
 	[EXIT_REASON_PREEMPTION_TIMER]	      = handle_preemption_timer,
+	[EXIT_REASON_GDTR_IDTR]               = handle_descriptor_access,
+	[EXIT_REASON_LDTR_TR]                 = handle_descriptor_access,
 };
 
 static const int kvm_vmx_max_exit_handlers =
