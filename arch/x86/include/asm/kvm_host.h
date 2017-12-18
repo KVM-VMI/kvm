@@ -692,6 +692,9 @@ struct kvm_vcpu_arch {
 	/* set at EPT violation at this point */
 	unsigned long exit_qualification;
 
+	/* #PF translated error code from EPT/NPT exit reason */
+	u64 error_code;
+
 	/* pv related host specific info */
 	struct {
 		bool pv_unhalted;
@@ -1081,6 +1084,7 @@ struct kvm_x86_ops {
 	int (*enable_smi_window)(struct kvm_vcpu *vcpu);
 
 	void (*msr_intercept)(struct kvm_vcpu *vcpu, unsigned int msr, bool enable);
+	u64 (*fault_gla)(struct kvm_vcpu *vcpu);
 };
 
 struct kvm_arch_async_pf {
@@ -1455,4 +1459,7 @@ void kvm_arch_mmu_notifier_invalidate_range(struct kvm *kvm,
 
 void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 				bool enable);
+u64 kvm_mmu_fault_gla(struct kvm_vcpu *vcpu);
+bool kvm_mmu_nested_guest_page_fault(struct kvm_vcpu *vcpu);
+
 #endif /* _ASM_X86_KVM_HOST_H */
