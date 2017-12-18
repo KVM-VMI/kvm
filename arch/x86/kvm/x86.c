@@ -7058,6 +7058,15 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
+	if (kvmi_lost_exception(vcpu)) {
+		local_irq_enable();
+		preempt_enable();
+		vcpu->srcu_idx = srcu_read_lock(&vcpu->kvm->srcu);
+		r = 1;
+		kvmi_trap_event(vcpu);
+		goto cancel_injection;
+	}
+
 	kvm_load_guest_xcr0(vcpu);
 
 	if (req_immediate_exit) {
