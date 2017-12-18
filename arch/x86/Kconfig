@@ -782,6 +782,15 @@ config KVM_DEBUG_FS
 	  Statistics are displayed in debugfs filesystem. Enabling this option
 	  may incur significant overhead.
 
+config KVMI_MEM_GUEST
+	bool "KVM Memory Introspection support on Guest"
+	depends on KVM_GUEST
+	default n
+	---help---
+	  This option enables functions and hypercalls for security applications
+	  running in a separate VM to control the execution of other VM-s, query
+	  the state of the vCPU-s (GPR-s, MSR-s etc.).
+
 config PARAVIRT_TIME_ACCOUNTING
 	bool "Paravirtual steal time accounting"
 	depends on PARAVIRT
