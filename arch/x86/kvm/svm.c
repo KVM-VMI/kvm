@@ -5505,6 +5505,15 @@ static int enable_smi_window(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static void svm_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	u32 *msrpm = svm->msrpm;
+
+	set_msr_interception(msrpm, msr, enable, enable);
+}
+
 static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = has_svm,
 	.disabled_by_bios = is_disabled,
@@ -5620,6 +5629,8 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.pre_enter_smm = svm_pre_enter_smm,
 	.pre_leave_smm = svm_pre_leave_smm,
 	.enable_smi_window = enable_smi_window,
+
+	.msr_intercept = svm_msr_intercept,
 };
 
 static int __init svm_init(void)

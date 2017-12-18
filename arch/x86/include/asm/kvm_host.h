@@ -1079,6 +1079,8 @@ struct kvm_x86_ops {
 	int (*pre_enter_smm)(struct kvm_vcpu *vcpu, char *smstate);
 	int (*pre_leave_smm)(struct kvm_vcpu *vcpu, u64 smbase);
 	int (*enable_smi_window)(struct kvm_vcpu *vcpu);
+
+	void (*msr_intercept)(struct kvm_vcpu *vcpu, unsigned int msr, bool enable);
 };
 
 struct kvm_arch_async_pf {
@@ -1451,4 +1453,6 @@ static inline int kvm_cpu_get_apicid(int mps_cpu)
 void kvm_arch_mmu_notifier_invalidate_range(struct kvm *kvm,
 		unsigned long start, unsigned long end);
 
+void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable);
 #endif /* _ASM_X86_KVM_HOST_H */
