@@ -1111,6 +1111,9 @@ EXPORT_SYMBOL_GPL(kvm_enable_efer_bits);
  */
 int kvm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
+	if (!kvmi_msr_event(vcpu, msr))
+		return 1;
+
 	switch (msr->index) {
 	case MSR_FS_BASE:
 	case MSR_GS_BASE:
