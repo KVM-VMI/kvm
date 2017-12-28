@@ -1,0 +1,94 @@
+Make sure you take the necessary steps to prevent data loss!
+
+Build instructions
+==================
+
+Kernel
+------
+
+For convenience, there are two defconfig files, tested with Ubuntu 16.04
+(with a non-LVM root partition).
+
+Use the 'make host_defconfig' command before building the host kernel.
+It can boot ext4 root file-systems and run under VMware hyper-visor.  You
+should boot this kernel on a real system or under hyper-visor supporting
+nested virtualization. The following build instructions will be done
+easier on this system, as long as the compiler and the dependencies
+needed by QEMU are installed.
+
+QEMU
+----
+
+Regardless of how you will run the introspection tool, you need a
+custom QEMU. Make sure the configure script 'selects' the vsock support
+(if you're planning to run the introspection tool in another VM). The
+'0001-qemu-2.11-add-kvmi-support.patch' patch file was tested on the
+v2.11.0 tag.
+
+Introspection tool
+------------------
+
+Just run 'make' in this directory. It will build a simple introspection
+tool (kvmi-test) and a wrapper over the KVMI API (libkvmi.so).
+
+Testing
+=======
+
+You will need a VM image that can be started by QEMU (the introspected
+VM). We've test it with Windows 7 x64 SP1 (English) with a single vCPU.
+
+Run the introspection tool on host
+----------------------------------
+
+Make sure the libkvmi.so can be found by the dynamic loader.
+With the bash shell you could use something like:
+
+	export LD_LIBRARY_PATH=$(pwd)/host
+
+Make sure the name of the listening socket can be found by the libkvmi.so
+library:
+
+	export LIBKVMI_SOCKET=/tmp/introspector
+
+Start the introspection tool:
+
+	./kvmi-test
+
+By default, it will run for 10 minutes and exit.
+Meanwhile, in another terminal, run the VM prepared for introspection
+with four addition options:
+
+	qemu-system-x86_64 ... \
+		-chardev socket,path=/tmp/introspector,id=chardev0 \
+		-object secret,id=key0,data=some \
+		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
+		-accel kvm,introspection=kvmi
+
+QEMU will connect to the introspector, pass the file handle to the host
+kernel through /dev/kvm and boot the VM. You should see the introspected
+events printed by the kvmi-test program.
+
+Run the introspection tool in another VM (sva_defconfig)
+--------------------------------------------------------
+
+Use the 'make sva_defconfig' command before building the kernel for this
+new Linux VM. When you start this VM use an additional QEMU option:
+
+	qemu-system-x86_64 ... \
+		-device vhost-vsock-pci,id=vhost-vsock-pci0,guest-cid=3
+
+Make sure the QEMU process has write access to /dev/vhost-vsock.
+
+Copy the introspection tool binaries (kvmi-test and sva/libkvmi.so)
+to this new VM and run the kvmi-test program as described above (but
+ignore the LIBKVMI_SOCKET part). Make sure that the program has write
+access to /dev/vsock.
+
+While the kvmi-test program is running, start the introspected VM from host
+with four addition options:
+
+	qemu-system-x86_64 ... \
+		-chardev socket,id=chardev0,cid=3,port=1234 \
+		-object secret,id=key0,data=some \
+		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
+		-accel kvm,introspection=kvmi
