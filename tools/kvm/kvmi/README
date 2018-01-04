@@ -19,11 +19,10 @@ needed by QEMU are installed.
 QEMU
 ----
 
-Regardless of how you will run the introspection tool, you need a
-custom QEMU. Make sure the configure script 'selects' the vsock support
-(if you're planning to run the introspection tool in another VM). The
-'0001-qemu-2.11-add-kvmi-support.patch' patch file was tested on the
-v2.11.0 tag.
+Regardless of how you will run the introspection tool, you need a custom
+QEMU (the kvmi branch - https://github.com/KVM-VMI/qemu/tree/kvmi). Make
+sure the configure script 'selects' the vsock support (if you're planning
+to run the introspection tool in another VM).
 
 Introspection tool
 ------------------
