@@ -32,6 +32,9 @@
 #include <poll.h>
 #include <kvmi/libkvmi.h>
 #include <linux/kvm_para.h>
+#ifdef USE_UNIX_SOCKET
+#include <sys/stat.h>
+#endif
 
 #ifndef __unused
 #ifdef __GNUC__
@@ -100,15 +103,18 @@ static int setup_socket( void )
 	int         pf      = PF_UNIX;
 	size_t      sa_size = sizeof( sock_addr );
 	const char *path    = getenv( "LIBKVMI_SOCKET" );
+	struct stat st;
+	mode_t      old_umask;
 
 	if ( !path || path[0] == 0 )
 		return -1;
 
-	if ( unlink( path ) ) /* Address already in use */
+	if ( stat( path, &st ) == 0 && unlink( path ) ) /* Address already in use */
 		return -1;
 
 	sock_addr.sun_family = AF_UNIX;
 	strncpy( sock_addr.sun_path, path, sizeof( sock_addr.sun_path ) );
+	old_umask = umask( 0 );
 #endif
 	fd = socket( pf, SOCK_STREAM, 0 );
 
@@ -120,6 +126,10 @@ static int setup_socket( void )
 		close_and_keep_errno( fd );
 		return -1;
 	}
+
+#ifdef USE_UNIX_SOCKET
+	umask( old_umask );
+#endif
 
 	if ( listen( fd, 0 ) == -1 ) {
 		close_and_keep_errno( fd );
