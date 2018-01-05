@@ -103,7 +103,6 @@ static int setup_socket( void )
 	size_t      sa_size = sizeof( sock_addr );
 	const char *path    = getenv( "LIBKVMI_SOCKET" );
 	struct stat st;
-	mode_t      old_umask;
 
 	if ( !path || path[0] == 0 )
 		return -1;
@@ -113,7 +112,6 @@ static int setup_socket( void )
 
 	sock_addr.sun_family = AF_UNIX;
 	strncpy( sock_addr.sun_path, path, sizeof( sock_addr.sun_path ) );
-	old_umask = umask( 0 );
 #endif
 	fd = socket( pf, SOCK_STREAM, 0 );
 
@@ -127,7 +125,7 @@ static int setup_socket( void )
 	}
 
 #ifdef USE_UNIX_SOCKET
-	umask( old_umask );
+	chmod( sock_addr.sun_path, 0777 );
 #endif
 
 	if ( listen( fd, 0 ) == -1 ) {
