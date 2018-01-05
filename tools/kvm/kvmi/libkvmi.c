@@ -70,7 +70,6 @@ static int ( *event_cb )( int fd, unsigned seq, unsigned size, void *cb_ctx ) = 
 static pthread_t accept_th_id;
 static bool      accept_th_started = false;
 static int       kvmi_dev          = -1;
-static int       mem_dev           = -1;
 static void *    accept_cb_ctx     = NULL;
 static void *    event_cb_ctx      = NULL;
 #ifdef USE_UNIX_SOCKET
@@ -293,12 +292,6 @@ int kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), vo
 	if ( kvmi_dev == -1 )
 		goto out;
 
-#ifndef USE_UNIX_SOCKET
-	mem_dev = open( "/dev/kvmmem", O_RDWR );
-	if ( mem_dev == -1 )
-		goto out;
-#endif
-
 	/* mark the file descriptor as close-on-execute */
 	if ( fcntl( kvmi_dev, F_SETFD, FD_CLOEXEC ) < 0 )
 		goto out;
@@ -329,11 +322,6 @@ void kvmi_uninit( void )
 		shutdown( kvmi_dev, SHUT_RDWR );
 		close( kvmi_dev );
 		kvmi_dev = -1;
-	}
-
-	if ( mem_dev != -1 ) {
-		close( mem_dev );
-		mem_dev = -1;
 	}
 
 	if ( accept_cb_fds[1] != -1 && accept_th_started ) {
@@ -736,7 +724,12 @@ int kvmi_write_physical( int fd, unsigned long long int gpa, const void *buffer,
 	return err;
 }
 
-void *kvmi_map_physical_page( int fd, unsigned long long int gpa )
+int kvmi_open_memmap( void )
+{
+	return open( "/dev/kvmmem", O_RDWR );
+}
+
+void *kvmi_map_physical_page( int fd, int memfd, unsigned long long int gpa )
 {
 	errno = 0;
 
@@ -748,15 +741,6 @@ void *kvmi_map_physical_page( int fd, unsigned long long int gpa )
 		struct kvmi_mem_map             map_req;
 		int                             err;
 
-		/*
-		 * Avoid wasting a token with USE_UNIX_SOCKET.
-		 * There are no limits on the generated tokens yet.
-		 */
-		if ( mem_dev == -1 ) {
-			errno = ENODEV;
-			return MAP_FAILED;
-		}
-
 		err = request( fd, KVMI_GET_MAP_TOKEN, NULL, 0, &req, sizeof( req ) );
 
 		if ( !err ) {
@@ -766,7 +750,7 @@ void *kvmi_map_physical_page( int fd, unsigned long long int gpa )
 			map_req.gva = ( __u64 )addr;
 
 			/* do map IOCTL request */
-			err = ioctl( mem_dev, KVM_INTRO_MEM_MAP, &map_req );
+			err = ioctl( memfd, KVM_INTRO_MEM_MAP, &map_req );
 		}
 
 		if ( err ) {
@@ -780,13 +764,13 @@ void *kvmi_map_physical_page( int fd, unsigned long long int gpa )
 	return addr;
 }
 
-int kvmi_unmap_physical_page( int __unused fd, void *addr )
+int kvmi_unmap_physical_page( int __unused fd, int memfd, void *addr )
 {
 	int _errno;
 	int err;
 
 	/* do unmap IOCTL request */
-	err    = ioctl( mem_dev, KVM_INTRO_MEM_UNMAP, addr );
+	err    = ioctl( memfd, KVM_INTRO_MEM_UNMAP, addr );
 	_errno = errno;
 
 	munmap( addr, pagesize );

@@ -14,6 +14,7 @@ KVMI_1.0 {
 		kvmi_inject_breakpoint;
 		kvmi_inject_page_fault;
 		kvmi_map_physical_page;
+		kvmi_open_memmap;
 		kvmi_pause_vcpu;
 		kvmi_read_event;
 		kvmi_read_event_data;
