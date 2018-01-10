@@ -83,6 +83,11 @@ static struct sockaddr_vm sock_addr;
 static int  accept_cb_fds[2] = { -1, -1 };
 static long pagesize;
 
+__attribute__ ((constructor)) static void lib_init()
+{
+	pagesize = sysconf( _SC_PAGE_SIZE );
+}
+
 static void close_and_keep_errno( int fd )
 {
 	int _errno = errno;
@@ -291,8 +296,6 @@ void * kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
 
 	accept_cb     = cb;
 	accept_cb_ctx = cb_ctx;
-
-	pagesize = sysconf( _SC_PAGE_SIZE );
 
 	kvmi_dev = setup_socket();
 	if ( kvmi_dev == -1 )
