@@ -31,8 +31,8 @@
 extern "C" {
 #endif /* __cplusplus */
 
-int   kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx );
-void  kvmi_uninit( void );
+void *kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx );
+void  kvmi_uninit( void *ctx );
 void  kvmi_set_event_cb( int ( *cb )( int fd, unsigned int seq, unsigned int size, void *ctx ), void *cb_ctx );
 int   kvmi_get_version( int fd, unsigned int *version );
 int   kvmi_control_events( int fd, unsigned short vcpu, unsigned int events );

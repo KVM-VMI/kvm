@@ -261,16 +261,19 @@ static int new_guest( int fd, unsigned char ( *uuid )[16], void *ctx )
 
 int main( void )
 {
-	if ( kvmi_init( new_guest, NULL ) ) {
+	void *ctx;
+
+	kvmi_set_event_cb( new_event, NULL ); /* global */
+
+	ctx = kvmi_init( new_guest, NULL );
+	if ( !ctx ) {
 		perror( "kvmi_init" );
 		exit( 1 );
 	}
 
-	kvmi_set_event_cb( new_event, NULL );
-
 	sleep( 600 );
 
-	kvmi_uninit();
+	kvmi_uninit( ctx );
 
 	return 0;
 }

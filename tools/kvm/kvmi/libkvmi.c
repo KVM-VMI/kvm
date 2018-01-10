@@ -67,6 +67,9 @@ struct sockaddr_vm {
 static int ( *accept_cb )( int fd, unsigned char ( *uuid )[16], void *ctx )   = NULL;
 static int ( *event_cb )( int fd, unsigned seq, unsigned size, void *cb_ctx ) = NULL;
 
+struct kvmi_ctx {
+};
+
 static pthread_t accept_th_id;
 static bool      accept_th_started = false;
 static int       kvmi_dev          = -1;
@@ -275,11 +278,16 @@ static void *accept_worker( void __unused *ctx )
 	return NULL;
 }
 
-int kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
+void * kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
 {
 	int err;
+	void *ctx;
 
 	errno = 0;
+
+	ctx = calloc( 1, sizeof( struct kvmi_ctx ) );
+	if ( !ctx )
+		return NULL;
 
 	accept_cb     = cb;
 	accept_cb_ctx = cb_ctx;
@@ -304,16 +312,16 @@ int kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), vo
 
 	accept_th_started = true;
 
-	return 0;
+	return ctx;
 
 out:
 	err = errno;
-	kvmi_uninit();
+	kvmi_uninit( ctx );
 	errno = err;
-	return -1;
+	return NULL;
 }
 
-void kvmi_uninit( void )
+void kvmi_uninit( void *ctx )
 {
 	/* close file descriptors */
 	if ( kvmi_dev != -1 ) {
@@ -341,6 +349,8 @@ void kvmi_uninit( void )
 		close( accept_cb_fds[1] );
 		accept_cb_fds[1] = -1;
 	}
+
+	free( ctx );
 }
 
 void kvmi_set_event_cb( int ( *cb )( int fd, unsigned int seq, unsigned int size, void *ctx ), void *cb_ctx )
