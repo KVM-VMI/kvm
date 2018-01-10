@@ -36,6 +36,9 @@ Testing
 You will need a VM image that can be started by QEMU (the introspected
 VM). We've tested it with Windows 7 x64 SP1 (English) with a single vCPU.
 
+Add the ",reconnect=N" (with N > 0) to the chardev arguments if you want
+to start the introspected VM first and the introspector later.
+
 Run the introspection tool on host
 ----------------------------------
 
@@ -63,9 +66,10 @@ with four additional options:
 		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
 		-accel kvm,introspection=kvmi
 
-QEMU will connect to the introspector, pass the file descriptor to the host
-kernel through /dev/kvm and boot the VM. You should see the introspected
-events printed by the kvmi-test program.
+QEMU will connect to the introspector, pass the file descriptor to
+the host kernel through /dev/kvm and boot the VM. You should see the
+introspected events printed by the kvmi-test program. When QEMU stops,
+kvmi-test will detect that the connection was closed and it will exit.
 
 Run the introspection tool in another VM (sva_defconfig)
 --------------------------------------------------------
