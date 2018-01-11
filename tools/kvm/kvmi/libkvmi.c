@@ -64,42 +64,41 @@ struct sockaddr_vm {
 #define VMADDR_CID_ANY -1U
 #endif
 
-static int ( *event_cb )( int fd, unsigned seq, unsigned size, void *cb_ctx ) = NULL;
-
 struct kvmi_ctx {
-	int ( *accept_cb )( int fd, unsigned char ( *uuid )[16], void *ctx );
-	void *             accept_cb_ctx;
-	pthread_t          accept_th_id;
-	bool               accept_th_started;
-	int                accept_cb_fds[2];
-	int                kvmi_dev;
+	int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx );
+	void *             cb_ctx;
+	pthread_t          th_id;
+	bool               th_started;
+	int                th_fds[2];
+	int                fd;
 	struct sockaddr_un un_addr;
 	struct sockaddr_vm v_addr;
 };
 
-static void *    event_cb_ctx      = NULL;
-static long pagesize;
+static int ( *event_cb )( int fd, unsigned seq, unsigned size, void *cb_ctx );
+static void *event_cb_ctx;
+static long  pagesize;
 
-__attribute__ ((constructor)) static void lib_init()
+__attribute__(( constructor )) static void lib_init()
 {
 	pagesize = sysconf( _SC_PAGE_SIZE );
 }
 
 static bool setup_socket( struct kvmi_ctx *ctx, struct sockaddr *sa, size_t sa_size, int pf )
 {
-	ctx->kvmi_dev = socket( pf, SOCK_STREAM, 0 );
+	ctx->fd = socket( pf, SOCK_STREAM, 0 );
 
-	if ( ctx->kvmi_dev == -1 )
+	if ( ctx->fd == -1 )
 		return false;
 
-	if ( bind( ctx->kvmi_dev, sa, sa_size ) == -1 )
+	if ( bind( ctx->fd, sa, sa_size ) == -1 )
 		return false;
 
-	if ( listen( ctx->kvmi_dev, 0 ) == -1 )
+	if ( listen( ctx->fd, 0 ) == -1 )
 		return false;
 
 	/* mark the file descriptor as close-on-execute */
-	if ( fcntl( ctx->kvmi_dev, F_SETFD, FD_CLOEXEC ) < 0 )
+	if ( fcntl( ctx->fd, F_SETFD, FD_CLOEXEC ) < 0 )
 		return false;
 
 	return true;
@@ -148,11 +147,11 @@ static bool setup_vsock( struct kvmi_ctx *ctx, unsigned int port )
 
 static int do_read( int fd, void *buf, size_t size )
 {
-	ssize_t n;
-
 	errno = 0;
 
 	for ( ;; ) {
+		ssize_t n;
+
 		do {
 			n = recv( fd, buf, size, 0 );
 		} while ( n < 0 && errno == EINTR );
@@ -240,10 +239,10 @@ static void *accept_worker( void *_ctx )
 
 		memset( fds, 0, sizeof( fds ) );
 
-		fds[0].fd     = ctx->kvmi_dev;
+		fds[0].fd     = ctx->fd;
 		fds[0].events = POLLIN;
 
-		fds[1].fd     = ctx->accept_cb_fds[0];
+		fds[1].fd     = ctx->th_fds[0];
 		fds[1].events = POLLIN;
 
 		do {
@@ -260,13 +259,13 @@ static void *accept_worker( void *_ctx )
 			break;
 
 		do {
-			fd = accept( ctx->kvmi_dev, NULL, NULL );
+			fd = accept( ctx->fd, NULL, NULL );
 		} while ( fd < 0 && errno == EINTR );
 
 		if ( fd == -1 )
 			break;
 
-		if ( ctx->accept_cb == NULL ) {
+		if ( ctx->cb == NULL ) {
 			close( fd );
 			break;
 		}
@@ -278,7 +277,7 @@ static void *accept_worker( void *_ctx )
 
 		errno = 0;
 
-		if ( ctx->accept_cb( fd, &uuid, ctx->accept_cb_ctx ) != 0 ) {
+		if ( ctx->cb( fd, &uuid, ctx->cb_ctx ) != 0 ) {
 			close( fd );
 			break;
 		}
@@ -293,16 +292,16 @@ static struct kvmi_ctx *alloc_kvmi_ctx( int ( *cb )( int fd, unsigned char ( *uu
 	if ( !ctx )
 		return NULL;
 
-	ctx->kvmi_dev = -1;
+	ctx->fd = -1;
 
-	ctx->accept_cb     = cb;
-	ctx->accept_cb_ctx = cb_ctx;
+	ctx->cb     = cb;
+	ctx->cb_ctx = cb_ctx;
 
-	ctx->accept_cb_fds[0] = -1;
-	ctx->accept_cb_fds[1] = -1;
+	ctx->th_fds[0] = -1;
+	ctx->th_fds[1] = -1;
 
 	/* these will be used to signal the accept worker to exit */
-	if ( pipe( ctx->accept_cb_fds ) < 0 ) {
+	if ( pipe( ctx->th_fds ) < 0 ) {
 		free( ctx );
 		return NULL;
 	}
@@ -312,10 +311,10 @@ static struct kvmi_ctx *alloc_kvmi_ctx( int ( *cb )( int fd, unsigned char ( *uu
 
 static bool start_listener( struct kvmi_ctx *ctx )
 {
-	if ( pthread_create( &ctx->accept_th_id, NULL, accept_worker, ctx ) )
+	if ( pthread_create( &ctx->th_id, NULL, accept_worker, ctx ) )
 		return false;
 
-	ctx->accept_th_started = true;
+	ctx->th_started = true;
 	return true;
 }
 
@@ -377,23 +376,22 @@ void kvmi_uninit( void *_ctx )
 	if ( !ctx )
 		return;
 
-	/* close file descriptors */
-	if ( ctx->kvmi_dev != -1 ) {
-		shutdown( ctx->kvmi_dev, SHUT_RDWR );
-		close( ctx->kvmi_dev );
+	if ( ctx->fd != -1 ) {
+		shutdown( ctx->fd, SHUT_RDWR );
+		close( ctx->fd );
 	}
 
-	if ( ctx->accept_cb_fds[1] != -1 && ctx->accept_th_started ) {
+	if ( ctx->th_fds[1] != -1 && ctx->th_started ) {
 		/* we have a running thread */
-		if ( write( ctx->accept_cb_fds[1], "\n", 1 ) == 1 )
-			pthread_join( ctx->accept_th_id, NULL );
+		if ( write( ctx->th_fds[1], "\n", 1 ) == 1 )
+			pthread_join( ctx->th_id, NULL );
 	}
 
 	/* close pipe between threads */
-	if ( ctx->accept_cb_fds[0] != -1 )
-		close( ctx->accept_cb_fds[0] );
-	if ( ctx->accept_cb_fds[1] != -1 )
-		close( ctx->accept_cb_fds[1] );
+	if ( ctx->th_fds[0] != -1 )
+		close( ctx->th_fds[0] );
+	if ( ctx->th_fds[1] != -1 )
+		close( ctx->th_fds[1] );
 
 	free( ctx );
 }
