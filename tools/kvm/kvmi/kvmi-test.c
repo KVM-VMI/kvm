@@ -239,14 +239,12 @@ static void pause_first_vcpu( int fd )
 
 static int new_guest( int fd, unsigned char ( *uuid )[16], void *ctx )
 {
-	unsigned char id[16];
-	int           k;
+	int k;
 
 	printf( "New guest: " );
 
-	memcpy( id, uuid, 16 );
 	for ( k = 0; k < 16; k++ )
-		printf( "%.2x ", id[k] );
+		printf( "%.2x ", ( *uuid )[k] );
 	printf( "fd:%d ctx:%p\n", fd, ctx );
 
 	pause_first_vcpu( fd );
