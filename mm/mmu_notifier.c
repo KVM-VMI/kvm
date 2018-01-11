@@ -173,6 +173,7 @@ void __mmu_notifier_change_pte(struct mm_struct *mm, unsigned long address,
 	}
 	srcu_read_unlock(&srcu, id);
 }
+EXPORT_SYMBOL(__mmu_notifier_change_pte);
 
 void __mmu_notifier_invalidate_range_start(struct mm_struct *mm,
 				  unsigned long start, unsigned long end)

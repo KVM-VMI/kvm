@@ -2289,6 +2289,7 @@ void split_huge_pmd_address(struct vm_area_struct *vma, unsigned long address,
 
 	__split_huge_pmd(vma, pmd, address, freeze, page);
 }
+EXPORT_SYMBOL(split_huge_pmd_address);
 
 void vma_adjust_trans_huge(struct vm_area_struct *vma,
 			     unsigned long start,

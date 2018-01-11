@@ -417,6 +417,7 @@ struct page *follow_page_mask(struct vm_area_struct *vma,
 
 	return follow_p4d_mask(vma, address, pgd, flags, page_mask);
 }
+EXPORT_SYMBOL(follow_page_mask);
 
 static int get_gate_page(struct mm_struct *mm, unsigned long address,
 		unsigned int gup_flags, struct vm_area_struct **vma,

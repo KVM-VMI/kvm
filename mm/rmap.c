@@ -218,6 +218,7 @@ int __anon_vma_prepare(struct vm_area_struct *vma)
  out_enomem:
 	return -ENOMEM;
 }
+EXPORT_SYMBOL(__anon_vma_prepare);
 
 /*
  * This is a useful helper function for locking the anon_vma root as
@@ -371,6 +372,7 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	unlink_anon_vmas(vma);
 	return -ENOMEM;
 }
+EXPORT_SYMBOL(anon_vma_fork);
 
 void unlink_anon_vmas(struct vm_area_struct *vma)
 {
@@ -418,6 +420,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		anon_vma_chain_free(avc);
 	}
 }
+EXPORT_SYMBOL(unlink_anon_vmas);
 
 static void anon_vma_ctor(void *data)
 {
@@ -739,6 +742,7 @@ pmd_t *mm_find_pmd(struct mm_struct *mm, unsigned long address)
 out:
 	return pmd;
 }
+EXPORT_SYMBOL(mm_find_pmd);
 
 struct page_referenced_arg {
 	int mapcount;
@@ -1167,6 +1171,7 @@ void page_add_new_anon_rmap(struct page *page,
 	__mod_node_page_state(page_pgdat(page), NR_ANON_MAPPED, nr);
 	__page_set_anon_rmap(page, vma, address, 1);
 }
+EXPORT_SYMBOL(page_add_new_anon_rmap);
 
 /**
  * page_add_file_rmap - add pte mapping to a file page
@@ -1327,6 +1332,7 @@ void page_remove_rmap(struct page *page, bool compound)
 	 * faster for those pages still in swapcache.
 	 */
 }
+EXPORT_SYMBOL(page_remove_rmap);
 
 /*
  * @arg: enum ttu_flags will be passed to this argument

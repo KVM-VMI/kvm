@@ -87,6 +87,7 @@ pte_t ptep_clear_flush(struct vm_area_struct *vma, unsigned long address,
 		flush_tlb_page(vma, address);
 	return pte;
 }
+EXPORT_SYMBOL(ptep_clear_flush);
 #endif
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE

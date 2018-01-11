@@ -1331,6 +1331,7 @@ int kill_pid_info(int sig, struct siginfo *info, struct pid *pid)
 		 */
 	}
 }
+EXPORT_SYMBOL(kill_pid_info);
 
 static int kill_proc_info(int sig, struct siginfo *info, pid_t pid)
 {

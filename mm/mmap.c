@@ -2626,6 +2626,7 @@ int split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	return __split_vma(mm, vma, addr, new_below);
 }
+EXPORT_SYMBOL(split_vma);
 
 /* Munmap is split into 2 main parts -- this part which finds
  * what needs doing, and the areas themselves, which do the
