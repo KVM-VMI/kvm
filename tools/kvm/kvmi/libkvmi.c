@@ -64,23 +64,23 @@ struct sockaddr_vm {
 #endif
 #endif
 
-static int ( *accept_cb )( int fd, unsigned char ( *uuid )[16], void *ctx )   = NULL;
 static int ( *event_cb )( int fd, unsigned seq, unsigned size, void *cb_ctx ) = NULL;
 
 struct kvmi_ctx {
+	int ( *accept_cb )( int fd, unsigned char ( *uuid )[16], void *ctx );
+	void *    accept_cb_ctx;
+	pthread_t accept_th_id;
+	bool      accept_th_started;
+	int       accept_cb_fds[2];
+	int       kvmi_dev;
+#ifdef USE_UNIX_SOCKET
+	struct sockaddr_un sock_addr;
+#else
+	struct sockaddr_vm sock_addr;
+#endif
 };
 
-static pthread_t accept_th_id;
-static bool      accept_th_started = false;
-static int       kvmi_dev          = -1;
-static void *    accept_cb_ctx     = NULL;
 static void *    event_cb_ctx      = NULL;
-#ifdef USE_UNIX_SOCKET
-static struct sockaddr_un sock_addr;
-#else
-static struct sockaddr_vm sock_addr;
-#endif
-static int  accept_cb_fds[2] = { -1, -1 };
 static long pagesize;
 
 __attribute__ ((constructor)) static void lib_init()
@@ -95,20 +95,20 @@ static void close_and_keep_errno( int fd )
 	errno = _errno;
 }
 
-static int setup_socket( void )
+static int setup_socket( struct kvmi_ctx *ctx )
 {
 	int fd;
 
 #ifndef USE_UNIX_SOCKET
 	int    pf      = PF_VSOCK;
-	size_t sa_size = sizeof( sock_addr );
+	size_t sa_size = sizeof( ctx->sock_addr );
 
-	sock_addr.svm_family = AF_VSOCK;
-	sock_addr.svm_cid    = -1;
-	sock_addr.svm_port   = 1234;
+	ctx->sock_addr.svm_family = AF_VSOCK;
+	ctx->sock_addr.svm_cid    = -1;
+	ctx->sock_addr.svm_port   = 1234;
 #else
 	int         pf      = PF_UNIX;
-	size_t      sa_size = sizeof( sock_addr );
+	size_t      sa_size = sizeof( ctx->sock_addr );
 	const char *path    = getenv( "LIBKVMI_SOCKET" );
 	struct stat st;
 
@@ -118,8 +118,8 @@ static int setup_socket( void )
 	if ( stat( path, &st ) == 0 && unlink( path ) ) /* Address already in use */
 		return -1;
 
-	sock_addr.sun_family = AF_UNIX;
-	strncpy( sock_addr.sun_path, path, sizeof( sock_addr.sun_path ) );
+	ctx->sock_addr.sun_family = AF_UNIX;
+	strncpy( ctx->sock_addr.sun_path, path, sizeof( ctx->sock_addr.sun_path ) );
 #endif
 	fd = socket( pf, SOCK_STREAM, 0 );
 
@@ -127,13 +127,13 @@ static int setup_socket( void )
 		return -1;
 	}
 
-	if ( bind( fd, ( struct sockaddr * )&sock_addr, sa_size ) == -1 ) {
+	if ( bind( fd, ( struct sockaddr * )&ctx->sock_addr, sa_size ) == -1 ) {
 		close_and_keep_errno( fd );
 		return -1;
 	}
 
 #ifdef USE_UNIX_SOCKET
-	chmod( sock_addr.sun_path, 0777 );
+	chmod( ctx->sock_addr.sun_path, 0777 );
 #endif
 
 	if ( listen( fd, 0 ) == -1 ) {
@@ -226,8 +226,10 @@ static bool handshake( int fd, unsigned char ( *uuid )[16] )
 	return done;
 }
 
-static void *accept_worker( void __unused *ctx )
+static void *accept_worker( void *_ctx )
 {
+	struct kvmi_ctx *ctx = _ctx;
+
 	for ( ;; ) {
 		unsigned char uuid[16];
 		int           ret;
@@ -236,10 +238,10 @@ static void *accept_worker( void __unused *ctx )
 
 		memset( fds, 0, sizeof( fds ) );
 
-		fds[0].fd     = kvmi_dev;
+		fds[0].fd     = ctx->kvmi_dev;
 		fds[0].events = POLLIN;
 
-		fds[1].fd     = accept_cb_fds[0];
+		fds[1].fd     = ctx->accept_cb_fds[0];
 		fds[1].events = POLLIN;
 
 		do {
@@ -256,13 +258,13 @@ static void *accept_worker( void __unused *ctx )
 			break;
 
 		do {
-			fd = accept( kvmi_dev, NULL, NULL );
+			fd = accept( ctx->kvmi_dev, NULL, NULL );
 		} while ( fd < 0 && errno == EINTR );
 
 		if ( fd == -1 )
 			break;
 
-		if ( accept_cb == NULL ) {
+		if ( ctx->accept_cb == NULL ) {
 			close( fd );
 			break;
 		}
@@ -274,7 +276,7 @@ static void *accept_worker( void __unused *ctx )
 
 		errno = 0;
 
-		if ( accept_cb( fd, &uuid, accept_cb_ctx ) != 0 ) {
+		if ( ctx->accept_cb( fd, &uuid, ctx->accept_cb_ctx ) != 0 ) {
 			close( fd );
 			break;
 		}
@@ -286,7 +288,7 @@ static void *accept_worker( void __unused *ctx )
 void * kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
 {
 	int err;
-	void *ctx;
+	struct kvmi_ctx *ctx;
 
 	errno = 0;
 
@@ -294,26 +296,29 @@ void * kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
 	if ( !ctx )
 		return NULL;
 
-	accept_cb     = cb;
-	accept_cb_ctx = cb_ctx;
+	ctx->accept_cb     = cb;
+	ctx->accept_cb_ctx = cb_ctx;
 
-	kvmi_dev = setup_socket();
-	if ( kvmi_dev == -1 )
+	ctx->accept_cb_fds[0] = -1;
+	ctx->accept_cb_fds[1] = -1;
+
+	ctx->kvmi_dev = setup_socket( ctx );
+	if ( ctx->kvmi_dev == -1 )
 		goto out;
 
 	/* mark the file descriptor as close-on-execute */
-	if ( fcntl( kvmi_dev, F_SETFD, FD_CLOEXEC ) < 0 )
+	if ( fcntl( ctx->kvmi_dev, F_SETFD, FD_CLOEXEC ) < 0 )
 		goto out;
 
 	/* these will be used to signal the accept worker to exit */
-	if ( pipe( accept_cb_fds ) < 0 )
+	if ( pipe( ctx->accept_cb_fds ) < 0 )
 		goto out;
 
 	/* launch worker */
-	if ( pthread_create( &accept_th_id, NULL, accept_worker, NULL ) != 0 )
+	if ( pthread_create( &ctx->accept_th_id, NULL, accept_worker, ctx ) )
 		goto out;
 
-	accept_th_started = true;
+	ctx->accept_th_started = true;
 
 	return ctx;
 
@@ -324,34 +329,30 @@ out:
 	return NULL;
 }
 
-void kvmi_uninit( void *ctx )
+void kvmi_uninit( void *_ctx )
 {
+	struct kvmi_ctx *ctx = _ctx;
+
+	if ( !ctx )
+		return;
+
 	/* close file descriptors */
-	if ( kvmi_dev != -1 ) {
-		shutdown( kvmi_dev, SHUT_RDWR );
-		close( kvmi_dev );
-		kvmi_dev = -1;
+	if ( ctx->kvmi_dev != -1 ) {
+		shutdown( ctx->kvmi_dev, SHUT_RDWR );
+		close( ctx->kvmi_dev );
 	}
 
-	if ( accept_cb_fds[1] != -1 && accept_th_started ) {
+	if ( ctx->accept_cb_fds[1] != -1 && ctx->accept_th_started ) {
 		/* we have a running thread */
-		if ( write( accept_cb_fds[1], "\n", 1 ) == 1 )
-			pthread_join( accept_th_id, NULL );
+		if ( write( ctx->accept_cb_fds[1], "\n", 1 ) == 1 )
+			pthread_join( ctx->accept_th_id, NULL );
 	}
-
-	accept_cb     = NULL;
-	accept_cb_ctx = NULL;
 
 	/* close pipe between threads */
-	if ( accept_cb_fds[0] != -1 ) {
-		close( accept_cb_fds[0] );
-		accept_cb_fds[0] = -1;
-	}
-
-	if ( accept_cb_fds[1] != -1 ) {
-		close( accept_cb_fds[1] );
-		accept_cb_fds[1] = -1;
-	}
+	if ( ctx->accept_cb_fds[0] != -1 )
+		close( ctx->accept_cb_fds[0] );
+	if ( ctx->accept_cb_fds[1] != -1 )
+		close( ctx->accept_cb_fds[1] );
 
 	free( ctx );
 }
@@ -362,6 +363,7 @@ void kvmi_set_event_cb( int ( *cb )( int fd, unsigned int seq, unsigned int size
 	event_cb_ctx = cb_ctx;
 }
 
+/* The same sequence number is used regardless of the number of kvmi_init() calls. */
 static unsigned int new_seq( void )
 {
 	static unsigned int seq = 0;
