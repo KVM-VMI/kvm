@@ -402,11 +402,12 @@ void kvmi_set_event_cb( int ( *cb )( int fd, unsigned int seq, unsigned int size
 	event_cb_ctx = cb_ctx;
 }
 
-/* The same sequence number is used regardless of the number of kvmi_init() calls. */
+/* The same sequence variable is used by all domains. */
 static unsigned int new_seq( void )
 {
-	static unsigned int seq = 0;
-	return ++seq; /* TODO: something better? */
+	static unsigned int seq;
+
+	return __sync_add_and_fetch( &seq, 1 );
 }
 
 /* We must send the whole request/reply with one write() call */
