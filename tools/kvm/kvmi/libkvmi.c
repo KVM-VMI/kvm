@@ -62,7 +62,7 @@ struct kvmi_dom {
 };
 
 struct kvmi_ctx {
-	kvmi_new_guest_cb  cb;
+	kvmi_new_guest_cb  accept_cb;
 	void *             cb_ctx;
 	pthread_t          th_id;
 	bool               th_started;
@@ -277,7 +277,7 @@ static void *accept_worker( void *_ctx )
 
 		errno = 0;
 
-		if ( ctx->cb( dom, &uuid, ctx->cb_ctx ) != 0 ) {
+		if ( ctx->accept_cb( dom, &uuid, ctx->cb_ctx ) != 0 ) {
 			kvmi_domain_close( dom );
 			break;
 		}
@@ -286,11 +286,11 @@ static void *accept_worker( void *_ctx )
 	return NULL;
 }
 
-static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb cb, void *cb_ctx )
+static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb accept_cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 
-	if ( !cb )
+	if ( !accept_cb )
 		return NULL;
 
 	ctx = calloc( 1, sizeof( *ctx ) );
@@ -299,8 +299,8 @@ static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb cb, void *cb_ctx )
 
 	ctx->fd = -1;
 
-	ctx->cb     = cb;
-	ctx->cb_ctx = cb_ctx;
+	ctx->accept_cb = accept_cb;
+	ctx->cb_ctx    = cb_ctx;
 
 	ctx->th_fds[0] = -1;
 	ctx->th_fds[1] = -1;
@@ -323,14 +323,14 @@ static bool start_listener( struct kvmi_ctx *ctx )
 	return true;
 }
 
-void *kvmi_init_unix_socket( const char *socket, kvmi_new_guest_cb cb, void *cb_ctx )
+void *kvmi_init_unix_socket( const char *socket, kvmi_new_guest_cb accept_cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 	int              err;
 
 	errno = 0;
 
-	ctx = alloc_kvmi_ctx( cb, cb_ctx );
+	ctx = alloc_kvmi_ctx( accept_cb, cb_ctx );
 	if ( !ctx )
 		return NULL;
 
@@ -348,14 +348,14 @@ out_err:
 	return NULL;
 }
 
-void *kvmi_init_vsock( unsigned int port, kvmi_new_guest_cb cb, void *cb_ctx )
+void *kvmi_init_vsock( unsigned int port, kvmi_new_guest_cb accept_cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 	int              err;
 
 	errno = 0;
 
-	ctx = alloc_kvmi_ctx( cb, cb_ctx );
+	ctx = alloc_kvmi_ctx( accept_cb, cb_ctx );
 	if ( !ctx )
 		return NULL;
 
