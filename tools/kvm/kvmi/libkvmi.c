@@ -270,11 +270,6 @@ static void *accept_worker( void *_ctx )
 		if ( fd == -1 )
 			break;
 
-		if ( ctx->cb == NULL ) {
-			close( fd );
-			break;
-		}
-
 		dom = calloc( 1, sizeof( *dom ) );
 		if ( !dom )
 			break;
@@ -299,6 +294,9 @@ static void *accept_worker( void *_ctx )
 static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
+
+	if ( !cb )
+		return NULL;
 
 	ctx = calloc( 1, sizeof( *ctx ) );
 	if ( !ctx )
