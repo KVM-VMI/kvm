@@ -318,7 +318,7 @@ static bool start_listener( struct kvmi_ctx *ctx )
 	return true;
 }
 
-void *kvmi_init_un_sock( const char *socket, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
+void *kvmi_init_unix_socket( const char *socket, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
                          void *      cb_ctx )
 {
 	struct kvmi_ctx *ctx;
@@ -344,7 +344,7 @@ out_err:
 	return NULL;
 }
 
-void *kvmi_init_v_sock( unsigned int port, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
+void *kvmi_init_vsock( unsigned int port, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 	int              err;

@@ -272,9 +272,9 @@ int main( int argc, char **argv )
 	kvmi_set_event_cb( new_event, NULL ); /* global */
 
 	if ( atoi( argv[1] ) > 0 ) {
-		ctx = kvmi_init_v_sock( atoi( argv[1] ), new_guest, NULL );
+		ctx = kvmi_init_vsock( atoi( argv[1] ), new_guest, NULL );
 	} else {
-		ctx = kvmi_init_un_sock( argv[1], new_guest, NULL );
+		ctx = kvmi_init_unix_socket( argv[1], new_guest, NULL );
 	}
 
 	if ( !ctx ) {

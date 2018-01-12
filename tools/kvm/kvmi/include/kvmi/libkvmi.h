@@ -31,10 +31,9 @@
 extern "C" {
 #endif /* __cplusplus */
 
-void *kvmi_init_v_sock( unsigned int port, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
-                        void *       cb_ctx );
-void *kvmi_init_un_sock( const char *socket, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
-                         void *      cb_ctx );
+void *kvmi_init_vsock( unsigned int port, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx );
+void *kvmi_init_unix_socket( const char *socket, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
+                             void *      cb_ctx );
 void  kvmi_uninit( void *ctx );
 void  kvmi_set_event_cb( int ( *cb )( int fd, unsigned int seq, unsigned int size, void *ctx ), void *cb_ctx );
 int   kvmi_get_version( int fd, unsigned int *version );
