@@ -57,9 +57,8 @@ int   kvmi_inject_page_fault( void *dom, unsigned short vcpu, unsigned long long
 int   kvmi_inject_breakpoint( void *dom, unsigned short vcpu );
 int   kvmi_read_physical( void *dom, unsigned long long int gpa, void *buffer, size_t size );
 int   kvmi_write_physical( void *dom, unsigned long long int gpa, const void *buffer, size_t size );
-int   kvmi_open_memmap( void );
-void *kvmi_map_physical_page( void *dom, int memfd, unsigned long long int gpa );
-int   kvmi_unmap_physical_page( void *dom, int memfd, void *addr );
+void *kvmi_map_physical_page( void *dom, unsigned long long int gpa );
+int   kvmi_unmap_physical_page( void *dom, void *addr );
 int   kvmi_get_registers( void *dom, unsigned short vcpu, struct kvm_regs *regs, struct kvm_sregs *sregs,
                           struct kvm_msrs *msrs, unsigned int *mode );
 int   kvmi_set_registers( void *dom, unsigned short vcpu, const struct kvm_regs *regs );

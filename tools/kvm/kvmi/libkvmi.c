@@ -34,14 +34,6 @@
 #include <linux/kvm_para.h>
 #include <sys/stat.h>
 
-#ifndef __unused
-#ifdef __GNUC__
-#define __unused __attribute__(( unused ))
-#else
-#define __unused
-#endif
-#endif
-
 #define MIN( X, Y ) ( ( X ) < ( Y ) ? ( X ) : ( Y ) )
 
 /* VSOCK types and consts */
@@ -66,6 +58,7 @@ struct sockaddr_vm {
 
 struct kvmi_dom {
 	int fd;
+	int mem_fd;
 };
 
 struct kvmi_ctx {
@@ -279,6 +272,8 @@ static void *accept_worker( void *_ctx )
 			kvmi_domain_close( dom );
 			continue;
 		}
+
+		dom->mem_fd = open( "/dev/kvmmem", O_RDWR );
 
 		errno = 0;
 
@@ -806,12 +801,7 @@ int kvmi_write_physical( void *dom, unsigned long long int gpa, const void *buff
 	return err;
 }
 
-int kvmi_open_memmap( void )
-{
-	return open( "/dev/kvmmem", O_RDWR );
-}
-
-void *kvmi_map_physical_page( void *d, int memfd, unsigned long long int gpa )
+void *kvmi_map_physical_page( void *d, unsigned long long int gpa )
 {
 	struct kvmi_dom *dom = d;
 
@@ -834,7 +824,7 @@ void *kvmi_map_physical_page( void *d, int memfd, unsigned long long int gpa )
 			map_req.gva = ( __u64 )addr;
 
 			/* do map IOCTL request */
-			err = ioctl( memfd, KVM_INTRO_MEM_MAP, &map_req );
+			err = ioctl( dom->mem_fd, KVM_INTRO_MEM_MAP, &map_req );
 		}
 
 		if ( err ) {
@@ -848,13 +838,14 @@ void *kvmi_map_physical_page( void *d, int memfd, unsigned long long int gpa )
 	return addr;
 }
 
-int kvmi_unmap_physical_page( void __unused *d, int memfd, void *addr )
+int kvmi_unmap_physical_page( void *d, void *addr )
 {
-	int _errno;
-	int err;
+	struct kvmi_dom *dom = d;
+	int              _errno;
+	int              err;
 
 	/* do unmap IOCTL request */
-	err    = ioctl( memfd, KVM_INTRO_MEM_UNMAP, addr );
+	err    = ioctl( dom->mem_fd, KVM_INTRO_MEM_UNMAP, addr );
 	_errno = errno;
 
 	munmap( addr, pagesize );
