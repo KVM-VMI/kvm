@@ -124,7 +124,7 @@ static bool setup_unix_socket( struct kvmi_ctx *ctx, const char *path )
 	done = setup_socket( ctx, sa, sizeof( ctx->un_addr ), PF_UNIX );
 
 	if ( done )
-		chmod( ctx->un_addr.sun_path, 0777 );
+		done = !chmod( ctx->un_addr.sun_path, 0777 );
 
 	return done;
 }
