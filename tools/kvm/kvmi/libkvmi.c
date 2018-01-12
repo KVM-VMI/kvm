@@ -65,7 +65,7 @@ struct sockaddr_vm {
 #endif
 
 struct kvmi_ctx {
-	int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx );
+	kvmi_new_guest_cb  cb;
 	void *             cb_ctx;
 	pthread_t          th_id;
 	bool               th_started;
@@ -75,9 +75,9 @@ struct kvmi_ctx {
 	struct sockaddr_vm v_addr;
 };
 
-static int ( *event_cb )( int fd, unsigned seq, unsigned size, void *cb_ctx );
-static void *event_cb_ctx;
-static long  pagesize;
+static kvmi_new_event_cb event_cb;
+static void *            event_cb_ctx;
+static long              pagesize;
 
 __attribute__(( constructor )) static void lib_init()
 {
@@ -286,7 +286,7 @@ static void *accept_worker( void *_ctx )
 	return NULL;
 }
 
-static struct kvmi_ctx *alloc_kvmi_ctx( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
+static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx = calloc( 1, sizeof( struct kvmi_ctx ) );
 	if ( !ctx )
@@ -318,8 +318,7 @@ static bool start_listener( struct kvmi_ctx *ctx )
 	return true;
 }
 
-void *kvmi_init_unix_socket( const char *socket, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
-                         void *      cb_ctx )
+void *kvmi_init_unix_socket( const char *socket, kvmi_new_guest_cb cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 	int              err;
@@ -344,7 +343,7 @@ out_err:
 	return NULL;
 }
 
-void *kvmi_init_vsock( unsigned int port, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
+void *kvmi_init_vsock( unsigned int port, kvmi_new_guest_cb cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 	int              err;
@@ -396,7 +395,7 @@ void kvmi_uninit( void *_ctx )
 	free( ctx );
 }
 
-void kvmi_set_event_cb( int ( *cb )( int fd, unsigned int seq, unsigned int size, void *ctx ), void *cb_ctx )
+void kvmi_set_event_cb( kvmi_new_event_cb cb, void *cb_ctx )
 {
 	event_cb     = cb;
 	event_cb_ctx = cb_ctx;
