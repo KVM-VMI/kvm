@@ -64,6 +64,10 @@ struct sockaddr_vm {
 #define VMADDR_CID_ANY -1U
 #endif
 
+struct kvmi_dom {
+	int fd;
+};
+
 struct kvmi_ctx {
 	kvmi_new_guest_cb  cb;
 	void *             cb_ctx;
@@ -187,7 +191,7 @@ static int do_write( int fd, const void *data, size_t size )
 	return 0;
 }
 
-static bool handshake( int fd, unsigned char ( *uuid )[16] )
+static bool handshake( struct kvmi_dom *dom, unsigned char ( *uuid )[16] )
 {
 	int       done = false;
 	unsigned *blk;
@@ -202,7 +206,7 @@ static bool handshake( int fd, unsigned char ( *uuid )[16] )
 	   and write back the same structure.
 	 */
 
-	if ( do_read( fd, &sz, 4 ) == -1 )
+	if ( do_read( dom->fd, &sz, 4 ) == -1 )
 		return false;
 
 	if ( sz < 4 + 16 || sz > 1 * 1024 * 1024 )
@@ -214,12 +218,12 @@ static bool handshake( int fd, unsigned char ( *uuid )[16] )
 
 	blk[0] = sz;
 
-	if ( do_read( fd, blk + 1, sz - 4 ) == 0 && do_write( fd, blk, sz ) == 0 ) {
+	if ( do_read( dom->fd, blk + 1, sz - 4 ) == 0 && do_write( dom->fd, blk, sz ) == 0 ) {
 		unsigned version;
 
 		memcpy( uuid, blk + 1, 16 );
 
-		done = ( kvmi_get_version( fd, &version ) == 0 && version >= KVMI_VERSION );
+		done = ( kvmi_get_version( dom, &version ) == 0 && version >= KVMI_VERSION );
 	}
 
 	free( blk );
@@ -232,10 +236,11 @@ static void *accept_worker( void *_ctx )
 	struct kvmi_ctx *ctx = _ctx;
 
 	for ( ;; ) {
-		unsigned char uuid[16];
-		int           ret;
-		int           fd;
-		struct pollfd fds[2];
+		struct kvmi_dom *dom;
+		unsigned char    uuid[16];
+		int              ret;
+		int              fd;
+		struct pollfd    fds[2];
 
 		memset( fds, 0, sizeof( fds ) );
 
@@ -270,15 +275,20 @@ static void *accept_worker( void *_ctx )
 			break;
 		}
 
-		if ( !handshake( fd, &uuid ) ) {
-			close( fd );
+		dom = calloc( 1, sizeof( *dom ) );
+		if ( !dom )
+			break;
+
+		dom->fd = fd;
+		if ( !handshake( dom, &uuid ) ) {
+			kvmi_domain_close( dom );
 			continue;
 		}
 
 		errno = 0;
 
-		if ( ctx->cb( fd, &uuid, ctx->cb_ctx ) != 0 ) {
-			close( fd );
+		if ( ctx->cb( dom, &uuid, ctx->cb_ctx ) != 0 ) {
+			kvmi_domain_close( dom );
 			break;
 		}
 	}
@@ -288,7 +298,9 @@ static void *accept_worker( void *_ctx )
 
 static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb cb, void *cb_ctx )
 {
-	struct kvmi_ctx *ctx = calloc( 1, sizeof( struct kvmi_ctx ) );
+	struct kvmi_ctx *ctx;
+
+	ctx = calloc( 1, sizeof( *ctx ) );
 	if ( !ctx )
 		return NULL;
 
@@ -395,6 +407,23 @@ void kvmi_uninit( void *_ctx )
 	free( ctx );
 }
 
+void kvmi_domain_close( void *d )
+{
+	struct kvmi_dom *dom = d;
+
+	if ( dom ) {
+		close( dom->fd );
+		free( dom );
+	}
+}
+
+int kvmi_connection_fd( void *d )
+{
+	struct kvmi_dom *dom = d;
+
+	return dom->fd;
+}
+
 void kvmi_set_event_cb( kvmi_new_event_cb cb, void *cb_ctx )
 {
 	event_cb     = cb;
@@ -458,23 +487,23 @@ static int consume_bytes( int fd, unsigned size )
 	return 0;
 }
 
-static int read_event( int fd, unsigned seq, unsigned size )
+static int read_event( struct kvmi_dom *dom, unsigned seq, unsigned size )
 {
 	if ( event_cb ) {
 		errno = 0;
-		return event_cb( fd, seq, size, event_cb_ctx );
+		return event_cb( dom, seq, size, event_cb_ctx );
 	}
 
-	return consume_bytes( fd, size );
+	return consume_bytes( dom->fd, size );
 }
 
-static int recv_reply_header( int fd, const struct kvmi_msg_hdr *req, unsigned *size )
+static int recv_reply_header( struct kvmi_dom *dom, const struct kvmi_msg_hdr *req, unsigned *size )
 {
 	struct kvmi_msg_hdr h;
 
-	while ( 0 == do_read( fd, &h, sizeof( h ) ) ) {
+	while ( 0 == do_read( dom->fd, &h, sizeof( h ) ) ) {
 		if ( is_event( h.id ) ) {
-			if ( read_event( fd, h.seq, h.size ) )
+			if ( read_event( dom, h.seq, h.size ) )
 				break;
 		} else if ( h.id != req->id || h.seq != req->seq ) {
 			errno = ENOMSG;
@@ -537,14 +566,14 @@ static int recv_error_code( int fd, unsigned *msg_size )
 	return 0;
 }
 
-static int recv_reply( int fd, const struct kvmi_msg_hdr *req, void *dest, size_t dest_size )
+static int recv_reply( struct kvmi_dom *dom, const struct kvmi_msg_hdr *req, void *dest, size_t dest_size )
 {
 	unsigned size = 0;
 
-	if ( recv_reply_header( fd, req, &size ) )
+	if ( recv_reply_header( dom, req, &size ) )
 		return -1;
 
-	if ( recv_error_code( fd, &size ) )
+	if ( recv_error_code( dom->fd, &size ) )
 		return -1;
 
 	if ( size > dest_size ) {
@@ -560,41 +589,42 @@ static int recv_reply( int fd, const struct kvmi_msg_hdr *req, void *dest, size_
 	if ( !dest_size )
 		return 0;
 
-	return do_read( fd, dest, dest_size );
+	return do_read( dom->fd, dest, dest_size );
 }
 
-static int request( int fd, unsigned short msg_id, const void *src, size_t src_size, void *dest, size_t dest_size )
+static int request( struct kvmi_dom *dom, unsigned short msg_id, const void *src, size_t src_size, void *dest,
+                    size_t dest_size )
 {
 	struct kvmi_msg_hdr req = { .id = msg_id, .seq = new_seq() };
 
-	if ( send_msg( fd, msg_id, req.seq, src, src_size ) )
+	if ( send_msg( dom->fd, msg_id, req.seq, src, src_size ) )
 		return -1;
 
-	return recv_reply( fd, &req, dest, dest_size );
+	return recv_reply( dom, &req, dest, dest_size );
 }
 
-int kvmi_control_events( int fd, unsigned short vcpu, unsigned int events )
+int kvmi_control_events( void *dom, unsigned short vcpu, unsigned int events )
 {
 	struct kvmi_control_events req = { .vcpu = vcpu, .events = events };
 
-	return request( fd, KVMI_CONTROL_EVENTS, &req, sizeof( req ), NULL, 0 );
+	return request( dom, KVMI_CONTROL_EVENTS, &req, sizeof( req ), NULL, 0 );
 }
 
-int kvmi_control_cr( int fd, unsigned int cr, bool enable )
+int kvmi_control_cr( void *dom, unsigned int cr, bool enable )
 {
 	struct kvmi_control_cr req = { .vcpu = 0, .cr = cr, .enable = enable };
 
-	return request( fd, KVMI_CONTROL_CR, &req, sizeof( req ), NULL, 0 );
+	return request( dom, KVMI_CONTROL_CR, &req, sizeof( req ), NULL, 0 );
 }
 
-int kvmi_control_msr( int fd, unsigned int msr, bool enable )
+int kvmi_control_msr( void *dom, unsigned int msr, bool enable )
 {
 	struct kvmi_control_msr req = { .vcpu = 0, .msr = msr, .enable = enable };
 
-	return request( fd, KVMI_CONTROL_MSR, &req, sizeof( req ), NULL, 0 );
+	return request( dom, KVMI_CONTROL_MSR, &req, sizeof( req ), NULL, 0 );
 }
 
-int kvmi_get_page_access( int fd, unsigned short vcpu, unsigned long long int gpa, unsigned char *access )
+int kvmi_get_page_access( void *dom, unsigned short vcpu, unsigned long long int gpa, unsigned char *access )
 {
 	struct kvmi_get_page_access *      req      = NULL;
 	struct kvmi_get_page_access_reply *rpl      = NULL;
@@ -612,7 +642,7 @@ int kvmi_get_page_access( int fd, unsigned short vcpu, unsigned long long int gp
 	req->count  = 1;
 	req->gpa[0] = gpa;
 
-	err = request( fd, KVMI_GET_PAGE_ACCESS, req, req_size, rpl, rpl_size );
+	err = request( dom, KVMI_GET_PAGE_ACCESS, req, req_size, rpl, rpl_size );
 
 	if ( !err )
 		*access = rpl->access[0];
@@ -624,7 +654,7 @@ out:
 	return err;
 }
 
-int kvmi_set_page_access( int fd, unsigned short vcpu, unsigned long long int *gpa, unsigned char *access,
+int kvmi_set_page_access( void *dom, unsigned short vcpu, unsigned long long int *gpa, unsigned char *access,
                           unsigned short count )
 {
 	struct kvmi_set_page_access *req;
@@ -644,20 +674,20 @@ int kvmi_set_page_access( int fd, unsigned short vcpu, unsigned long long int *g
 		req->entries[k].access = access[k];
 	}
 
-	err = request( fd, KVMI_SET_PAGE_ACCESS, req, req_size, NULL, 0 );
+	err = request( dom, KVMI_SET_PAGE_ACCESS, req, req_size, NULL, 0 );
 
 	free( req );
 
 	return err;
 }
 
-int kvmi_get_vcpu_count( int fd, unsigned short *count )
+int kvmi_get_vcpu_count( void *dom, unsigned short *count )
 {
 	struct kvmi_get_guest_info       req = { .vcpu = 0 };
 	struct kvmi_get_guest_info_reply rpl;
 	int                              err;
 
-	err = request( fd, KVMI_GET_GUEST_INFO, &req, sizeof( req ), &rpl, sizeof( rpl ) );
+	err = request( dom, KVMI_GET_GUEST_INFO, &req, sizeof( req ), &rpl, sizeof( rpl ) );
 
 	if ( !err )
 		*count = rpl.vcpu_count;
@@ -665,13 +695,13 @@ int kvmi_get_vcpu_count( int fd, unsigned short *count )
 	return err;
 }
 
-int kvmi_get_tsc_speed( int fd, unsigned long long int *speed )
+int kvmi_get_tsc_speed( void *dom, unsigned long long int *speed )
 {
 	struct kvmi_get_guest_info       req = { .vcpu = 0 };
 	struct kvmi_get_guest_info_reply rpl;
 	int                              err;
 
-	err = request( fd, KVMI_GET_GUEST_INFO, &req, sizeof( req ), &rpl, sizeof( rpl ) );
+	err = request( dom, KVMI_GET_GUEST_INFO, &req, sizeof( req ), &rpl, sizeof( rpl ) );
 
 	if ( !err )
 		*speed = rpl.tsc_speed;
@@ -679,14 +709,14 @@ int kvmi_get_tsc_speed( int fd, unsigned long long int *speed )
 	return err;
 }
 
-int kvmi_get_cpuid( int fd, unsigned short vcpu, unsigned int function, unsigned int index, unsigned int *eax,
+int kvmi_get_cpuid( void *dom, unsigned short vcpu, unsigned int function, unsigned int index, unsigned int *eax,
                     unsigned int *ebx, unsigned int *ecx, unsigned int *edx )
 {
 	int                         err;
 	struct kvmi_get_cpuid_reply rpl;
 	struct kvmi_get_cpuid       req = { .vcpu = vcpu, .function = function, .index = index };
 
-	err = request( fd, KVMI_GET_CPUID, &req, sizeof( req ), &rpl, sizeof( rpl ) );
+	err = request( dom, KVMI_GET_CPUID, &req, sizeof( req ), &rpl, sizeof( rpl ) );
 
 	if ( !err ) {
 		*eax = rpl.eax;
@@ -698,37 +728,39 @@ int kvmi_get_cpuid( int fd, unsigned short vcpu, unsigned int function, unsigned
 	return err;
 }
 
-static int request_varlen_response( int fd, unsigned short msg_id, const void *src, size_t src_size,
+static int request_varlen_response( void *d, unsigned short msg_id, const void *src, size_t src_size,
                                     unsigned int *rpl_size )
 {
 	struct kvmi_msg_hdr req = { .id = msg_id, .seq = new_seq() };
+	struct kvmi_dom *   dom = d;
 
-	if ( send_msg( fd, msg_id, req.seq, src, src_size ) )
+	if ( send_msg( dom->fd, msg_id, req.seq, src, src_size ) )
 		return -1;
 
-	if ( recv_reply_header( fd, &req, rpl_size ) )
+	if ( recv_reply_header( dom, &req, rpl_size ) )
 		return -1;
 
-	if ( recv_error_code( fd, rpl_size ) )
+	if ( recv_error_code( dom->fd, rpl_size ) )
 		return -1;
 
 	return 0;
 }
 
-int kvmi_get_xsave( int fd, unsigned short vcpu, void *buffer, size_t buf_size )
+int kvmi_get_xsave( void *d, unsigned short vcpu, void *buffer, size_t buf_size )
 {
 	struct kvmi_get_xsave req = { .vcpu = vcpu };
 	unsigned int          received;
 	int                   err = -1;
+	struct kvmi_dom *     dom = d;
 
-	if ( request_varlen_response( fd, KVMI_GET_XSAVE, &req, sizeof( req ), &received ) )
+	if ( request_varlen_response( dom, KVMI_GET_XSAVE, &req, sizeof( req ), &received ) )
 		goto out;
 
-	if ( do_read( fd, buffer, MIN( buf_size, received ) ) )
+	if ( do_read( dom->fd, buffer, MIN( buf_size, received ) ) )
 		goto out;
 
 	if ( received > buf_size )
-		consume_bytes( fd, received - buf_size );
+		consume_bytes( dom->fd, received - buf_size );
 
 	err = 0;
 out:
@@ -739,23 +771,23 @@ out:
 	return err;
 }
 
-int kvmi_inject_page_fault( int fd, unsigned short vcpu, unsigned long long int gva, unsigned int error )
+int kvmi_inject_page_fault( void *dom, unsigned short vcpu, unsigned long long int gva, unsigned int error )
 {
 	struct kvmi_inject_exception req = {
 		.vcpu = vcpu, .nr = PF_VECTOR, .has_error = true, .error_code = error, .address = gva
 	};
 
-	return request( fd, KVMI_INJECT_EXCEPTION, &req, sizeof( req ), NULL, 0 );
+	return request( dom, KVMI_INJECT_EXCEPTION, &req, sizeof( req ), NULL, 0 );
 }
 
-int kvmi_read_physical( int fd, unsigned long long int gpa, void *buffer, size_t size )
+int kvmi_read_physical( void *dom, unsigned long long int gpa, void *buffer, size_t size )
 {
 	struct kvmi_read_physical req = { .gpa = gpa, .size = size };
 
-	return request( fd, KVMI_READ_PHYSICAL, &req, sizeof( req ), buffer, size );
+	return request( dom, KVMI_READ_PHYSICAL, &req, sizeof( req ), buffer, size );
 }
 
-int kvmi_write_physical( int fd, unsigned long long int gpa, const void *buffer, size_t size )
+int kvmi_write_physical( void *dom, unsigned long long int gpa, const void *buffer, size_t size )
 {
 	struct kvmi_write_physical *req;
 	size_t                      req_size = sizeof( *req ) + size;
@@ -769,7 +801,7 @@ int kvmi_write_physical( int fd, unsigned long long int gpa, const void *buffer,
 	req->size = size;
 	memcpy( req->data, buffer, size );
 
-	err = request( fd, KVMI_WRITE_PHYSICAL, req, req_size, NULL, 0 );
+	err = request( dom, KVMI_WRITE_PHYSICAL, req, req_size, NULL, 0 );
 
 	free( req );
 
@@ -781,8 +813,10 @@ int kvmi_open_memmap( void )
 	return open( "/dev/kvmmem", O_RDWR );
 }
 
-void *kvmi_map_physical_page( int fd, int memfd, unsigned long long int gpa )
+void *kvmi_map_physical_page( void *d, int memfd, unsigned long long int gpa )
 {
+	struct kvmi_dom *dom = d;
+
 	errno = 0;
 
 	void *addr = mmap( NULL, pagesize, PROT_READ | PROT_WRITE,
@@ -793,7 +827,7 @@ void *kvmi_map_physical_page( int fd, int memfd, unsigned long long int gpa )
 		struct kvmi_mem_map             map_req;
 		int                             err;
 
-		err = request( fd, KVMI_GET_MAP_TOKEN, NULL, 0, &req, sizeof( req ) );
+		err = request( dom, KVMI_GET_MAP_TOKEN, NULL, 0, &req, sizeof( req ) );
 
 		if ( !err ) {
 			/* fill IOCTL arg */
@@ -816,7 +850,7 @@ void *kvmi_map_physical_page( int fd, int memfd, unsigned long long int gpa )
 	return addr;
 }
 
-int kvmi_unmap_physical_page( int __unused fd, int memfd, void *addr )
+int kvmi_unmap_physical_page( void __unused *d, int memfd, void *addr )
 {
 	int _errno;
 	int err;
@@ -876,9 +910,10 @@ static int process_get_registers_reply( int fd, size_t received, struct kvm_regs
 	return 0;
 }
 
-int kvmi_get_registers( int fd, unsigned short vcpu, struct kvm_regs *regs, struct kvm_sregs *sregs,
+int kvmi_get_registers( void *d, unsigned short vcpu, struct kvm_regs *regs, struct kvm_sregs *sregs,
                         struct kvm_msrs *msrs, unsigned int *mode )
 {
+	struct kvmi_dom *          dom = d;
 	struct kvmi_get_registers *req;
 	size_t                     req_size;
 	int                        err = -1;
@@ -889,27 +924,28 @@ int kvmi_get_registers( int fd, unsigned short vcpu, struct kvm_regs *regs, stru
 	if ( !req )
 		return -1;
 
-	err = request_varlen_response( fd, KVMI_GET_REGISTERS, req, req_size, &received );
+	err = request_varlen_response( dom, KVMI_GET_REGISTERS, req, req_size, &received );
 
 	if ( !err )
-		err = process_get_registers_reply( fd, received, regs, sregs, msrs, mode );
+		err = process_get_registers_reply( dom->fd, received, regs, sregs, msrs, mode );
 
 	free( req );
 	return err;
 }
 
-int kvmi_set_registers( int fd, unsigned short vcpu, const struct kvm_regs *regs )
+int kvmi_set_registers( void *dom, unsigned short vcpu, const struct kvm_regs *regs )
 {
 	struct kvmi_set_registers req = { .vcpu = vcpu, .regs = *regs };
 
-	return request( fd, KVMI_SET_REGISTERS, &req, sizeof( req ), NULL, 0 );
+	return request( dom, KVMI_SET_REGISTERS, &req, sizeof( req ), NULL, 0 );
 }
 
-int kvmi_read_event_header( int fd, unsigned int *id, unsigned int *size, unsigned int *seq )
+int kvmi_read_event_header( void *d, unsigned int *id, unsigned int *size, unsigned int *seq )
 {
+	struct kvmi_dom *   dom = d;
 	struct kvmi_msg_hdr h;
 
-	if ( do_read( fd, &h, sizeof( h ) ) )
+	if ( do_read( dom->fd, &h, sizeof( h ) ) )
 		return -1;
 
 	*id   = h.id;
@@ -919,35 +955,39 @@ int kvmi_read_event_header( int fd, unsigned int *id, unsigned int *size, unsign
 	return 0;
 }
 
-int kvmi_read_event_data( int fd, void *buf, unsigned int size )
+int kvmi_read_event_data( void *d, void *buf, unsigned int size )
 {
-	return do_read( fd, buf, size );
+	struct kvmi_dom *dom = d;
+
+	return do_read( dom->fd, buf, size );
 }
 
 /* We must send the whole reply with one send/write() call */
-int kvmi_reply_event( int fd, unsigned int msg_seq, const void *data, unsigned int data_size )
+int kvmi_reply_event( void *d, unsigned int msg_seq, const void *data, unsigned int data_size )
 {
-	return send_msg( fd, KVMI_EVENT_REPLY, msg_seq, data, data_size );
+	struct kvmi_dom *dom = d;
+
+	return send_msg( dom->fd, KVMI_EVENT_REPLY, msg_seq, data, data_size );
 }
 
-int kvmi_get_version( int fd, unsigned int *version )
+int kvmi_get_version( void *dom, unsigned int *version )
 {
 	struct kvmi_get_version_reply rpl;
 	int                           err;
 
-	err = request( fd, KVMI_GET_VERSION, NULL, 0, &rpl, sizeof( rpl ) );
+	err = request( dom, KVMI_GET_VERSION, NULL, 0, &rpl, sizeof( rpl ) );
 	if ( !err )
 		*version = rpl.version;
 
 	return err;
 }
 
-int kvmi_read_event( int fd, void *buf, unsigned int max_size, unsigned int *seq )
+int kvmi_read_event( void *dom, void *buf, unsigned int max_size, unsigned int *seq )
 {
 	unsigned int msgid;
 	unsigned int msgsize;
 
-	if ( kvmi_read_event_header( fd, &msgid, &msgsize, seq ) )
+	if ( kvmi_read_event_header( dom, &msgid, &msgsize, seq ) )
 		return -1;
 
 	if ( msgid != KVMI_EVENT || msgsize > max_size ) {
@@ -955,12 +995,12 @@ int kvmi_read_event( int fd, void *buf, unsigned int max_size, unsigned int *seq
 		return -1;
 	}
 
-	return kvmi_read_event_data( fd, buf, msgsize );
+	return kvmi_read_event_data( dom, buf, msgsize );
 }
 
-int kvmi_pause_vcpu( int fd, unsigned short vcpu )
+int kvmi_pause_vcpu( void *dom, unsigned short vcpu )
 {
 	struct kvmi_pause_vcpu req = { .vcpu = vcpu };
 
-	return request( fd, KVMI_PAUSE_VCPU, &req, sizeof( req ), NULL, 0 );
+	return request( dom, KVMI_PAUSE_VCPU, &req, sizeof( req ), NULL, 0 );
 }

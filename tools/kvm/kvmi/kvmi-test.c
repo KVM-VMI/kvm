@@ -54,13 +54,13 @@ static bool can_queue_event( unsigned int vcpu )
 	return ( vcpu < sizeof( queue ) / sizeof( queue[0] ) && queue[vcpu].size == 0 );
 }
 
-static int new_event( int fd, unsigned int seq, unsigned int size, void *ctx )
+static int new_event( void *dom, unsigned int seq, unsigned int size, void *ctx )
 {
 	unsigned char      data[KVMI_MAX_MSG_SIZE];
 	struct kvmi_event *ev = ( struct kvmi_event * )data;
 	int                k;
 
-	if ( !valid_event_size( size ) || kvmi_read_event_data( fd, &data, size ) ) {
+	if ( !valid_event_size( size ) || kvmi_read_event_data( dom, &data, size ) ) {
 		fprintf( stderr, "kvmi_read_event_data(%d, %d) %p", seq, size, ctx );
 		die( NULL );
 	}
@@ -92,12 +92,12 @@ static bool pop_event( unsigned int *seq, unsigned int *size, unsigned char *dat
 	return false;
 }
 
-static bool wait_event( int fd, unsigned int *seq, unsigned int *size, unsigned char *data )
+static bool wait_event( void *dom, unsigned int *seq, unsigned int *size, unsigned char *data )
 {
 	struct pollfd p = { 0 };
 	int           r;
 
-	p.fd     = fd;
+	p.fd     = kvmi_connection_fd( dom );
 	p.events = POLLIN;
 
 	do {
@@ -107,23 +107,23 @@ static bool wait_event( int fd, unsigned int *seq, unsigned int *size, unsigned 
 	if ( !( r == 1 && ( p.revents & POLLIN ) ) )
 		return false;
 
-	if ( kvmi_read_event( fd, data, *size, seq ) )
+	if ( kvmi_read_event( dom, data, *size, seq ) )
 		die( "kvmi_read_event" );
 
 	return true;
 }
 
-static void reply_continue( int fd, unsigned int seq, void *_rpl, size_t rpl_size )
+static void reply_continue( void *dom, unsigned int seq, void *_rpl, size_t rpl_size )
 {
 	struct kvmi_event_reply *rpl = _rpl;
 
 	rpl->action = KVMI_EVENT_ACTION_CONTINUE;
 
-	if ( kvmi_reply_event( fd, seq, rpl, rpl_size ) )
+	if ( kvmi_reply_event( dom, seq, rpl, rpl_size ) )
 		die( "kvmi_reply_event" );
 }
 
-static void handle_cr_event( int fd, unsigned int seq, unsigned int size, struct kvmi_event *ev )
+static void handle_cr_event( void *dom, unsigned int seq, unsigned int size, struct kvmi_event *ev )
 {
 	struct kvmi_event_cr *cr = ( struct kvmi_event_cr * )( ev + 1 );
 	struct {
@@ -141,10 +141,10 @@ static void handle_cr_event( int fd, unsigned int seq, unsigned int size, struct
 	printf( "CR%d %llx -> %llx\n", cr->cr, cr->old_value, cr->new_value );
 
 	rpl.cr.new_val = cr->new_value;
-	reply_continue( fd, seq, &rpl, sizeof( rpl ) );
+	reply_continue( dom, seq, &rpl, sizeof( rpl ) );
 }
 
-static void handle_msr_event( int fd, unsigned int seq, unsigned int size, struct kvmi_event *ev )
+static void handle_msr_event( void *dom, unsigned int seq, unsigned int size, struct kvmi_event *ev )
 {
 	struct kvmi_event_msr *msr = ( struct kvmi_event_msr * )( ev + 1 );
 	struct {
@@ -162,10 +162,10 @@ static void handle_msr_event( int fd, unsigned int seq, unsigned int size, struc
 	printf( "MSR: %x %llx -> %llx\n", msr->msr, msr->old_value, msr->new_value );
 
 	rpl.msr.new_val = msr->new_value;
-	reply_continue( fd, seq, &rpl, sizeof( rpl ) );
+	reply_continue( dom, seq, &rpl, sizeof( rpl ) );
 }
 
-static void handle_pause_vcpu_event( int fd, unsigned int seq, struct kvmi_event *ev )
+static void handle_pause_vcpu_event( void *dom, unsigned int seq, struct kvmi_event *ev )
 {
 	bool                    first_time = ( events == 0 && ev->vcpu == 0 );
 	struct kvmi_event_reply rpl        = { 0 };
@@ -177,23 +177,23 @@ static void handle_pause_vcpu_event( int fd, unsigned int seq, struct kvmi_event
 
 		events |= KVMI_EVENT_CR | KVMI_EVENT_MSR;
 
-		if ( kvmi_control_events( fd, ev->vcpu, events ) )
+		if ( kvmi_control_events( dom, ev->vcpu, events ) )
 			die( "kvmi_control_events" );
 
-		if ( kvmi_control_cr( fd, CR3, enable ) )
+		if ( kvmi_control_cr( dom, CR3, enable ) )
 			die( "kvmi_control_cr(3)" );
 
-		if ( kvmi_control_cr( fd, CR4, enable ) )
+		if ( kvmi_control_cr( dom, CR4, enable ) )
 			die( "kvmi_control_cr(4)" );
 
-		if ( kvmi_control_msr( fd, MSR_STAR, enable ) )
+		if ( kvmi_control_msr( dom, MSR_STAR, enable ) )
 			die( "kvmi_control_msr(STAR)" );
 	}
 
-	reply_continue( fd, seq, &rpl, sizeof( rpl ) );
+	reply_continue( dom, seq, &rpl, sizeof( rpl ) );
 }
 
-static void handle_event( int fd )
+static void handle_event( void *dom )
 {
 	unsigned char      data[KVMI_MAX_MSG_SIZE];
 	struct kvmi_event *ev = ( struct kvmi_event * )data;
@@ -201,19 +201,19 @@ static void handle_event( int fd )
 
 	if ( !pop_event( &seq, &size, data ) ) {
 		size = sizeof( data );
-		if ( !wait_event( fd, &seq, &size, data ) )
+		if ( !wait_event( dom, &seq, &size, data ) )
 			return;
 	}
 
 	switch ( ev->event ) {
 		case KVMI_EVENT_CR:
-			handle_cr_event( fd, seq, size, ev );
+			handle_cr_event( dom, seq, size, ev );
 			break;
 		case KVMI_EVENT_MSR:
-			handle_msr_event( fd, seq, size, ev );
+			handle_msr_event( dom, seq, size, ev );
 			break;
 		case KVMI_EVENT_PAUSE_VCPU:
-			handle_pause_vcpu_event( fd, seq, ev );
+			handle_pause_vcpu_event( dom, seq, ev );
 			break;
 		default:
 			fprintf( stderr, "Unknown event %d\n", ev->event );
@@ -221,13 +221,13 @@ static void handle_event( int fd )
 	}
 }
 
-static void pause_first_vcpu( int fd )
+static void pause_first_vcpu( void *dom )
 {
 	unsigned short vcpu = 0;
 	int            err;
 
 	do {
-		err = kvmi_pause_vcpu( fd, vcpu );
+		err = kvmi_pause_vcpu( dom, vcpu );
 		if ( err ) {
 			perror( "kvmi_pause_vcpu" );
 			if ( errno != EINVAL )
@@ -237,7 +237,7 @@ static void pause_first_vcpu( int fd )
 	} while ( err );
 }
 
-static int new_guest( int fd, unsigned char ( *uuid )[16], void *ctx )
+static int new_guest( void *dom, unsigned char ( *uuid )[16], void *ctx )
 {
 	int k;
 
@@ -245,14 +245,15 @@ static int new_guest( int fd, unsigned char ( *uuid )[16], void *ctx )
 
 	for ( k = 0; k < 16; k++ )
 		printf( "%.2x ", ( *uuid )[k] );
-	printf( "fd:%d ctx:%p\n", fd, ctx );
+	printf( "fd:%d ctx:%p\n", kvmi_connection_fd( dom ), ctx );
 
-	pause_first_vcpu( fd );
+	pause_first_vcpu( dom );
 
 	while ( 1 )
-		handle_event( fd );
+		handle_event( dom );
 
 	/* We should return from this callback to allow other connections to be accepted */
+	/* Call kvmi_domain_close( dom ) to close the connection and free this pointer */
 
 	return 0;
 }

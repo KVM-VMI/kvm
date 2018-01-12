@@ -1,8 +1,10 @@
 KVMI_1.0 {
 	global:
+		kvmi_connection_fd;
 		kvmi_control_cr;
 		kvmi_control_events;
 		kvmi_control_msr;
+		kvmi_domain_close;
 		kvmi_get_cpuid;
 		kvmi_get_page_access;
 		kvmi_get_registers;
