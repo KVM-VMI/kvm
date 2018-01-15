@@ -761,12 +761,11 @@ int kvmi_get_xsave( void *d, unsigned short vcpu, void *buffer, size_t buf_size 
 
 	if ( received > buf_size )
 		consume_bytes( dom->fd, received - buf_size );
+	else
+		memset( buffer + received, 0, buf_size - received );
 
 	err = 0;
 out:
-
-	if ( received < buf_size )
-		memset( buffer + received, 0, buf_size - received );
 
 	return err;
 }
