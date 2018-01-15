@@ -8522,9 +8522,11 @@ int is_syscall_sysenter(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 
-	if (ctxt->opcode_len == 2 &&  (ctxt->b == 0x34 || ctxt->b == 0x05))
+	printk(KERN_INFO "nitro: opcode info len=%d b=0x%x",
+				 ctxt->opcode_len, ctxt->b);
+	if (ctxt->opcode_len == 1 && (ctxt->b == 0x34 || ctxt->b == 0x5)) {
 		return 1;
-	else {
+	} else {
 		printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
 		return 0;
 	}
@@ -8533,21 +8535,21 @@ EXPORT_SYMBOL_GPL(is_syscall_sysenter);
 
 int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 {
-    struct x86_emulate_ctxt *ctxt;
+	struct x86_emulate_ctxt *ctxt;
 	int r = 0;
 
-    init_emulate_ctxt(vcpu);
-    ctxt = &vcpu->arch.emulate_ctxt;
+	init_emulate_ctxt(vcpu);
+	ctxt = &vcpu->arch.emulate_ctxt;
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 
 	// twobyte and SYSENTER/SYSEXIT
 	if (ctxt->opcode_len == 2 &&  (ctxt->b == 0x34 || ctxt->b == 0x35))
-        return 1;
-    else
+		return 1;
+	else
 	{
 		printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-        return 0;
+		return 0;
 	}
 }
 EXPORT_SYMBOL_GPL(is_sysenter_sysexit);
