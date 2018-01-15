@@ -270,12 +270,10 @@ int main( int argc, char **argv )
 		return 1;
 	}
 
-	kvmi_set_event_cb( new_event, NULL ); /* global */
-
 	if ( atoi( argv[1] ) > 0 ) {
-		ctx = kvmi_init_vsock( atoi( argv[1] ), new_guest, NULL );
+		ctx = kvmi_init_vsock( atoi( argv[1] ), new_guest, new_event, NULL );
 	} else {
-		ctx = kvmi_init_unix_socket( argv[1], new_guest, NULL );
+		ctx = kvmi_init_unix_socket( argv[1], new_guest, new_event, NULL );
 	}
 
 	if ( !ctx ) {

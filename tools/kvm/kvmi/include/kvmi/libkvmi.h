@@ -34,10 +34,10 @@ extern "C" {
 typedef int ( *kvmi_new_guest_cb )( void *dom, unsigned char ( *uuid )[16], void *ctx );
 typedef int ( *kvmi_new_event_cb )( void *dom, unsigned int seq, unsigned int size, void *ctx );
 
-void *kvmi_init_vsock( unsigned int port, kvmi_new_guest_cb cb, void *cb_ctx );
-void *kvmi_init_unix_socket( const char *socket, kvmi_new_guest_cb cb, void *cb_ctx );
+void *kvmi_init_vsock( unsigned int port, kvmi_new_guest_cb cb, kvmi_new_event_cb event_cb, void *cb_ctx );
+void *kvmi_init_unix_socket( const char *socket, kvmi_new_guest_cb cb, kvmi_new_event_cb event_cb, void *cb_ctx );
 void  kvmi_uninit( void *ctx );
-void  kvmi_set_event_cb( kvmi_new_event_cb cb, void *cb_ctx );
+void  kvmi_set_event_cb( void *dom, kvmi_new_event_cb cb, void *cb_ctx );
 void  kvmi_domain_close( void *dom );
 int   kvmi_connection_fd( void *dom );
 int   kvmi_get_version( void *dom, unsigned int *version );

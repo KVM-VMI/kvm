@@ -57,12 +57,15 @@ struct sockaddr_vm {
 #endif
 
 struct kvmi_dom {
-	int fd;
-	int mem_fd;
+	int               fd;
+	int               mem_fd;
+	kvmi_new_event_cb event_cb;
+	void *            cb_ctx;
 };
 
 struct kvmi_ctx {
 	kvmi_new_guest_cb  accept_cb;
+	kvmi_new_event_cb  event_cb;
 	void *             cb_ctx;
 	pthread_t          th_id;
 	bool               th_started;
@@ -72,9 +75,7 @@ struct kvmi_ctx {
 	struct sockaddr_vm v_addr;
 };
 
-static kvmi_new_event_cb event_cb;
-static void *            event_cb_ctx;
-static long              pagesize;
+static long pagesize;
 
 __attribute__(( constructor )) static void lib_init()
 {
@@ -275,6 +276,9 @@ static void *accept_worker( void *_ctx )
 
 		dom->mem_fd = open( "/dev/kvmmem", O_RDWR );
 
+		dom->event_cb = ctx->event_cb;
+		dom->cb_ctx   = ctx->cb_ctx;
+
 		errno = 0;
 
 		if ( ctx->accept_cb( dom, &uuid, ctx->cb_ctx ) != 0 ) {
@@ -286,7 +290,7 @@ static void *accept_worker( void *_ctx )
 	return NULL;
 }
 
-static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb accept_cb, void *cb_ctx )
+static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb accept_cb, kvmi_new_event_cb event_cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 
@@ -300,6 +304,7 @@ static struct kvmi_ctx *alloc_kvmi_ctx( kvmi_new_guest_cb accept_cb, void *cb_ct
 	ctx->fd = -1;
 
 	ctx->accept_cb = accept_cb;
+	ctx->event_cb  = event_cb;
 	ctx->cb_ctx    = cb_ctx;
 
 	ctx->th_fds[0] = -1;
@@ -323,14 +328,14 @@ static bool start_listener( struct kvmi_ctx *ctx )
 	return true;
 }
 
-void *kvmi_init_unix_socket( const char *socket, kvmi_new_guest_cb accept_cb, void *cb_ctx )
+void *kvmi_init_unix_socket( const char *socket, kvmi_new_guest_cb accept_cb, kvmi_new_event_cb event_cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 	int              err;
 
 	errno = 0;
 
-	ctx = alloc_kvmi_ctx( accept_cb, cb_ctx );
+	ctx = alloc_kvmi_ctx( accept_cb, event_cb, cb_ctx );
 	if ( !ctx )
 		return NULL;
 
@@ -348,14 +353,14 @@ out_err:
 	return NULL;
 }
 
-void *kvmi_init_vsock( unsigned int port, kvmi_new_guest_cb accept_cb, void *cb_ctx )
+void *kvmi_init_vsock( unsigned int port, kvmi_new_guest_cb accept_cb, kvmi_new_event_cb event_cb, void *cb_ctx )
 {
 	struct kvmi_ctx *ctx;
 	int              err;
 
 	errno = 0;
 
-	ctx = alloc_kvmi_ctx( accept_cb, cb_ctx );
+	ctx = alloc_kvmi_ctx( accept_cb, event_cb, cb_ctx );
 	if ( !ctx )
 		return NULL;
 
@@ -417,10 +422,12 @@ int kvmi_connection_fd( void *d )
 	return dom->fd;
 }
 
-void kvmi_set_event_cb( kvmi_new_event_cb cb, void *cb_ctx )
+void kvmi_set_event_cb( void *d, kvmi_new_event_cb cb, void *cb_ctx )
 {
-	event_cb     = cb;
-	event_cb_ctx = cb_ctx;
+	struct kvmi_dom *dom = d;
+
+	dom->event_cb = cb;
+	dom->cb_ctx   = cb_ctx;
 }
 
 /* The same sequence variable is used by all domains. */
@@ -482,9 +489,9 @@ static int consume_bytes( int fd, unsigned size )
 
 static int read_event( struct kvmi_dom *dom, unsigned seq, unsigned size )
 {
-	if ( event_cb ) {
+	if ( dom->event_cb ) {
 		errno = 0;
-		return event_cb( dom, seq, size, event_cb_ctx );
+		return dom->event_cb( dom, seq, size, dom->cb_ctx );
 	}
 
 	return consume_bytes( dom->fd, size );
