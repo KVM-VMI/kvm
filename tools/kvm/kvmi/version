@@ -10,7 +10,8 @@ KVMI_1.0 {
 		kvmi_get_vcpu_count;
 		kvmi_get_version;
 		kvmi_get_xsave;
-		kvmi_init;
+		kvmi_init_v_sock;
+		kvmi_init_un_sock;
 		kvmi_inject_breakpoint;
 		kvmi_inject_page_fault;
 		kvmi_map_physical_page;

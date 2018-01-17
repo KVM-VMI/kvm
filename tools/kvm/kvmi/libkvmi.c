@@ -32,9 +32,7 @@
 #include <poll.h>
 #include <kvmi/libkvmi.h>
 #include <linux/kvm_para.h>
-#ifdef USE_UNIX_SOCKET
 #include <sys/stat.h>
-#endif
 
 #ifndef __unused
 #ifdef __GNUC__
@@ -47,7 +45,6 @@
 #define MIN( X, Y ) ( ( X ) < ( Y ) ? ( X ) : ( Y ) )
 
 /* VSOCK types and consts */
-#ifndef USE_UNIX_SOCKET
 /* #include "kernel/uapi/linux/vm_sockets.h" */
 typedef unsigned short __kernel_sa_family_t;
 struct sockaddr_vm {
@@ -62,22 +59,22 @@ struct sockaddr_vm {
 #define AF_VSOCK 40 /* vSockets                 */
 #define PF_VSOCK AF_VSOCK
 #endif
+
+#ifndef VMADDR_CID_ANY
+#define VMADDR_CID_ANY -1U
 #endif
 
 static int ( *event_cb )( int fd, unsigned seq, unsigned size, void *cb_ctx ) = NULL;
 
 struct kvmi_ctx {
 	int ( *accept_cb )( int fd, unsigned char ( *uuid )[16], void *ctx );
-	void *    accept_cb_ctx;
-	pthread_t accept_th_id;
-	bool      accept_th_started;
-	int       accept_cb_fds[2];
-	int       kvmi_dev;
-#ifdef USE_UNIX_SOCKET
-	struct sockaddr_un sock_addr;
-#else
-	struct sockaddr_vm sock_addr;
-#endif
+	void *             accept_cb_ctx;
+	pthread_t          accept_th_id;
+	bool               accept_th_started;
+	int                accept_cb_fds[2];
+	int                kvmi_dev;
+	struct sockaddr_un un_addr;
+	struct sockaddr_vm v_addr;
 };
 
 static void *    event_cb_ctx      = NULL;
@@ -88,60 +85,65 @@ __attribute__ ((constructor)) static void lib_init()
 	pagesize = sysconf( _SC_PAGE_SIZE );
 }
 
-static void close_and_keep_errno( int fd )
+static bool setup_socket( struct kvmi_ctx *ctx, struct sockaddr *sa, size_t sa_size, int pf )
 {
-	int _errno = errno;
-	close( fd );
-	errno = _errno;
+	ctx->kvmi_dev = socket( pf, SOCK_STREAM, 0 );
+
+	if ( ctx->kvmi_dev == -1 )
+		return false;
+
+	if ( bind( ctx->kvmi_dev, sa, sa_size ) == -1 )
+		return false;
+
+	if ( listen( ctx->kvmi_dev, 0 ) == -1 )
+		return false;
+
+	/* mark the file descriptor as close-on-execute */
+	if ( fcntl( ctx->kvmi_dev, F_SETFD, FD_CLOEXEC ) < 0 )
+		return false;
+
+	return true;
 }
 
-static int setup_socket( struct kvmi_ctx *ctx )
+static bool setup_unix_socket( struct kvmi_ctx *ctx, const char *path )
 {
-	int fd;
-
-#ifndef USE_UNIX_SOCKET
-	int    pf      = PF_VSOCK;
-	size_t sa_size = sizeof( ctx->sock_addr );
-
-	ctx->sock_addr.svm_family = AF_VSOCK;
-	ctx->sock_addr.svm_cid    = -1;
-	ctx->sock_addr.svm_port   = 1234;
-#else
-	int         pf      = PF_UNIX;
-	size_t      sa_size = sizeof( ctx->sock_addr );
-	const char *path    = getenv( "LIBKVMI_SOCKET" );
-	struct stat st;
+	struct stat      st;
+	bool             done;
+	struct sockaddr *sa;
 
 	if ( !path || path[0] == 0 )
-		return -1;
+		return false;
 
 	if ( stat( path, &st ) == 0 && unlink( path ) ) /* Address already in use */
-		return -1;
+		return false;
 
-	ctx->sock_addr.sun_family = AF_UNIX;
-	strncpy( ctx->sock_addr.sun_path, path, sizeof( ctx->sock_addr.sun_path ) );
-#endif
-	fd = socket( pf, SOCK_STREAM, 0 );
+	ctx->un_addr.sun_family = AF_UNIX;
+	strncpy( ctx->un_addr.sun_path, path, sizeof( ctx->un_addr.sun_path ) );
 
-	if ( fd == -1 ) {
-		return -1;
-	}
+	sa = ( struct sockaddr * )&ctx->un_addr;
 
-	if ( bind( fd, ( struct sockaddr * )&ctx->sock_addr, sa_size ) == -1 ) {
-		close_and_keep_errno( fd );
-		return -1;
-	}
+	done = setup_socket( ctx, sa, sizeof( ctx->un_addr ), PF_UNIX );
 
-#ifdef USE_UNIX_SOCKET
-	chmod( ctx->sock_addr.sun_path, 0777 );
-#endif
+	if ( done )
+		chmod( ctx->un_addr.sun_path, 0777 );
 
-	if ( listen( fd, 0 ) == -1 ) {
-		close_and_keep_errno( fd );
-		return -1;
-	}
+	return done;
+}
 
-	return fd;
+static bool setup_vsock( struct kvmi_ctx *ctx, unsigned int port )
+{
+	struct sockaddr *sa;
+
+	if ( !port )
+		return false;
+
+	ctx->v_addr.svm_family = AF_VSOCK;
+	ctx->v_addr.svm_cid    = VMADDR_CID_ANY;
+	ctx->v_addr.svm_port   = port;
+
+	sa = ( struct sockaddr * )&ctx->v_addr;
+
+	return setup_socket( ctx, sa, sizeof( ctx->v_addr ), PF_VSOCK );
 }
 
 static int do_read( int fd, void *buf, size_t size )
@@ -285,16 +287,13 @@ static void *accept_worker( void *_ctx )
 	return NULL;
 }
 
-void * kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
+static struct kvmi_ctx *alloc_kvmi_ctx( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
 {
-	int err;
-	struct kvmi_ctx *ctx;
-
-	errno = 0;
-
-	ctx = calloc( 1, sizeof( struct kvmi_ctx ) );
+	struct kvmi_ctx *ctx = calloc( 1, sizeof( struct kvmi_ctx ) );
 	if ( !ctx )
 		return NULL;
+
+	ctx->kvmi_dev = -1;
 
 	ctx->accept_cb     = cb;
 	ctx->accept_cb_ctx = cb_ctx;
@@ -302,27 +301,69 @@ void * kvmi_init( int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
 	ctx->accept_cb_fds[0] = -1;
 	ctx->accept_cb_fds[1] = -1;
 
-	ctx->kvmi_dev = setup_socket( ctx );
-	if ( ctx->kvmi_dev == -1 )
-		goto out;
-
-	/* mark the file descriptor as close-on-execute */
-	if ( fcntl( ctx->kvmi_dev, F_SETFD, FD_CLOEXEC ) < 0 )
-		goto out;
-
 	/* these will be used to signal the accept worker to exit */
-	if ( pipe( ctx->accept_cb_fds ) < 0 )
-		goto out;
-
-	/* launch worker */
-	if ( pthread_create( &ctx->accept_th_id, NULL, accept_worker, ctx ) )
-		goto out;
-
-	ctx->accept_th_started = true;
+	if ( pipe( ctx->accept_cb_fds ) < 0 ) {
+		free( ctx );
+		return NULL;
+	}
 
 	return ctx;
+}
 
-out:
+static bool start_listener( struct kvmi_ctx *ctx )
+{
+	if ( pthread_create( &ctx->accept_th_id, NULL, accept_worker, ctx ) )
+		return false;
+
+	ctx->accept_th_started = true;
+	return true;
+}
+
+void *kvmi_init_un_sock( const char *socket, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ),
+                         void *      cb_ctx )
+{
+	struct kvmi_ctx *ctx;
+	int              err;
+
+	errno = 0;
+
+	ctx = alloc_kvmi_ctx( cb, cb_ctx );
+	if ( !ctx )
+		return NULL;
+
+	if ( !setup_unix_socket( ctx, socket ) )
+		goto out_err;
+
+	if ( !start_listener( ctx ) )
+		goto out_err;
+
+	return ctx;
+out_err:
+	err = errno;
+	kvmi_uninit( ctx );
+	errno = err;
+	return NULL;
+}
+
+void *kvmi_init_v_sock( unsigned int port, int ( *cb )( int fd, unsigned char ( *uuid )[16], void *ctx ), void *cb_ctx )
+{
+	struct kvmi_ctx *ctx;
+	int              err;
+
+	errno = 0;
+
+	ctx = alloc_kvmi_ctx( cb, cb_ctx );
+	if ( !ctx )
+		return NULL;
+
+	if ( !setup_vsock( ctx, port ) )
+		goto out_err;
+
+	if ( !start_listener( ctx ) )
+		goto out_err;
+
+	return ctx;
+out_err:
 	err = errno;
 	kvmi_uninit( ctx );
 	errno = err;

@@ -259,13 +259,26 @@ static int new_guest( int fd, unsigned char ( *uuid )[16], void *ctx )
 	return 0;
 }
 
-int main( void )
+int main( int argc, char **argv )
 {
 	void *ctx;
 
+	if ( argc != 2 ) {
+		printf( "Usage:\n"
+		        "	%s PathToSocket\n"
+		        "	%s VSockPortNumber\n",
+		        argv[0], argv[0] );
+		return 1;
+	}
+
 	kvmi_set_event_cb( new_event, NULL ); /* global */
 
-	ctx = kvmi_init( new_guest, NULL );
+	if ( atoi( argv[1] ) > 0 ) {
+		ctx = kvmi_init_v_sock( atoi( argv[1] ), new_guest, NULL );
+	} else {
+		ctx = kvmi_init_un_sock( argv[1], new_guest, NULL );
+	}
+
 	if ( !ctx ) {
 		perror( "kvmi_init" );
 		exit( 1 );
