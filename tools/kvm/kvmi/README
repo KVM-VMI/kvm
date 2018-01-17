@@ -36,32 +36,19 @@ Testing
 You will need a VM image that can be started by QEMU (the introspected
 VM). We've tested it with Windows 7 x64 SP1 (English) with a single vCPU.
 
-Add the ",reconnect=N" (with N > 0) to the chardev arguments if you want
-to start the introspected VM first and the introspector later.
-
 Run the introspection tool on host
 ----------------------------------
 
-Make sure libkvmi.so can be found by the dynamic loader.
-With the bash shell you could use something like:
-
-	export LD_LIBRARY_PATH=$(pwd)/host
-
-Make sure the name of the listening socket can be found by the libkvmi.so
-library:
-
-	export LIBKVMI_SOCKET=/tmp/introspector
-
 Start the introspection tool:
 
-	./kvmi-test
+	LD_LIBRARY_PATH=./ ./kvmi-test /tmp/introspector
 
 By default, it will run for 10 minutes and exit.
 Meanwhile, in another terminal, run the VM prepared for introspection
 with four additional options:
 
 	qemu-system-x86_64 ... \
-		-chardev socket,path=/tmp/introspector,id=chardev0 \
+		-chardev socket,path=/tmp/introspector,id=chardev0,reconnect=10 \
 		-object secret,id=key0,data=some \
 		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
 		-accel kvm,introspection=kvmi
@@ -82,16 +69,17 @@ new Linux VM. When you start this VM use an additional QEMU option:
 
 Make sure the QEMU process has write access to /dev/vhost-vsock.
 
-Copy the introspection tool binaries (kvmi-test and sva/libkvmi.so)
-to this new VM and run the kvmi-test program as described above (but
-ignore the LIBKVMI_SOCKET part). Make sure that the program has write
-access to /dev/vsock.
+Copy kvmi-test and libkvmi.so to this new VM and run the kvmi-test program:
+
+	LD_LIBRARY_PATH=./ ./kvmi-test 1234
+
+Make sure that the program has write access to /dev/vsock.
 
 While the kvmi-test program is running, start the introspected VM from host
 with four additional options:
 
 	qemu-system-x86_64 ... \
-		-chardev socket,id=chardev0,cid=3,port=1234 \
+		-chardev socket,id=chardev0,cid=3,port=1234,reconnect=10 \
 		-object secret,id=key0,data=some \
 		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
 		-accel kvm,introspection=kvmi
