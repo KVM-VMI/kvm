@@ -5530,14 +5530,24 @@ static void wakeup_handler(void)
 	spin_unlock(&per_cpu(blocked_vcpu_on_cpu_lock, cpu));
 }
 
+void vmx_suppress_ve_clear_page(void *page);
+
 static void vmx_enable_tdp(void)
 {
+	u64 p_mask = 0;
+
+	if (!cpu_has_vmx_ept_execute_only())
+		p_mask |= VMX_EPT_READABLE_MASK;
+	if (kvm_ve_supported) {
+		p_mask |= VMX_EPT_SUPPRESS_VE_BIT;
+		kvm_mmu_set_spte_init_value(VMX_EPT_SUPPRESS_VE_BIT);
+		kvm_x86_ops->clear_page = vmx_suppress_ve_clear_page;
+	}
+
 	kvm_mmu_set_mask_ptes(VMX_EPT_READABLE_MASK,
 		enable_ept_ad_bits ? VMX_EPT_ACCESS_BIT : 0ull,
 		enable_ept_ad_bits ? VMX_EPT_DIRTY_BIT : 0ull,
-		0ull, VMX_EPT_EXECUTABLE_MASK,
-		cpu_has_vmx_ept_execute_only() ? 0ull : VMX_EPT_READABLE_MASK,
-		VMX_EPT_RWX_MASK, 0ull);
+		0ull, VMX_EPT_EXECUTABLE_MASK, p_mask, VMX_EPT_RWX_MASK, 0ull);
 
 	ept_set_mmio_spte_mask();
 	kvm_enable_tdp();
@@ -8237,6 +8247,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 
 	.tlb_flush = vmx_flush_tlb,
 	.tlb_flush_gva = vmx_flush_tlb_gva,
+	.clear_page = clear_page,
 
 	.run = vmx_vcpu_run,
 	.handle_exit = vmx_handle_exit,
