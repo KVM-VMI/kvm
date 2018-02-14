@@ -129,12 +129,11 @@ int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
   return rv;
 }
 
-int nitro_ioctl_continue(struct kvm_vcpu *vcpu){
+int nitro_ioctl_continue(struct kvm_vcpu *vcpu) {
 
 	// if no waiters
 	if(completion_done(&(vcpu->nitro.k_wait_cv)))
-		return -1;
-
+    return -1;
 	complete(&(vcpu->nitro.k_wait_cv));
 
 	return 0;
@@ -153,17 +152,10 @@ int nitro_ioctl_continue_step_over(struct kvm_vcpu *vcpu){
 
   printk(KERN_INFO "nitro: found syscall or sysenter");
 
-  // Should we do something with these
-	/* vcpu->arch.emulate_regs_need_sync_from_vcpu = true; */
-	/* vcpu->arch.emulate_regs_need_sync_to_vcpu = false; */
-
   // Both SYSCALL and SYSENTER are two bytes
   rip = kvm_rip_read(vcpu);
-
   printk(KERN_INFO "original rip: %lu", rip);
-
   rip += 2; 
-
   kvm_rip_write(vcpu, rip);
 
   printk(KERN_INFO "nitro: skipped");
@@ -175,6 +167,7 @@ int nitro_ioctl_continue_step_over(struct kvm_vcpu *vcpu){
 int nitro_is_trap_set(struct kvm *kvm, uint32_t trap){
   return kvm->nitro.traps & trap;
 }
+EXPORT_SYMBOL_GPL(nitro_is_trap_set);
 
 int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
 {

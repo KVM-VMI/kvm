@@ -6849,11 +6849,17 @@ static inline bool kvm_vcpu_running(struct kvm_vcpu *vcpu)
 }
 
 static int vcpu_run(struct kvm_vcpu *vcpu)
+
 {
 	int r;
 	struct kvm *kvm = vcpu->kvm;
 
 	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
+
+	/* if(vcpu->nitro.event.present) { */
+	/* 	printk(KERN_DEBUG "vcpu_run called with nitro event present"); */
+	/* 	nitro_process_event(vcpu); */
+	/* } */
 
 	for (;;) {
 		if (kvm_vcpu_running(vcpu)) {
@@ -6865,9 +6871,6 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 		if (r <= 0)
 			break;
 		
-
-		if(vcpu->nitro.event.present)
-			nitro_process_event(vcpu);
 
 		clear_bit(KVM_REQ_PENDING_TIMER, &vcpu->requests);
 		if (kvm_cpu_has_pending_timer(vcpu))
@@ -7066,6 +7069,7 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(kvm_arch_vcpu_ioctl_get_regs);
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
@@ -7149,6 +7153,7 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(kvm_arch_vcpu_ioctl_get_sregs);
 
 int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state)
