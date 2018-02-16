@@ -96,6 +96,7 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
 
 void nitro_wait(struct kvm_vcpu *vcpu){
   long rv;
+  printk("nitro_wait called");
   
   up(&(vcpu->nitro.n_wait_sem));
   rv = wait_for_completion_interruptible_timeout(&(vcpu->nitro.k_wait_cv),msecs_to_jiffies(30000));
@@ -123,6 +124,7 @@ void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
 
 void nitro_process_event(struct kvm_vcpu *vcpu)
 {
+  printk("nitro_process_event called");
 	uint64_t syscall_nb = 0;
 	if (vcpu->nitro.event.direction == ENTER)
 	{

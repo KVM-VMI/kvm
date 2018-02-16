@@ -2629,6 +2629,7 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 	struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
 
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+		printk("filling nitro.event from em_syscall");
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSCALL;
 		vcpu->nitro.event.direction = ENTER;
@@ -2755,6 +2756,7 @@ static int em_sysret(struct x86_emulate_ctxt *ctxt)
 	ctxt->_eip = reg_read(ctxt, VCPU_REGS_RCX);
 	
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+		printk("filling nitro.event from em_sysret");
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSCALL;
 		vcpu->nitro.event.direction = EXIT;
@@ -2775,6 +2777,7 @@ static int em_sysenter(struct x86_emulate_ctxt *ctxt)
 	struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
 
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+		printk("filling nitro.event from em_sysenter");
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSENTER;
 		vcpu->nitro.event.direction = ENTER;
@@ -2890,6 +2893,7 @@ static int em_sysexit(struct x86_emulate_ctxt *ctxt)
 	*reg_write(ctxt, VCPU_REGS_RSP) = rcx;
 
 	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+		printk("filling nitro.event from em_sysexit");
 		vcpu->nitro.event.present = true;
 		vcpu->nitro.event.type = SYSENTER;
 		vcpu->nitro.event.direction = EXIT;

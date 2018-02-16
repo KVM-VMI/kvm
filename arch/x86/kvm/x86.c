@@ -6853,8 +6853,6 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 	int r;
 	struct kvm *kvm = vcpu->kvm;
 
-	printk("vcpu run called");
-
 	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
 
 	for (;;) {
@@ -6868,8 +6866,10 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 			break;
 		
 
-		if(vcpu->nitro.event.present)
+		if(vcpu->nitro.event.present) {
+			printk("vcpu_run calling nitro_process_event");
 			nitro_process_event(vcpu);
+		}
 
 		clear_bit(KVM_REQ_PENDING_TIMER, &vcpu->requests);
 		if (kvm_cpu_has_pending_timer(vcpu))
