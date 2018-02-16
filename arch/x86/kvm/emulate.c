@@ -2712,6 +2712,7 @@ static int em_sysret(struct x86_emulate_ctxt *ctxt)
 	ops->get_msr(ctxt, MSR_EFER, &efer);
 	setup_syscalls_segments(ctxt, &cs, &ss);
 
+	// Is this a problem now that we do not handle the event delivery here
 	if (!(efer & EFER_SCE) && !nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL))
 		return emulate_ud(ctxt);
 

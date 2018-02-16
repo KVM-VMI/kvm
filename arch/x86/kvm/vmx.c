@@ -5508,7 +5508,7 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		if (is_syscall(vcpu)) {
 			printk("handle_exception on syscall");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-				printk("filling nitro.event from handle_exception");
+				printk("filling nitro.event from handle_exception with ENTER");
 				vcpu->nitro.event.present = true;
 				vcpu->nitro.event.type = SYSCALL;
 				vcpu->nitro.event.direction = ENTER;
@@ -5521,7 +5521,7 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		} else if (is_sysret(vcpu)) {
 			printk("handle_exception on sysret");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-				printk("filling nitro.event from handle_exception");
+				printk("filling nitro.event from handle_exception with EXIT");
 				vcpu->nitro.event.present = true;
 				vcpu->nitro.event.type = SYSCALL;
 				vcpu->nitro.event.direction = EXIT;

@@ -99,12 +99,15 @@ void nitro_wait(struct kvm_vcpu *vcpu){
   printk("nitro_wait called");
   
   up(&(vcpu->nitro.n_wait_sem));
+  printk("nitro_wait past up(n_wait_sem)");
   rv = wait_for_completion_interruptible_timeout(&(vcpu->nitro.k_wait_cv),msecs_to_jiffies(30000));
   
   if (rv == 0)
     printk(KERN_INFO "nitro: %s: wait timed out\n",__FUNCTION__);
   else if (rv < 0)
     printk(KERN_INFO "nitro: %s: wait interrupted\n",__FUNCTION__);
+
+  // Will break if the event has not been handled with continue
   
   return;
 }
@@ -114,20 +117,24 @@ void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
 
 	// if no filter, report all events
 	// or if there is a filter
-	if (hash_empty(kvm->nitro.syscall_filter_ht) == true
-			|| nitro_find_syscall(kvm, syscall_nb))
-	{
-		nitro_wait(vcpu);
-		vcpu->nitro.event.present = false;
-	}
+	/* if (hash_empty(kvm->nitro.syscall_filter_ht) == true */
+	/* 		|| nitro_find_syscall(kvm, syscall_nb)) */
+	/* { */
+	/* 	nitro_wait(vcpu); */
+	/* 	vcpu->nitro.event.present = false; */
+	/* } */
+  nitro_wait(vcpu);
+	vcpu->nitro.event.present = false;
 }
 
 void nitro_process_event(struct kvm_vcpu *vcpu)
 {
   printk(KERN_DEBUG "nitro_process_event called");
+  int er;
 	uint64_t syscall_nb = 0;
 	if (vcpu->nitro.event.direction == ENTER)
 	{
+    printk("nitro_process_event got ENTER");
 		syscall_nb = vcpu->nitro.event.regs.rax;
 		// create new syscall stack item
 		struct syscall_stack_item *item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
@@ -137,6 +144,7 @@ void nitro_process_event(struct kvm_vcpu *vcpu)
 	}
 	else
 	{
+    printk("nitro_process_event got EXIT");
 		// EXIT
 		// pop last syscall nb
 		if (!list_empty(&vcpu->nitro.stack.list))
@@ -152,7 +160,14 @@ void nitro_process_event(struct kvm_vcpu *vcpu)
 		}
 		else
 		{
+      // FIXME: If we return here we will break the code as we do not emulate the instruction we are on
 			printk(KERN_DEBUG "syscall exit without enter, not reporting\n");
+      er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+      if (er != EMULATE_DONE) {
+        printk("nitro_process_event syscall/sysret emulation != EMULATION_DONE");
+        kvm_queue_exception(vcpu, UD_VECTOR);
+      }
+      vcpu->nitro.event.present = false;
 			return;
 		}
 	}

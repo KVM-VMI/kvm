@@ -6850,17 +6850,13 @@ static inline bool kvm_vcpu_running(struct kvm_vcpu *vcpu)
 
 static int vcpu_run(struct kvm_vcpu *vcpu)
 {
-	int r, er;
+	int r;
 	struct kvm *kvm = vcpu->kvm;
 
 	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
 
 	for (;;) {
 		if(vcpu->nitro.event.present) {
-			er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-			if (er != EMULATE_DONE) {
-				printk("vcpu_run syscall/sysret emulation != EMULATION_DONE");
-			}
 			nitro_process_event(vcpu);
 		}
 
@@ -8552,13 +8548,7 @@ int is_syscall(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 
-	if (ctxt->opcode_len == 2 && ctxt->b == 0x5)
-		return 1;
-	else
-		{
-			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-			return 0;
-		}
+	return (ctxt->opcode_len == 2 && ctxt->b == 0x5);
 }
 EXPORT_SYMBOL_GPL(is_syscall);
 
@@ -8572,13 +8562,7 @@ int is_sysret(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 
-	if (ctxt->opcode_len == 2 && ctxt->b == 0x7)
-		return 1;
-	else
-		{
-			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-			return 0;
-		}
+	return (ctxt->opcode_len == 2 && ctxt->b == 0x7);
 }
 EXPORT_SYMBOL_GPL(is_sysret);
 
@@ -8592,13 +8576,7 @@ int is_sysenter(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 
-	if (ctxt->opcode_len == 2 && ctxt->b == 0x34)
-		return 1;
-	else
-		{
-			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-			return 0;
-		}
+	return (ctxt->opcode_len == 2 && ctxt->b == 0x34);
 }
 EXPORT_SYMBOL_GPL(is_sysenter);
 
@@ -8613,13 +8591,7 @@ int is_sysexit(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 
-	if (ctxt->opcode_len == 2 && ctxt->b == 0x35)
-		return 1;
-	else
-		{
-			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-			return 0;
-		}
+	return (ctxt->opcode_len == 2 && ctxt->b == 0x35);
 }
 EXPORT_SYMBOL_GPL(is_sysexit);
 

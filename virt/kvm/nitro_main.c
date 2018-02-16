@@ -118,22 +118,34 @@ int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
   int rv;
   
   rv = down_timeout(&(vcpu->nitro.n_wait_sem), 1000);
+  printk("nitro_ioctl_get_event past down(n_wait_sem)");
   
   if (rv == 0) {
 	  ev->direction = vcpu->nitro.event.direction;
 	  ev->type = vcpu->nitro.event.type;
 	  ev->regs = vcpu->nitro.event.regs;
 	  ev->sregs = vcpu->nitro.event.sregs;
+  } else {
+    printk("nitro_ioctl_get_event returned non-zero value");
   }
   
   return rv;
 }
 
 int nitro_ioctl_continue(struct kvm_vcpu *vcpu) {
+  int er;
+  printk("nitro_ioctl_continue called");
 
 	// if no waiters
 	if(completion_done(&(vcpu->nitro.k_wait_cv)))
     return -1;
+
+  er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+  if (er != EMULATE_DONE) {
+    printk("nitro_ioctl_continue syscall/sysret emulation != EMULATION_DONE");
+    kvm_queue_exception(vcpu, UD_VECTOR);
+  }
+
 	complete(&(vcpu->nitro.k_wait_cv));
 
 	return 0;
@@ -147,8 +159,8 @@ int nitro_ioctl_continue_step_over(struct kvm_vcpu *vcpu){
   if(completion_done(&(vcpu->nitro.k_wait_cv)))
     return -1;
 
-  if (!is_syscall_sysenter(vcpu))
-    return -1;
+  /* if (!is_syscall_sysenter(vcpu)) */
+  /*   return -1; */
 
   printk(KERN_INFO "nitro: found syscall or sysenter");
 
