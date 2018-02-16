@@ -5507,8 +5507,29 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		}
 		if (is_syscall(vcpu)) {
 			printk("handle_exception on syscall");
+			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+				printk("filling nitro.event from handle_exception");
+				vcpu->nitro.event.present = true;
+				vcpu->nitro.event.type = SYSCALL;
+				vcpu->nitro.event.direction = ENTER;
+				kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+				kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
+				// Let's try what Qemu does with this
+				vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
+				return 0;
+			}
 		} else if (is_sysret(vcpu)) {
 			printk("handle_exception on sysret");
+			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+				printk("filling nitro.event from handle_exception");
+				vcpu->nitro.event.present = true;
+				vcpu->nitro.event.type = SYSCALL;
+				vcpu->nitro.event.direction = EXIT;
+				kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+				kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
+				vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
+				return 0;
+			}
 		}
 
 		er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
@@ -5527,6 +5548,7 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		if (is_sysenter_sysexit(vcpu))
 		{
 			if (is_sysenter(vcpu)) {
+				// FIXME: These must be fixed
 				printk("handle_exception on sysenter");
 			} else if (is_sysexit(vcpu)) {
 				printk("handle_exception on sysexit");

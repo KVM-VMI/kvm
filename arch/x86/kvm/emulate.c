@@ -2628,16 +2628,6 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 	u64 efer = 0;
 	struct kvm_vcpu *vcpu = container_of(ctxt, struct kvm_vcpu, arch.emulate_ctxt);
 
-	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-		printk("filling nitro.event from em_syscall");
-		vcpu->nitro.event.present = true;
-		vcpu->nitro.event.type = SYSCALL;
-		vcpu->nitro.event.direction = ENTER;
-		kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
-		kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
-	}
-
-
 	/* syscall is not available in real mode */
 	if (ctxt->mode == X86EMUL_MODE_REAL ||
 	    ctxt->mode == X86EMUL_MODE_VM86)
@@ -2754,15 +2744,6 @@ static int em_sysret(struct x86_emulate_ctxt *ctxt)
 	ctxt->eflags = (reg_read(ctxt, VCPU_REGS_R11) & 0x3c7fd7) | 0x2;
 
 	ctxt->_eip = reg_read(ctxt, VCPU_REGS_RCX);
-	
-	if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-		printk("filling nitro.event from em_sysret");
-		vcpu->nitro.event.present = true;
-		vcpu->nitro.event.type = SYSCALL;
-		vcpu->nitro.event.direction = EXIT;
-		kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
-		kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
-	}
 
 	return X86EMUL_CONTINUE;
 }

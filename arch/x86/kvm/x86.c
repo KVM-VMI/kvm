@@ -6850,12 +6850,20 @@ static inline bool kvm_vcpu_running(struct kvm_vcpu *vcpu)
 
 static int vcpu_run(struct kvm_vcpu *vcpu)
 {
-	int r;
+	int r, er;
 	struct kvm *kvm = vcpu->kvm;
 
 	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
 
 	for (;;) {
+		if(vcpu->nitro.event.present) {
+			er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+			if (er != EMULATE_DONE) {
+				printk("vcpu_run syscall/sysret emulation != EMULATION_DONE");
+			}
+			nitro_process_event(vcpu);
+		}
+
 		if (kvm_vcpu_running(vcpu)) {
 			r = vcpu_enter_guest(vcpu);
 		} else {
@@ -6865,10 +6873,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 		if (r <= 0)
 			break;
 		
-
-		if(vcpu->nitro.event.present) {
-			nitro_process_event(vcpu);
-		}
+		// NOTE: This is where the nitro.event.present check used to be
 
 		clear_bit(KVM_REQ_PENDING_TIMER, &vcpu->requests);
 		if (kvm_cpu_has_pending_timer(vcpu))
@@ -7067,6 +7072,7 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(kvm_arch_vcpu_ioctl_get_regs);
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
@@ -7150,6 +7156,8 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(kvm_arch_vcpu_ioctl_get_sregs);
+
 
 int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state)
