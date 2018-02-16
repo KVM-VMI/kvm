@@ -5505,6 +5505,12 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 			kvm_queue_exception(vcpu, UD_VECTOR);
 			return 1;
 		}
+		if (is_syscall(vcpu)) {
+			printk("handle_exception on syscall");
+		} else if (is_sysret(vcpu)) {
+			printk("handle_exception on sysret");
+		}
+
 		er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
 		if (er != EMULATE_DONE)
 			kvm_queue_exception(vcpu, UD_VECTOR);
@@ -5520,6 +5526,12 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	{
 		if (is_sysenter_sysexit(vcpu))
 		{
+			if (is_sysenter(vcpu)) {
+				printk("handle_exception on sysenter");
+			} else if (is_sysexit(vcpu)) {
+				printk("handle_exception on sysexit");
+			}
+
 			er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
 			if (er != EMULATE_DONE)
 				kvm_queue_exception(vcpu, UD_VECTOR);

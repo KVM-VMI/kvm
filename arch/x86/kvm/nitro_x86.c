@@ -124,7 +124,7 @@ void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
 
 void nitro_process_event(struct kvm_vcpu *vcpu)
 {
-  printk("nitro_process_event called");
+  printk(KERN_DEBUG "nitro_process_event called");
 	uint64_t syscall_nb = 0;
 	if (vcpu->nitro.event.direction == ENTER)
 	{

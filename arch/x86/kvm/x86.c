@@ -6867,7 +6867,6 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 		
 
 		if(vcpu->nitro.event.present) {
-			printk("vcpu_run calling nitro_process_event");
 			nitro_process_event(vcpu);
 		}
 
@@ -8535,6 +8534,87 @@ int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 }
 EXPORT_SYMBOL_GPL(is_sysenter_sysexit);
 
+int is_syscall(struct kvm_vcpu* vcpu)
+{
+	struct x86_emulate_ctxt *ctxt;
+	int r = 0;
+
+	init_emulate_ctxt(vcpu);
+	ctxt = &vcpu->arch.emulate_ctxt;
+
+	r = x86_decode_insn(ctxt, NULL, 0);
+
+	if (ctxt->opcode_len == 2 && ctxt->b == 0x5)
+		return 1;
+	else
+		{
+			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
+			return 0;
+		}
+}
+EXPORT_SYMBOL_GPL(is_syscall);
+
+int is_sysret(struct kvm_vcpu* vcpu)
+{
+	struct x86_emulate_ctxt *ctxt;
+	int r = 0;
+
+	init_emulate_ctxt(vcpu);
+	ctxt = &vcpu->arch.emulate_ctxt;
+
+	r = x86_decode_insn(ctxt, NULL, 0);
+
+	if (ctxt->opcode_len == 2 && ctxt->b == 0x7)
+		return 1;
+	else
+		{
+			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
+			return 0;
+		}
+}
+EXPORT_SYMBOL_GPL(is_sysret);
+
+int is_sysenter(struct kvm_vcpu* vcpu)
+{
+	struct x86_emulate_ctxt *ctxt;
+	int r = 0;
+
+	init_emulate_ctxt(vcpu);
+	ctxt = &vcpu->arch.emulate_ctxt;
+
+	r = x86_decode_insn(ctxt, NULL, 0);
+
+	if (ctxt->opcode_len == 2 && ctxt->b == 0x34)
+		return 1;
+	else
+		{
+			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
+			return 0;
+		}
+}
+EXPORT_SYMBOL_GPL(is_sysenter);
+
+
+int is_sysexit(struct kvm_vcpu* vcpu)
+{
+	struct x86_emulate_ctxt *ctxt;
+	int r = 0;
+
+	init_emulate_ctxt(vcpu);
+	ctxt = &vcpu->arch.emulate_ctxt;
+
+	r = x86_decode_insn(ctxt, NULL, 0);
+
+	if (ctxt->opcode_len == 2 && ctxt->b == 0x35)
+		return 1;
+	else
+		{
+			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
+			return 0;
+		}
+}
+EXPORT_SYMBOL_GPL(is_sysexit);
+
 int is_syscall_sysenter(struct kvm_vcpu* vcpu)
 {
 	struct x86_emulate_ctxt *ctxt;
@@ -8545,7 +8625,7 @@ int is_syscall_sysenter(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 
-	if (ctxt->opcode_len == 1 && (ctxt->b == 0x34 || ctxt->b == 0x5))
+	if (ctxt->opcode_len == 2 && (ctxt->b == 0x34 || ctxt->b == 0x5))
 		return 1;
 	else
 		{
