@@ -5505,21 +5505,9 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 			kvm_queue_exception(vcpu, UD_VECTOR);
 			return 1;
 		}
-		/* if (nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)) { */
-   	/* 	printk(KERN_DEBUG "handle_exception called with nitro trap present and syscall enter"); */
-		/* 	vcpu->nitro.event.present = true; */
-		/* 	vcpu->nitro.event.type = SYSCALL; */
-		/* 	vcpu->nitro.event.direction = ENTER; */
-		/* 	kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs)); */
-		/* 	kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs)); */
-
-		/* 	// This is only used so we do not have to change user space API and Qemu */
-		/* 	// seems to do the right thing here. */
-		/* 	vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN; */
-		/* 	return 0; */
-		/* } */
-		
-		kvm_queue_exception(vcpu, UD_VECTOR);
+		er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+		if (er != EMULATE_DONE)
+			kvm_queue_exception(vcpu, UD_VECTOR);
 		return 1;
 	}
 
@@ -5532,19 +5520,9 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 	{
 		if (is_sysenter_sysexit(vcpu))
 		{
-			/* if (nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)) { */
-			/* 	printk(KERN_DEBUG "handle_exception called with nitro trap present and sysenter"); */
-			/* 	vcpu->nitro.event.present = true; */
-			/* 	vcpu->nitro.event.type = SYSCALL; */
-			/* 	vcpu->nitro.event.direction = ENTER; */
-			/* 	kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs)); */
-			/* 	kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs)); */
-
-			/* 	vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN; */
-			/* 	return 0; */
-			/* } */
-
-			kvm_queue_exception(vcpu, UD_VECTOR);
+			er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+			if (er != EMULATE_DONE)
+				kvm_queue_exception(vcpu, UD_VECTOR);
 			return 1;
 		}else
 		{

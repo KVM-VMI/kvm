@@ -6849,17 +6849,13 @@ static inline bool kvm_vcpu_running(struct kvm_vcpu *vcpu)
 }
 
 static int vcpu_run(struct kvm_vcpu *vcpu)
-
 {
 	int r;
 	struct kvm *kvm = vcpu->kvm;
 
-	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
+	printk("vcpu run called");
 
-	/* if(vcpu->nitro.event.present) { */
-	/* 	printk(KERN_DEBUG "vcpu_run called with nitro event present"); */
-	/* 	nitro_process_event(vcpu); */
-	/* } */
+	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
 
 	for (;;) {
 		if (kvm_vcpu_running(vcpu)) {
@@ -6871,6 +6867,9 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 		if (r <= 0)
 			break;
 		
+
+		if(vcpu->nitro.event.present)
+			nitro_process_event(vcpu);
 
 		clear_bit(KVM_REQ_PENDING_TIMER, &vcpu->requests);
 		if (kvm_cpu_has_pending_timer(vcpu))
@@ -7069,7 +7068,6 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(kvm_arch_vcpu_ioctl_get_regs);
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
@@ -7153,7 +7151,6 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(kvm_arch_vcpu_ioctl_get_sregs);
 
 int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state)
@@ -8517,27 +8514,6 @@ int kvm_arch_update_irqfd_routing(struct kvm *kvm, unsigned int host_irq,
 
 int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len);
 
-int is_syscall_sysenter(struct kvm_vcpu* vcpu)
-{
-	struct x86_emulate_ctxt *ctxt;
-	int r = 0;
-
-	init_emulate_ctxt(vcpu);
-	ctxt = &vcpu->arch.emulate_ctxt;
-
-	r = x86_decode_insn(ctxt, NULL, 0);
-
-	printk(KERN_INFO "nitro: opcode info len=%d b=0x%x",
-				 ctxt->opcode_len, ctxt->b);
-	if (ctxt->opcode_len == 1 && (ctxt->b == 0x34 || ctxt->b == 0x5)) {
-		return 1;
-	} else {
-		printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-		return 0;
-	}
-}
-EXPORT_SYMBOL_GPL(is_syscall_sysenter);
-
 int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 {
 	struct x86_emulate_ctxt *ctxt;
@@ -8552,12 +8528,33 @@ int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 	if (ctxt->opcode_len == 2 &&  (ctxt->b == 0x34 || ctxt->b == 0x35))
 		return 1;
 	else
-	{
-		printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-		return 0;
-	}
+		{
+			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
+			return 0;
+		}
 }
 EXPORT_SYMBOL_GPL(is_sysenter_sysexit);
+
+int is_syscall_sysenter(struct kvm_vcpu* vcpu)
+{
+	struct x86_emulate_ctxt *ctxt;
+	int r = 0;
+
+	init_emulate_ctxt(vcpu);
+	ctxt = &vcpu->arch.emulate_ctxt;
+
+	r = x86_decode_insn(ctxt, NULL, 0);
+
+	if (ctxt->opcode_len == 1 && (ctxt->b == 0x34 || ctxt->b == 0x5))
+		return 1;
+	else
+		{
+			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
+			return 0;
+		}
+}
+EXPORT_SYMBOL_GPL(is_syscall_sysenter);
+
 
 bool kvm_vector_hashing_enabled(void)
 {
