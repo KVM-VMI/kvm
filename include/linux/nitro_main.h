@@ -31,11 +31,17 @@ struct nitro{
   DECLARE_HASHTABLE(syscall_filter_ht, NITRO_SYSCALL_FILTER_HT_BITS);
 };
 
+enum nitro_continuation {
+  NITRO_CONTINUATION_CONTINUE,
+  NITRO_CONTINUATION_STEP_OVER
+};
+
 struct nitro_vcpu{
   struct completion k_wait_cv;
   struct semaphore n_wait_sem;
   struct event event;
   struct syscall_stack_item stack;
+  enum nitro_continuation cont;
 };
 
 struct kvm* nitro_get_vm_by_creator(pid_t);

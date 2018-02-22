@@ -800,6 +800,7 @@ static int segmented_read_std(struct x86_emulate_ctxt *ctxt,
  */
 static int __do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt, int op_size)
 {
+	char *type;
 	int rc;
 	unsigned size, max_size;
 	unsigned long linear;
@@ -819,8 +820,20 @@ static int __do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt, int op_size)
 	 */
 	rc = __linearize(ctxt, addr, &max_size, 0, false, true, ctxt->mode,
 			 &linear);
-	if (unlikely(rc != X86EMUL_CONTINUE))
+	if (unlikely(rc != X86EMUL_CONTINUE)) {
+		switch (rc) {
+		case X86EMUL_CONTINUE: type = "X86EMUL_CONTINUE"; break;
+		case X86EMUL_UNHANDLEABLE: type = "X86EMUL_UNHANDLEABLE"; break;
+		case X86EMUL_PROPAGATE_FAULT: type = "X86EMUL_PROPAGATE_FAULT"; break;
+		case X86EMUL_RETRY_INSTR: type = "X86EMUL_RETRY_INSTR"; break;
+		case X86EMUL_CMPXCHG_FAILED: type = "X86EMUL_CMPXCHG_FAILED"; break;
+		case X86EMUL_IO_NEEDED: type = "X86EMUL_IO_NEEDED"; break;
+		case X86EMUL_INTERCEPTED: type = "X86EMUL_INTERCEPTED"; break;
+		default: type = "unknown"; break;
+		}
+		printk("__do_insn_fetch_bytes: __linearize failed with %s", type);
 		return rc;
+	}
 
 	size = min_t(unsigned, 15UL ^ cur_size, max_size);
 	size = min_t(unsigned, size, PAGE_SIZE - offset_in_page(linear));
@@ -836,8 +849,20 @@ static int __do_insn_fetch_bytes(struct x86_emulate_ctxt *ctxt, int op_size)
 
 	rc = ctxt->ops->fetch(ctxt, linear, ctxt->fetch.end,
 			      size, &ctxt->exception);
-	if (unlikely(rc != X86EMUL_CONTINUE))
+	if (unlikely(rc != X86EMUL_CONTINUE)) {
+		switch (rc) {
+		case X86EMUL_CONTINUE: type = "X86EMUL_CONTINUE"; break;
+		case X86EMUL_UNHANDLEABLE: type = "X86EMUL_UNHANDLEABLE"; break;
+		case X86EMUL_PROPAGATE_FAULT: type = "X86EMUL_PROPAGATE_FAULT"; break;
+		case X86EMUL_RETRY_INSTR: type = "X86EMUL_RETRY_INSTR"; break;
+		case X86EMUL_CMPXCHG_FAILED: type = "X86EMUL_CMPXCHG_FAILED"; break;
+		case X86EMUL_IO_NEEDED: type = "X86EMUL_IO_NEEDED"; break;
+		case X86EMUL_INTERCEPTED: type = "X86EMUL_INTERCEPTED"; break;
+		default: type = "unknown"; break;
+		}
+		printk("__do_insn_fetch_bytes: ctxt->ops->fetch failed with %s", type);
 		return rc;
+	}
 	ctxt->fetch.end += size;
 	return X86EMUL_CONTINUE;
 }
@@ -4894,8 +4919,21 @@ int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len)
 		memcpy(ctxt->fetch.data, insn, insn_len);
 	else {
 		rc = __do_insn_fetch_bytes(ctxt, 1);
-		if (rc != X86EMUL_CONTINUE)
+		if (rc != X86EMUL_CONTINUE) {
+			char *type;
+			switch (rc) {
+			case X86EMUL_CONTINUE: type = "X86EMUL_CONTINUE"; break;
+			case X86EMUL_UNHANDLEABLE: type = "X86EMUL_UNHANDLEABLE"; break;
+			case X86EMUL_PROPAGATE_FAULT: type = "X86EMUL_PROPAGATE_FAULT"; break;
+			case X86EMUL_RETRY_INSTR: type = "X86EMUL_RETRY_INSTR"; break;
+			case X86EMUL_CMPXCHG_FAILED: type = "X86EMUL_CMPXCHG_FAILED"; break;
+			case X86EMUL_IO_NEEDED: type = "X86EMUL_IO_NEEDED"; break;
+			case X86EMUL_INTERCEPTED: type = "X86EMUL_INTERCEPTED"; break;
+			default: type = "unknown"; break;
+			}
+			printk("x86_decode_insn: __do_insn_fetch_bytes failed with %s", type);
 			return rc;
+		}
 	}
 
 	switch (mode) {

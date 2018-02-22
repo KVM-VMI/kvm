@@ -214,6 +214,8 @@ static inline u64 nsec_to_cycles(struct kvm_vcpu *vcpu, u64 nsec)
 
 #endif
 
+void init_emulate_ctxt(struct kvm_vcpu *vcpu);
+
 int is_sysenter_sysexit(struct kvm_vcpu* vcpu);
 int is_syscall_sysenter(struct kvm_vcpu* vcpu);
 int is_syscall(struct kvm_vcpu* vcpu);

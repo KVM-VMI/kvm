@@ -140,11 +140,7 @@ int nitro_ioctl_continue(struct kvm_vcpu *vcpu) {
 	if(completion_done(&(vcpu->nitro.k_wait_cv)))
     return -1;
 
-  er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-  if (er != EMULATE_DONE) {
-    printk("nitro_ioctl_continue syscall/sysret emulation != EMULATION_DONE");
-    kvm_queue_exception(vcpu, UD_VECTOR);
-  }
+  vcpu->nitro.cont = NITRO_CONTINUATION_CONTINUE;
 
 	complete(&(vcpu->nitro.k_wait_cv));
 
@@ -159,20 +155,10 @@ int nitro_ioctl_continue_step_over(struct kvm_vcpu *vcpu){
   if(completion_done(&(vcpu->nitro.k_wait_cv)))
     return -1;
 
-  /* if (!is_syscall_sysenter(vcpu)) */
-  /*   return -1; */
-
-  printk(KERN_INFO "nitro: found syscall or sysenter");
-
-  // Both SYSCALL and SYSENTER are two bytes
-  rip = kvm_rip_read(vcpu);
-  printk(KERN_INFO "original rip: %lu", rip);
-  rip += 2; 
-  kvm_rip_write(vcpu, rip);
-
-  printk(KERN_INFO "nitro: skipped");
+  vcpu->nitro.cont = NITRO_CONTINUATION_STEP_OVER;
 
   complete(&(vcpu->nitro.k_wait_cv));
+
   return 0;
 }
 

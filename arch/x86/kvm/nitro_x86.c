@@ -95,21 +95,52 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
 }
 
 void nitro_wait(struct kvm_vcpu *vcpu){
-  long rv;
+  long rv, er;
   printk("nitro_wait called");
   
   up(&(vcpu->nitro.n_wait_sem));
   printk("nitro_wait past up(n_wait_sem)");
-  rv = wait_for_completion_interruptible_timeout(&(vcpu->nitro.k_wait_cv),msecs_to_jiffies(30000));
-  
-  if (rv == 0)
-    printk(KERN_INFO "nitro: %s: wait timed out\n",__FUNCTION__);
-  else if (rv < 0)
-    printk(KERN_INFO "nitro: %s: wait interrupted\n",__FUNCTION__);
+  // NOTE: this HAS to be completed
+  wait_for_completion(&(vcpu->nitro.k_wait_cv));
+  printk("nitro_wait past wait_for_completion");
 
-  // Will break if the event has not been handled with continue
+  switch (vcpu->nitro.cont) {
+  case NITRO_CONTINUATION_CONTINUE:
+    printk("nitro_wait: received continue event");
+    if (!(is_syscall(vcpu) || !is_sysret(vcpu))) {
+      printk("ERROR: nitro_wait processing cont event on instruction other than syscall or sysret");
+    }
+
+    er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+    if (er != EMULATE_DONE) {
+      char *type;
+      switch (er) {
+      case EMULATE_DONE: type = "EMULATE_DONE"; break;
+      case EMULATE_USER_EXIT: type = "EMULATE_USER_EXIT"; break;
+      case EMULATE_FAIL: type = "EMULATE_FAIL"; break;
+      default: type = "unknown"; break;
+      }
+
+      printk("nitro_wait syscall/sysret emulation != EMULATION_DONE: %s", type);
+      // Should we do this?
+      kvm_queue_exception(vcpu, UD_VECTOR);
+    }
+    break;
+  case NITRO_CONTINUATION_STEP_OVER:
+    printk("nitro_wait: received step over event");
+    unsigned long rip = kvm_rip_read(vcpu);
+    printk(KERN_INFO "original rip: %lu", rip);
+    rip += 2; 
+    kvm_rip_write(vcpu, rip);
+    break;
+  }
   
-  return;
+  
+  /* if (rv == 0) */
+  /*   printk(KERN_INFO "nitro: %s: wait timed out\n",__FUNCTION__); */
+  /* else if (rv < 0) */
+  /*   printk(KERN_INFO "nitro: %s: wait interrupted\n",__FUNCTION__); */
+  
 }
 
 void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
@@ -164,7 +195,14 @@ void nitro_process_event(struct kvm_vcpu *vcpu)
 			printk(KERN_DEBUG "syscall exit without enter, not reporting\n");
       er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
       if (er != EMULATE_DONE) {
-        printk("nitro_process_event syscall/sysret emulation != EMULATION_DONE");
+        char *type;
+        switch (er) {
+        case EMULATE_DONE: type = "EMULATE_DONE"; break;
+        case EMULATE_USER_EXIT: type = "EMULATE_USER_EXIT"; break;
+        case EMULATE_FAIL: type = "EMULATE_FAIL"; break;
+        default: type = "unknown"; break;
+        }
+        printk("nitro_process_event syscall/sysret emulation != EMULATION_DONE: %s", type);
         kvm_queue_exception(vcpu, UD_VECTOR);
       }
       vcpu->nitro.event.present = false;

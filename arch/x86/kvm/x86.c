@@ -4355,8 +4355,11 @@ static int kvm_fetch_guest_virt(struct x86_emulate_ctxt *ctxt,
 	/* Inline kvm_read_guest_virt_helper for speed.  */
 	gpa_t gpa = vcpu->arch.walk_mmu->gva_to_gpa(vcpu, addr, access|PFERR_FETCH_MASK,
 						    exception);
-	if (unlikely(gpa == UNMAPPED_GVA))
+	if (unlikely(gpa == UNMAPPED_GVA)) {
+		printk("kvm_fetch_guest_virt: vcpu->arch.walk_mmu->gva_to_gpa failed with UNMAPPED_GVA");
+		printk("x86_exception { vector: %u, error_code_valid: %s, error_code: %u, nested_page_fault: %s, address: %llu}", exception->vector, exception->error_code_valid ? "true" : "false", exception->error_code, exception->nested_page_fault ? "true" : "false", exception->address);
 		return X86EMUL_PROPAGATE_FAULT;
+	}
 
 	offset = addr & (PAGE_SIZE-1);
 	if (WARN_ON(offset + bytes > PAGE_SIZE))
@@ -5207,7 +5210,7 @@ static bool inject_emulated_exception(struct kvm_vcpu *vcpu)
 	return false;
 }
 
-static void init_emulate_ctxt(struct kvm_vcpu *vcpu)
+void init_emulate_ctxt(struct kvm_vcpu *vcpu)
 {
 	struct x86_emulate_ctxt *ctxt = &vcpu->arch.emulate_ctxt;
 	int cs_db, cs_l;
@@ -5229,6 +5232,7 @@ static void init_emulate_ctxt(struct kvm_vcpu *vcpu)
 	init_decode_cache(ctxt);
 	vcpu->arch.emulate_regs_need_sync_from_vcpu = false;
 }
+EXPORT_SYMBOL_GPL(init_emulate_ctxt);
 
 int kvm_inject_realmode_interrupt(struct kvm_vcpu *vcpu, int irq, int inc_eip)
 {
@@ -5546,8 +5550,18 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu,
 		trace_kvm_emulate_insn_start(vcpu);
 		++vcpu->stat.insn_emulation;
 		if (r != EMULATION_OK)  {
-			if (emulation_type & EMULTYPE_TRAP_UD)
+			if (emulation_type & EMULTYPE_TRAP_UD) {
+				char *type;
+				switch (r) {
+				case EMULATION_OK: type = "EMULATION_OK"; break;
+				case EMULATION_FAILED: type = "EMULATION_FAILED"; break;
+				case EMULATION_RESTART: type = "EMULATION_RESTART"; break;
+				case EMULATION_INTERCEPTED: type = "EMULATION_INTERCEPTED"; break;
+				default: type = "unknown"; break;
+				}
+				printk("x86_emulate_instruction: x86_decode_insn failed with %s", type);
 				return EMULATE_FAIL;
+			}
 			if (reexecute_instruction(vcpu, cr2, write_fault_to_spt,
 						emulation_type))
 				return EMULATE_DONE;
@@ -6858,6 +6872,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 	for (;;) {
 		if(vcpu->nitro.event.present) {
 			nitro_process_event(vcpu);
+			printk("vcpu_run got past nitro_process_event");
 		}
 
 		if (kvm_vcpu_running(vcpu)) {
@@ -8526,6 +8541,9 @@ int is_sysenter_sysexit(struct kvm_vcpu* vcpu)
 	ctxt = &vcpu->arch.emulate_ctxt;
 
 	r = x86_decode_insn(ctxt, NULL, 0);
+	if (r != X86EMUL_CONTINUE) {
+		printk("is_sysenter_sysexit: x86_decode_insn returned %d", r);
+	}
 
 	// twobyte and SYSENTER/SYSEXIT
 	if (ctxt->opcode_len == 2 &&  (ctxt->b == 0x34 || ctxt->b == 0x35))
@@ -8547,6 +8565,9 @@ int is_syscall(struct kvm_vcpu* vcpu)
 	ctxt = &vcpu->arch.emulate_ctxt;
 
 	r = x86_decode_insn(ctxt, NULL, 0);
+	if (r != X86EMUL_CONTINUE) {
+		printk("is_syscall: x86_decode_insn returned %d", r);
+	}
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x5);
 }
@@ -8561,6 +8582,9 @@ int is_sysret(struct kvm_vcpu* vcpu)
 	ctxt = &vcpu->arch.emulate_ctxt;
 
 	r = x86_decode_insn(ctxt, NULL, 0);
+	if (r != X86EMUL_CONTINUE) {
+		printk("is_sysret: x86_decode_insn returned %d", r);
+	}
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x7);
 }
@@ -8575,6 +8599,9 @@ int is_sysenter(struct kvm_vcpu* vcpu)
 	ctxt = &vcpu->arch.emulate_ctxt;
 
 	r = x86_decode_insn(ctxt, NULL, 0);
+	if (r != X86EMUL_CONTINUE) {
+		printk("is_sysenter: x86_decode_insn returned %d", r);
+	}
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x34);
 }
@@ -8590,6 +8617,10 @@ int is_sysexit(struct kvm_vcpu* vcpu)
 	ctxt = &vcpu->arch.emulate_ctxt;
 
 	r = x86_decode_insn(ctxt, NULL, 0);
+	if (r != X86EMUL_CONTINUE) {
+		printk("is_sysexit: x86_decode_insn returned %d", r);
+	}
+
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x35);
 }
@@ -8604,6 +8635,9 @@ int is_syscall_sysenter(struct kvm_vcpu* vcpu)
 	ctxt = &vcpu->arch.emulate_ctxt;
 
 	r = x86_decode_insn(ctxt, NULL, 0);
+	if (r != X86EMUL_CONTINUE) {
+		printk("is_syscall_sysenter: x86_decode_insn returned %d", r);
+	}
 
 	if (ctxt->opcode_len == 2 && (ctxt->b == 0x34 || ctxt->b == 0x5))
 		return 1;
