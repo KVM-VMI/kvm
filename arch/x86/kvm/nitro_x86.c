@@ -107,7 +107,7 @@ void nitro_wait(struct kvm_vcpu *vcpu){
   switch (vcpu->nitro.cont) {
   case NITRO_CONTINUATION_CONTINUE:
     printk("nitro_wait: received continue event");
-    if (!(is_syscall(vcpu) || !is_sysret(vcpu))) {
+    if (!(is_syscall(vcpu) || is_sysret(vcpu))) {
       printk("ERROR: nitro_wait processing cont event on instruction other than syscall or sysret");
     }
 
