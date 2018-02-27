@@ -95,9 +95,9 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
 }
 
 static void nitro_do_continue(struct kvm_vcpu *vcpu) {
+  char *type;
   long er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
   if (er != EMULATE_DONE) {
-    char *type;
     switch (er) {
     case EMULATE_DONE: type = "EMULATE_DONE"; break;
     case EMULATE_USER_EXIT: type = "EMULATE_USER_EXIT"; break;

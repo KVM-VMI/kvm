@@ -5551,15 +5551,6 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu,
 		++vcpu->stat.insn_emulation;
 		if (r != EMULATION_OK)  {
 			if (emulation_type & EMULTYPE_TRAP_UD) {
-				char *type;
-				switch (r) {
-				case EMULATION_OK: type = "EMULATION_OK"; break;
-				case EMULATION_FAILED: type = "EMULATION_FAILED"; break;
-				case EMULATION_RESTART: type = "EMULATION_RESTART"; break;
-				case EMULATION_INTERCEPTED: type = "EMULATION_INTERCEPTED"; break;
-				default: type = "unknown"; break;
-				}
-				printk("x86_emulate_instruction: x86_decode_insn failed with %s", type);
 				return EMULATE_FAIL;
 			}
 			if (reexecute_instruction(vcpu, cr2, write_fault_to_spt,
