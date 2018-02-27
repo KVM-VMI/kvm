@@ -94,53 +94,51 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   return 0;
 }
 
+static void nitro_do_continue(struct kvm_vcpu *vcpu) {
+  long er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
+  if (er != EMULATE_DONE) {
+    char *type;
+    switch (er) {
+    case EMULATE_DONE: type = "EMULATE_DONE"; break;
+    case EMULATE_USER_EXIT: type = "EMULATE_USER_EXIT"; break;
+    case EMULATE_FAIL: type = "EMULATE_FAIL"; break;
+    default: type = "unknown"; break;
+    }
+    printk(KERN_DEBUG "nitro_do_continue emulate_instruction != EMULATION_DONE: %s", type);
+    kvm_queue_exception(vcpu, UD_VECTOR);
+  }
+}
+
+static void nitro_do_continue_step_over(struct kvm_vcpu *vcpu) {
+    unsigned long rip = kvm_rip_read(vcpu);
+    printk(KERN_DEBUG "nitro_do_continue_step_over: original rip: %lu", rip);
+    rip += 2; 
+    kvm_rip_write(vcpu, rip);
+}
+
 void nitro_wait(struct kvm_vcpu *vcpu){
-  long rv, er;
-  printk("nitro_wait called");
+  printk(KERN_DEBUG "nitro_wait: called");
   
   up(&(vcpu->nitro.n_wait_sem));
-  printk("nitro_wait past up(n_wait_sem)");
-  // NOTE: this HAS to be completed
+  printk(KERN_DEBUG "nitro_wait: past up");
+
   wait_for_completion(&(vcpu->nitro.k_wait_cv));
-  printk("nitro_wait past wait_for_completion");
+  printk(KERN_DEBUG "nitro_wait: past wait_for_completion");
+
+  if (!(is_syscall(vcpu) || is_sysret(vcpu))) {
+    printk(KERN_DEBUG "nitro_wait: processing cont event on instruction other than syscall or sysret");
+  }
 
   switch (vcpu->nitro.cont) {
   case NITRO_CONTINUATION_CONTINUE:
-    printk("nitro_wait: received continue event");
-    if (!(is_syscall(vcpu) || is_sysret(vcpu))) {
-      printk("ERROR: nitro_wait processing cont event on instruction other than syscall or sysret");
-    }
-
-    er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-    if (er != EMULATE_DONE) {
-      char *type;
-      switch (er) {
-      case EMULATE_DONE: type = "EMULATE_DONE"; break;
-      case EMULATE_USER_EXIT: type = "EMULATE_USER_EXIT"; break;
-      case EMULATE_FAIL: type = "EMULATE_FAIL"; break;
-      default: type = "unknown"; break;
-      }
-
-      printk("nitro_wait syscall/sysret emulation != EMULATION_DONE: %s", type);
-      // Should we do this?
-      kvm_queue_exception(vcpu, UD_VECTOR);
-    }
+    printk(KERN_DEBUG "nitro_wait: received continue event");
+    nitro_do_continue(vcpu);
     break;
   case NITRO_CONTINUATION_STEP_OVER:
-    printk("nitro_wait: received step over event");
-    unsigned long rip = kvm_rip_read(vcpu);
-    printk(KERN_INFO "original rip: %lu", rip);
-    rip += 2; 
-    kvm_rip_write(vcpu, rip);
+    printk(KERN_DEBUG "nitro_wait: received step over event");
+    nitro_do_continue_step_over(vcpu);
     break;
   }
-  
-  
-  /* if (rv == 0) */
-  /*   printk(KERN_INFO "nitro: %s: wait timed out\n",__FUNCTION__); */
-  /* else if (rv < 0) */
-  /*   printk(KERN_INFO "nitro: %s: wait interrupted\n",__FUNCTION__); */
-  
 }
 
 void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
