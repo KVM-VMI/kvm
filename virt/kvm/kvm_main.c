@@ -2585,7 +2585,7 @@ out_free2:
 			r = PTR_ERR(kvm_regs);
 			goto out_no_put;
 		}
-		r = kvm_arch_vcpu_ioctl_set_regs(vcpu, kvm_regs);
+		r = kvm_arch_vcpu_ioctl_nitro_set_regs(vcpu, kvm_regs);
 		kfree(kvm_regs);
 		goto out_no_put;
 	}
