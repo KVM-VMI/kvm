@@ -6862,8 +6862,9 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 
 	for (;;) {
 		if(vcpu->nitro.event.present) {
-			nitro_process_event(vcpu);
-			printk("vcpu_run got past nitro_process_event");
+			nitro_wait(vcpu);
+			vcpu->nitro.event.present = false;
+			printk(KERN_DEBUG "vcpu_run: nitro_event handled");
 		}
 
 		if (kvm_vcpu_running(vcpu)) {

@@ -94,7 +94,7 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
   return 0;
 }
 
-static void nitro_do_continue(struct kvm_vcpu *vcpu) {
+void nitro_do_continue(struct kvm_vcpu *vcpu) {
   char *type;
   long er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
   if (unlikely(er != EMULATE_DONE)) {
@@ -108,8 +108,9 @@ static void nitro_do_continue(struct kvm_vcpu *vcpu) {
     kvm_queue_exception(vcpu, UD_VECTOR);
   }
 }
+EXPORT_SYMBOL_GPL(nitro_do_continue);
 
-static void nitro_do_continue_step_over(struct kvm_vcpu *vcpu) {
+void nitro_do_continue_step_over(struct kvm_vcpu *vcpu) {
   unsigned long rip = kvm_rip_read(vcpu);
   printk(KERN_DEBUG "nitro_do_continue_step_over: original rip: %lu", rip);
   rip += 2; 
@@ -143,62 +144,48 @@ void nitro_wait(struct kvm_vcpu *vcpu){
     break;
   }
 }
+EXPORT_SYMBOL_GPL(nitro_do_continue_step_over);
 
-void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
-	struct kvm* kvm = vcpu->kvm;
-
-	// if no filter, report all events
-	// or if there is a filter
-	/* if (hash_empty(kvm->nitro.syscall_filter_ht) == true */
-	/* 		|| nitro_find_syscall(kvm, syscall_nb)) */
-	/* { */
-	/* 	nitro_wait(vcpu); */
-	/* 	vcpu->nitro.event.present = false; */
-	/* } */
-  nitro_wait(vcpu);
-	vcpu->nitro.event.present = false;
+bool nitro_should_propagate(struct kvm_vcpu *vcpu) {
+  uint64_t syscall_num;
+  if (!hash_empty(vcpu->kvm->nitro.syscall_filter_ht)) {
+    return nitro_get_syscall_num(vcpu, &syscall_num) && nitro_find_syscall(vcpu->kvm, syscall_num);
+  }
+  return true;
 }
+EXPORT_SYMBOL_GPL(nitro_should_propagate);
 
-void nitro_process_event(struct kvm_vcpu *vcpu)
+// Maybe some locking should be in place...
+bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result)
 {
-  int er;
 	uint64_t syscall_nb = 0;
-	if (vcpu->nitro.event.direction == ENTER)
-	{
-    printk(KERN_DEBUG "nitro_process_event: got ENTER event");
+  bool success = true;
+  struct syscall_stack_item *item;
+	if (vcpu->nitro.event.direction == ENTER) {
+    printk(KERN_DEBUG "nitro_get_syscall_num: got ENTER event");
 		syscall_nb = vcpu->nitro.event.regs.rax;
-		// create new syscall stack item
-		struct syscall_stack_item *item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
+		item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
 		item->syscall_nb = syscall_nb;
-		// add it at tail
 		list_add_tail(&item->list, &vcpu->nitro.stack.list);
 	}
-	else
-	{
-    printk(KERN_DEBUG "nitro_process_event: got EXIT event");
-		// EXIT
-		// pop last syscall nb
-		if (!list_empty(&vcpu->nitro.stack.list))
-		{
-			// take last entry
+	else {
+    printk(KERN_DEBUG "nitro_get_syscall_num: got EXIT event");
+		if (!list_empty(&vcpu->nitro.stack.list)) {
 			struct syscall_stack_item *item;
 			item = list_last_entry(&vcpu->nitro.stack.list, struct syscall_stack_item, list);
 			syscall_nb = item->syscall_nb;
-			// delete from list
 			list_del(&item->list);
-			// free item
 			kfree(item);
 		}
-		else
-		{
-			printk(KERN_DEBUG "nitro_process_event: syscall exit without enter, not reporting\n");
-      nitro_do_continue(vcpu);
-      vcpu->nitro.event.present = false;
-			return;
+		else {
+			printk(KERN_DEBUG "nitro_get_syscall_num: syscall exit without enter");
+      success = false;
 		}
 	}
-	nitro_report_event(vcpu, syscall_nb);
+  *result = syscall_nb;
+  return success;
 }
+
 
 u64 nitro_get_efer(struct kvm_vcpu *vcpu){
   return nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL) ? (vcpu->arch.efer | EFER_SCE) : vcpu->arch.efer;
