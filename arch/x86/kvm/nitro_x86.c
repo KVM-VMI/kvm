@@ -11,44 +11,44 @@ static u64 old_sysenter_cs = 0;
 
 static void nitro_set_trap_sysenter_cs(struct kvm_vcpu* vcpu, bool enabled)
 {
-    struct msr_data msr_info;
+  struct msr_data msr_info;
 
-    printk(KERN_INFO "nitro: setting trap on sysenter CS to %d\n", enabled);
+  printk(KERN_INFO "nitro: setting trap on sysenter CS to %d\n", enabled);
 	msr_info.index = MSR_IA32_SYSENTER_CS;
 	msr_info.host_initiated = true;
 	if (enabled)
-	{
-		kvm_x86_ops->get_msr(vcpu, &msr_info);
-		old_sysenter_cs = msr_info.data;
-		printk(KERN_INFO "nitro: old sysenter cs = 0x%llx\n", old_sysenter_cs);
-		msr_info.data = 0;
-	}
-    else
-	{
-		printk(KERN_INFO "nitro: restoring syscenter cs to 0x%llx\n", old_sysenter_cs);
-        msr_info.data = old_sysenter_cs;
-	}
+    {
+      kvm_x86_ops->get_msr(vcpu, &msr_info);
+      old_sysenter_cs = msr_info.data;
+      printk(KERN_INFO "nitro: old sysenter cs = 0x%llx\n", old_sysenter_cs);
+      msr_info.data = 0;
+    }
+  else
+    {
+      printk(KERN_INFO "nitro: restoring syscenter cs to 0x%llx\n", old_sysenter_cs);
+      msr_info.data = old_sysenter_cs;
+    }
 	kvm_x86_ops->set_msr(vcpu, &msr_info);
 }
 
 static void nitro_set_trap_efer(struct kvm_vcpu* vcpu, bool enabled)
 {
-    struct msr_data msr_info;
+  struct msr_data msr_info;
 
-    printk(KERN_INFO "nitro: setting trap on efer to %d\n", enabled);
+  printk(KERN_INFO "nitro: setting trap on efer to %d\n", enabled);
 	msr_info.index = MSR_EFER;
 	msr_info.host_initiated = true;
 	kvm_get_msr_common(vcpu, &msr_info);
-    if (enabled)
+  if (enabled)
 		msr_info.data &= ~EFER_SCE;
-    else
+  else
 		msr_info.data |= EFER_SCE;
 	kvm_set_msr_common(vcpu, &msr_info);
 }
 
 u64 nitro_get_old_sysenter_cs(void)
 {
-    return old_sysenter_cs;
+  return old_sysenter_cs;
 }
 
 int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
@@ -97,23 +97,23 @@ int nitro_set_syscall_trap(struct kvm *kvm, bool enabled){
 static void nitro_do_continue(struct kvm_vcpu *vcpu) {
   char *type;
   long er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-  if (er != EMULATE_DONE) {
+  if (unlikely(er != EMULATE_DONE)) {
     switch (er) {
     case EMULATE_DONE: type = "EMULATE_DONE"; break;
     case EMULATE_USER_EXIT: type = "EMULATE_USER_EXIT"; break;
     case EMULATE_FAIL: type = "EMULATE_FAIL"; break;
     default: type = "unknown"; break;
     }
-    printk(KERN_DEBUG "nitro_do_continue emulate_instruction != EMULATION_DONE: %s", type);
+    printk(KERN_DEBUG "nitro_do_continue: emulate_instruction != EMULATION_DONE: %s", type);
     kvm_queue_exception(vcpu, UD_VECTOR);
   }
 }
 
 static void nitro_do_continue_step_over(struct kvm_vcpu *vcpu) {
-    unsigned long rip = kvm_rip_read(vcpu);
-    printk(KERN_DEBUG "nitro_do_continue_step_over: original rip: %lu", rip);
-    rip += 2; 
-    kvm_rip_write(vcpu, rip);
+  unsigned long rip = kvm_rip_read(vcpu);
+  printk(KERN_DEBUG "nitro_do_continue_step_over: original rip: %lu", rip);
+  rip += 2; 
+  kvm_rip_write(vcpu, rip);
 }
 
 void nitro_wait(struct kvm_vcpu *vcpu){
@@ -122,11 +122,14 @@ void nitro_wait(struct kvm_vcpu *vcpu){
   up(&(vcpu->nitro.n_wait_sem));
   printk(KERN_DEBUG "nitro_wait: past up");
 
+  // Note we do not have a timeout here. Let's be careful.
   wait_for_completion(&(vcpu->nitro.k_wait_cv));
   printk(KERN_DEBUG "nitro_wait: past wait_for_completion");
 
-  if (!(is_syscall(vcpu) || is_sysret(vcpu))) {
-    printk(KERN_DEBUG "nitro_wait: processing cont event on instruction other than syscall or sysret");
+  if (!(is_syscall(vcpu) || is_sysret(vcpu) || is_sysenter(vcpu) || is_sysexit(vcpu))) {
+    // We should do something else here. Step over could crash the system on an
+    // invalid instruction.
+    printk(KERN_DEBUG "nitro_wait: processing continuation event on an uknown instruction");
   }
 
   switch (vcpu->nitro.cont) {
@@ -158,12 +161,11 @@ void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
 
 void nitro_process_event(struct kvm_vcpu *vcpu)
 {
-  printk(KERN_DEBUG "nitro_process_event called");
   int er;
 	uint64_t syscall_nb = 0;
 	if (vcpu->nitro.event.direction == ENTER)
 	{
-    printk("nitro_process_event got ENTER");
+    printk(KERN_DEBUG "nitro_process_event: got ENTER event");
 		syscall_nb = vcpu->nitro.event.regs.rax;
 		// create new syscall stack item
 		struct syscall_stack_item *item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
@@ -173,7 +175,7 @@ void nitro_process_event(struct kvm_vcpu *vcpu)
 	}
 	else
 	{
-    printk("nitro_process_event got EXIT");
+    printk(KERN_DEBUG "nitro_process_event: got EXIT event");
 		// EXIT
 		// pop last syscall nb
 		if (!list_empty(&vcpu->nitro.stack.list))
@@ -189,20 +191,8 @@ void nitro_process_event(struct kvm_vcpu *vcpu)
 		}
 		else
 		{
-      // FIXME: If we return here we will break the code as we do not emulate the instruction we are on
-			printk(KERN_DEBUG "syscall exit without enter, not reporting\n");
-      er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-      if (er != EMULATE_DONE) {
-        char *type;
-        switch (er) {
-        case EMULATE_DONE: type = "EMULATE_DONE"; break;
-        case EMULATE_USER_EXIT: type = "EMULATE_USER_EXIT"; break;
-        case EMULATE_FAIL: type = "EMULATE_FAIL"; break;
-        default: type = "unknown"; break;
-        }
-        printk("nitro_process_event syscall/sysret emulation != EMULATION_DONE: %s", type);
-        kvm_queue_exception(vcpu, UD_VECTOR);
-      }
+			printk(KERN_DEBUG "nitro_process_event: syscall exit without enter, not reporting\n");
+      nitro_do_continue(vcpu);
       vcpu->nitro.event.present = false;
 			return;
 		}

@@ -98,9 +98,9 @@ int nitro_iotcl_attach_vcpus(struct kvm *kvm, struct nitro_vcpus *nvcpus){
     nvcpus->fds[r] = create_vcpu_fd(v);
     if(nvcpus->fds[r]<0){
       for(i=r;i>=0;i--){
-	nvcpus->ids[i] = 0;
-	nvcpus->fds[i] = 0;
-	kvm_put_kvm(kvm);
+        nvcpus->ids[i] = 0;
+        nvcpus->fds[i] = 0;
+        kvm_put_kvm(kvm);
       }
       goto error_out;
     }
@@ -109,7 +109,7 @@ int nitro_iotcl_attach_vcpus(struct kvm *kvm, struct nitro_vcpus *nvcpus){
   mutex_unlock(&kvm->lock);
   return 0;
   
-error_out:
+ error_out:
   mutex_unlock(&kvm->lock);
   return -1;
 }
@@ -118,7 +118,7 @@ int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
   int rv;
   
   rv = down_timeout(&(vcpu->nitro.n_wait_sem), 1000);
-  printk("nitro_ioctl_get_event past down(n_wait_sem)");
+  printk(KERN_DEBUG "nitro_ioctl_get_event: past down");
   
   if (rv == 0) {
 	  ev->direction = vcpu->nitro.event.direction;
@@ -126,17 +126,15 @@ int nitro_ioctl_get_event(struct kvm_vcpu *vcpu, struct event *ev){
 	  ev->regs = vcpu->nitro.event.regs;
 	  ev->sregs = vcpu->nitro.event.sregs;
   } else {
-    printk("nitro_ioctl_get_event returned non-zero value");
+    printk(KERN_INFO "nitro_ioctl_get_event: returned non-zero value");
   }
   
   return rv;
 }
 
 int nitro_ioctl_continue(struct kvm_vcpu *vcpu) {
-  int er;
-  printk("nitro_ioctl_continue called");
+  printk(KERN_DEBUG "nitro_ioctl_continue: continuing");
 
-	// if no waiters
 	if(completion_done(&(vcpu->nitro.k_wait_cv)))
     return -1;
 
@@ -148,9 +146,7 @@ int nitro_ioctl_continue(struct kvm_vcpu *vcpu) {
 }
 
 int nitro_ioctl_continue_step_over(struct kvm_vcpu *vcpu){
-  unsigned long rip;
-
-  printk(KERN_INFO "nitro: stepping over system call invocation...");
+  printk(KERN_DEBUG "nitro_ioctl_continue_step_over: stepping over system call invocation");
 
   if(completion_done(&(vcpu->nitro.k_wait_cv)))
     return -1;

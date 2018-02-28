@@ -5508,20 +5508,22 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		if (is_syscall(vcpu)) {
 			printk("handle_exception on syscall");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-				printk("filling nitro.event from handle_exception with ENTER");
+				printk(KERN_DEBUG "handle_exception: filling nitro.event with syscall");
 				vcpu->nitro.event.present = true;
 				vcpu->nitro.event.type = SYSCALL;
 				vcpu->nitro.event.direction = ENTER;
 				kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
 				kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
-				// Let's try what Qemu does with this
+				// Let's try what Qemu does with this. If we are not interested in this
+				// event maybe we shouldn't event exit_here but emulate the event
+				// directly
 				vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
 				return 0;
 			}
 		} else if (is_sysret(vcpu)) {
 			printk("handle_exception on sysret");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-				printk("filling nitro.event from handle_exception with EXIT");
+				printk(KERN_DEBUG "handle_exception: filling nitro.event from with sysret");
 				vcpu->nitro.event.present = true;
 				vcpu->nitro.event.type = SYSCALL;
 				vcpu->nitro.event.direction = EXIT;
@@ -5543,23 +5545,34 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		error_code = vmcs_read32(VM_EXIT_INTR_ERROR_CODE);
 
 	if (is_general_protection(intr_info) &&
-			vcpu->kvm->nitro.traps)
-	{
-		if (is_sysenter_sysexit(vcpu))
-		{
-			if (is_sysenter(vcpu)) {
-				// FIXME: These must be fixed
-				printk("handle_exception on sysenter");
-			} else if (is_sysexit(vcpu)) {
-				printk("handle_exception on sysexit");
+			vcpu->kvm->nitro.traps) {
+		if (is_sysenter(vcpu)) {
+			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+				printk(KERN_DEBUG "handle_exception: filling nitro.event from with sysenter");
+				vcpu->nitro.event.present = true;
+				vcpu->nitro.event.type = SYSENTER;
+				vcpu->nitro.event.direction = ENTER;
+				kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+				kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
+				vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
+				return 0;
 			}
-
-			er = emulate_instruction(vcpu, EMULTYPE_TRAP_UD);
-			if (er != EMULATE_DONE)
-				kvm_queue_exception(vcpu, UD_VECTOR);
-			return 1;
-		}else
-		{
+		} else if (is_sysexit(vcpu)) {
+			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
+				// These are likely to be wrong since the original implementation filled
+				// the event info after emulating the instruction. I guess we kind of
+				// need to do that here but without affecting the actual state of the
+				// vcpu, or somehow fill the event data later
+				printk(KERN_DEBUG "handle_exception: filling nitro.event from with sysexit");
+				vcpu->nitro.event.present = true;
+				vcpu->nitro.event.type = SYSENTER;
+				vcpu->nitro.event.direction = EXIT;
+				kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+				kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
+				vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
+				return 0;
+			}
+		} else {
 			printk(KERN_INFO "Natural GP\n");
 			kvm_queue_exception_e(vcpu, GP_VECTOR, error_code);
 			return 1;

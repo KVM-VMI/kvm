@@ -8557,7 +8557,7 @@ int is_syscall(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 	if (r != X86EMUL_CONTINUE) {
-		printk("is_syscall: x86_decode_insn returned %d", r);
+		printk(KERN_DEBUG "is_syscall: x86_decode_insn returned %d", r);
 	}
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x5);
@@ -8574,7 +8574,7 @@ int is_sysret(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 	if (r != X86EMUL_CONTINUE) {
-		printk("is_sysret: x86_decode_insn returned %d", r);
+		printk(KERN_DEBUG "is_sysret: x86_decode_insn returned %d", r);
 	}
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x7);
@@ -8591,13 +8591,12 @@ int is_sysenter(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 	if (r != X86EMUL_CONTINUE) {
-		printk("is_sysenter: x86_decode_insn returned %d", r);
+		printk(KERN_DEBUG "is_sysenter: x86_decode_insn returned %d", r);
 	}
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x34);
 }
 EXPORT_SYMBOL_GPL(is_sysenter);
-
 
 int is_sysexit(struct kvm_vcpu* vcpu)
 {
@@ -8609,9 +8608,8 @@ int is_sysexit(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 	if (r != X86EMUL_CONTINUE) {
-		printk("is_sysexit: x86_decode_insn returned %d", r);
+		printk(KERN_DEBUG "is_sysexit: x86_decode_insn returned %d", r);
 	}
-
 
 	return (ctxt->opcode_len == 2 && ctxt->b == 0x35);
 }
@@ -8627,7 +8625,7 @@ int is_syscall_sysenter(struct kvm_vcpu* vcpu)
 
 	r = x86_decode_insn(ctxt, NULL, 0);
 	if (r != X86EMUL_CONTINUE) {
-		printk("is_syscall_sysenter: x86_decode_insn returned %d", r);
+		printk(KERN_DEBUG "is_syscall_sysenter: x86_decode_insn returned %d", r);
 	}
 
 	if (ctxt->opcode_len == 2 && (ctxt->b == 0x34 || ctxt->b == 0x5))
