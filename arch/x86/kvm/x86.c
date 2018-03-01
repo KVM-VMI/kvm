@@ -8616,30 +8616,6 @@ int is_sysexit(struct kvm_vcpu* vcpu)
 }
 EXPORT_SYMBOL_GPL(is_sysexit);
 
-int is_syscall_sysenter(struct kvm_vcpu* vcpu)
-{
-	struct x86_emulate_ctxt *ctxt;
-	int r = 0;
-
-	init_emulate_ctxt(vcpu);
-	ctxt = &vcpu->arch.emulate_ctxt;
-
-	r = x86_decode_insn(ctxt, NULL, 0);
-	if (r != X86EMUL_CONTINUE) {
-		printk(KERN_DEBUG "is_syscall_sysenter: x86_decode_insn returned %d", r);
-	}
-
-	if (ctxt->opcode_len == 2 && (ctxt->b == 0x34 || ctxt->b == 0x5))
-		return 1;
-	else
-		{
-			printk(KERN_INFO "nitro: opcode = 0x%x", ctxt->b);
-			return 0;
-		}
-}
-EXPORT_SYMBOL_GPL(is_syscall_sysenter);
-
-
 bool kvm_vector_hashing_enabled(void)
 {
 	return vector_hashing;

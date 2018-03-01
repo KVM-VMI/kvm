@@ -60,6 +60,9 @@ void nitro_destroy_vcpu_hook(struct kvm_vcpu *vcpu){
 	struct list_head *pos, *n;
 
 	vcpu->nitro.event.present = false;
+  // Not sure if this is safe
+  complete_all(&(vcpu->nitro.k_wait_cv));
+
 	// destroy vcpu syscall stack
 	list_for_each_safe(pos, n, &vcpu->nitro.stack.list)
 	{

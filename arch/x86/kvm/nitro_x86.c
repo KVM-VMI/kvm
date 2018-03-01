@@ -16,18 +16,15 @@ static void nitro_set_trap_sysenter_cs(struct kvm_vcpu* vcpu, bool enabled)
   printk(KERN_INFO "nitro: setting trap on sysenter CS to %d\n", enabled);
 	msr_info.index = MSR_IA32_SYSENTER_CS;
 	msr_info.host_initiated = true;
-	if (enabled)
-    {
-      kvm_x86_ops->get_msr(vcpu, &msr_info);
-      old_sysenter_cs = msr_info.data;
-      printk(KERN_INFO "nitro: old sysenter cs = 0x%llx\n", old_sysenter_cs);
-      msr_info.data = 0;
-    }
-  else
-    {
-      printk(KERN_INFO "nitro: restoring syscenter cs to 0x%llx\n", old_sysenter_cs);
-      msr_info.data = old_sysenter_cs;
-    }
+	if (enabled) {
+    kvm_x86_ops->get_msr(vcpu, &msr_info);
+    old_sysenter_cs = msr_info.data;
+    printk(KERN_INFO "nitro: old sysenter cs = 0x%llx\n", old_sysenter_cs);
+    msr_info.data = 0;
+  } else {
+    printk(KERN_INFO "nitro: restoring syscenter cs to 0x%llx\n", old_sysenter_cs);
+    msr_info.data = old_sysenter_cs;
+  }
 	kvm_x86_ops->set_msr(vcpu, &msr_info);
 }
 
@@ -158,17 +155,16 @@ EXPORT_SYMBOL_GPL(nitro_should_propagate);
 // Maybe some locking should be in place...
 bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result)
 {
-	uint64_t syscall_nb = 0;
+  uint64_t syscall_nb = 0;
   bool success = true;
   struct syscall_stack_item *item;
-	if (vcpu->nitro.event.direction == ENTER) {
+  if (vcpu->nitro.event.direction == ENTER) {
     printk(KERN_DEBUG "nitro_get_syscall_num: got ENTER event");
-		syscall_nb = vcpu->nitro.event.regs.rax;
-		item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
-		item->syscall_nb = syscall_nb;
-		list_add_tail(&item->list, &vcpu->nitro.stack.list);
-	}
-	else {
+    syscall_nb = vcpu->nitro.event.regs.rax;
+    item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
+    item->syscall_nb = syscall_nb;
+    list_add_tail(&item->list, &vcpu->nitro.stack.list);
+  } else {
     printk(KERN_DEBUG "nitro_get_syscall_num: got EXIT event");
 		if (!list_empty(&vcpu->nitro.stack.list)) {
 			struct syscall_stack_item *item;
@@ -188,6 +184,7 @@ bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result)
 
 
 u64 nitro_get_efer(struct kvm_vcpu *vcpu){
-  return nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL) ? (vcpu->arch.efer | EFER_SCE) : vcpu->arch.efer;
+  return nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)
+    ? (vcpu->arch.efer | EFER_SCE) : vcpu->arch.efer;
 }
 
