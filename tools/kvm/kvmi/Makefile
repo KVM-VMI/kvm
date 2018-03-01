@@ -6,7 +6,7 @@ LO_LIB := -shared -Wl,-version-script=version
 kvmi-test : kvmi-test.c libkvmi.so
 	$(CC) $(CO) -o $@ kvmi-test.c -L. -lkvmi 
 
-libkvmi.so : libkvmi.c
+libkvmi.so : libkvmi.c version
 	$(CC) $(CO_LIB) $(CFLAGS) $(LO_LIB) -o $@ libkvmi.c
 
 libkvmi.c : include/linux/kvmi.h include/asm/kvmi.h
