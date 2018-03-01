@@ -45,6 +45,7 @@ struct nitro_vcpu{
 };
 
 struct kvm* nitro_get_vm_by_creator(pid_t);
+void nitro_fill_event(struct kvm_vcpu *vcpu, enum syscall_type type, enum syscall_direction direction);
 
 int nitro_iotcl_num_vms(void);
 int nitro_iotcl_attach_vcpus(struct kvm*, struct nitro_vcpus*);

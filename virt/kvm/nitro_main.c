@@ -36,6 +36,22 @@ struct kvm* nitro_get_vm_by_creator(pid_t creator){
   return rv;
 }
 
+void nitro_fill_event(struct kvm_vcpu *vcpu, enum syscall_type type, enum syscall_direction direction) {
+  printk(KERN_DEBUG "nitro_fill_event: filling nitro event with type %s and direction %s",
+         type == SYSCALL ? "syscall" : "sysret",
+         direction == ENTER ? "enter" : "exit");
+  vcpu->nitro.event.present = true;
+  vcpu->nitro.event.type = type;
+  vcpu->nitro.event.direction = direction;
+  kvm_arch_vcpu_ioctl_get_regs(vcpu, &(vcpu->nitro.event.regs));
+  kvm_arch_vcpu_ioctl_get_sregs(vcpu, &(vcpu->nitro.event.sregs));
+  // Let's try what Qemu does with this. If we are not interested in this
+  // event maybe we shouldn't event exit_here but emulate the event
+  // directly
+  vcpu->run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
+}
+EXPORT_SYMBOL_GPL(nitro_fill_event);
+
 void nitro_create_vm_hook(struct kvm *kvm){
 	//init nitro
 	kvm->nitro.traps = 0;
@@ -228,6 +244,7 @@ struct syscall_filter_ht_entry* nitro_find_syscall(struct kvm* kvm, uint64_t sys
 	}
 	mutex_unlock(&kvm->lock);
 
+  printk("nitro_find_syscall: %s", found == NULL ? "null" : "not-null");
 	return found;
 }
 

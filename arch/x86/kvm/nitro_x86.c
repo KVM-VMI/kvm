@@ -109,12 +109,13 @@ EXPORT_SYMBOL_GPL(nitro_do_continue);
 
 void nitro_do_continue_step_over(struct kvm_vcpu *vcpu) {
   unsigned long rip = kvm_rip_read(vcpu);
+  // Both syscall and sysenter are two bytes
   printk(KERN_DEBUG "nitro_do_continue_step_over: original rip: %lu", rip);
   rip += 2; 
   kvm_rip_write(vcpu, rip);
 }
 
-void nitro_wait(struct kvm_vcpu *vcpu){
+void nitro_wait(struct kvm_vcpu *vcpu) {
   printk(KERN_DEBUG "nitro_wait: called");
   
   up(&(vcpu->nitro.n_wait_sem));
@@ -124,21 +125,21 @@ void nitro_wait(struct kvm_vcpu *vcpu){
   wait_for_completion(&(vcpu->nitro.k_wait_cv));
   printk(KERN_DEBUG "nitro_wait: past wait_for_completion");
 
-  if (!(is_syscall(vcpu) || is_sysret(vcpu) || is_sysenter(vcpu) || is_sysexit(vcpu))) {
-    // We should do something else here. Step over could crash the system on an
-    // invalid instruction.
-    printk(KERN_DEBUG "nitro_wait: processing continuation event on an uknown instruction");
-  }
-
-  switch (vcpu->nitro.cont) {
-  case NITRO_CONTINUATION_CONTINUE:
-    printk(KERN_DEBUG "nitro_wait: received continue event");
-    nitro_do_continue(vcpu);
-    break;
-  case NITRO_CONTINUATION_STEP_OVER:
-    printk(KERN_DEBUG "nitro_wait: received step over event");
-    nitro_do_continue_step_over(vcpu);
-    break;
+  if (vcpu->nitro.event.direction == ENTER) {
+    if (likely(is_syscall(vcpu) || is_sysenter(vcpu))) {
+        switch (vcpu->nitro.cont) {
+        case NITRO_CONTINUATION_CONTINUE:
+            printk(KERN_DEBUG "nitro_wait: received continue event");
+            nitro_do_continue(vcpu);
+            break;
+        case NITRO_CONTINUATION_STEP_OVER:
+            printk(KERN_DEBUG "nitro_wait: received step over event");
+            nitro_do_continue_step_over(vcpu);
+            break;
+        }
+    } else {
+      printk(KERN_DEBUG "nitro_wait: processing continuation event on an unknown instruction");
+    }
   }
 }
 EXPORT_SYMBOL_GPL(nitro_do_continue_step_over);
@@ -153,8 +154,7 @@ bool nitro_should_propagate(struct kvm_vcpu *vcpu) {
 EXPORT_SYMBOL_GPL(nitro_should_propagate);
 
 // Maybe some locking should be in place...
-bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result)
-{
+bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result) {
   uint64_t syscall_nb = 0;
   bool success = true;
   struct syscall_stack_item *item;
@@ -167,7 +167,6 @@ bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result)
   } else {
     printk(KERN_DEBUG "nitro_get_syscall_num: got EXIT event");
 		if (!list_empty(&vcpu->nitro.stack.list)) {
-			struct syscall_stack_item *item;
 			item = list_last_entry(&vcpu->nitro.stack.list, struct syscall_stack_item, list);
 			syscall_nb = item->syscall_nb;
 			list_del(&item->list);
@@ -178,12 +177,13 @@ bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result)
       success = false;
 		}
 	}
+  printk("nitro_get_syscall_num: %llu", syscall_nb);
   *result = syscall_nb;
   return success;
 }
 
 
-u64 nitro_get_efer(struct kvm_vcpu *vcpu){
+u64 nitro_get_efer(struct kvm_vcpu *vcpu) {
   return nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)
     ? (vcpu->arch.efer | EFER_SCE) : vcpu->arch.efer;
 }
