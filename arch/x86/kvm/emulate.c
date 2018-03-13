@@ -25,12 +25,13 @@
 #include <asm/kvm_emulate.h>
 #include <linux/stringify.h>
 #include <asm/debugreg.h>
-#include <linux/nitro_main.h>
-#include "nitro_x86.h"
-#include "emulate.h"
 
 #include "x86.h"
 #include "tss.h"
+
+#include <linux/nitro_main.h>
+#include "nitro_x86.h"
+#include "emulate.h"
 
 /*
  * Operand types
@@ -2650,7 +2651,7 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 
 	if (!(efer & EFER_SCE) && !nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL))
 		return emulate_ud(ctxt);
-	
+
 	ops->get_msr(ctxt, MSR_STAR, &msr_data);
 	msr_data >>= 32;
 	cs_sel = (u16)(msr_data & 0xfffc);
@@ -2685,8 +2686,6 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 		ctxt->eflags &= ~(X86_EFLAGS_VM | X86_EFLAGS_IF);
 	}
 
-
-	
 	return X86EMUL_CONTINUE;
 }
 
