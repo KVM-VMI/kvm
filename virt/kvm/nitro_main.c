@@ -195,6 +195,7 @@ int nitro_add_syscall_filter(struct kvm *kvm, uint64_t syscall_nb)
 		found = kmalloc(sizeof(struct syscall_filter_ht_entry), GFP_KERNEL);
 		hash_add(kvm->nitro.syscall_filter_ht, &found->node, key);
 		mutex_unlock(&kvm->lock);
+    printk(KERN_DEBUG "nitro_add_syscall_filter: added %llu", syscall_nb);
 	}
 	return 0;
 }

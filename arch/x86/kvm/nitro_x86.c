@@ -148,6 +148,7 @@ bool nitro_should_propagate(struct kvm_vcpu *vcpu) {
   uint64_t syscall_num;
   if (!hash_empty(vcpu->kvm->nitro.syscall_filter_ht)) {
     return nitro_get_syscall_num(vcpu, &syscall_num) && nitro_find_syscall(vcpu->kvm, syscall_num);
+    
   }
   return true;
 }
@@ -160,7 +161,7 @@ bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result) {
   struct syscall_stack_item *item;
   if (vcpu->nitro.event.direction == ENTER) {
     printk(KERN_DEBUG "nitro_get_syscall_num: got ENTER event");
-    syscall_nb = vcpu->nitro.event.regs.rax;
+    syscall_nb = kvm_register_read(vcpu, VCPU_REGS_RAX);
     item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
     item->syscall_nb = syscall_nb;
     list_add_tail(&item->list, &vcpu->nitro.stack.list);
