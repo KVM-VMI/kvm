@@ -144,10 +144,10 @@ void nitro_wait(struct kvm_vcpu *vcpu) {
 }
 EXPORT_SYMBOL_GPL(nitro_do_continue_step_over);
 
-bool nitro_should_propagate(struct kvm_vcpu *vcpu) {
+bool nitro_should_propagate(struct kvm_vcpu *vcpu, enum syscall_direction dir) {
   uint64_t syscall_num;
   if (!hash_empty(vcpu->kvm->nitro.syscall_filter_ht)) {
-    return nitro_get_syscall_num(vcpu, &syscall_num) && nitro_find_syscall(vcpu->kvm, syscall_num);
+    return nitro_get_syscall_num(vcpu, dir, &syscall_num) && nitro_find_syscall(vcpu->kvm, syscall_num);
     
   }
   return true;
@@ -155,11 +155,11 @@ bool nitro_should_propagate(struct kvm_vcpu *vcpu) {
 EXPORT_SYMBOL_GPL(nitro_should_propagate);
 
 // Maybe some locking should be in place...
-bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, uint64_t *result) {
+bool nitro_get_syscall_num(struct kvm_vcpu *vcpu, enum syscall_direction dir, uint64_t *result) {
   uint64_t syscall_nb = 0;
   bool success = true;
   struct syscall_stack_item *item;
-  if (vcpu->nitro.event.direction == ENTER) {
+  if (dir == ENTER) {
     printk(KERN_DEBUG "nitro_get_syscall_num: got ENTER event");
     syscall_nb = kvm_register_read(vcpu, VCPU_REGS_RAX);
     item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);

@@ -5509,8 +5509,8 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		if (is_syscall(vcpu)) {
 			printk(KERN_DEBUG "handle_exception: syscall");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-				if (nitro_should_propagate(vcpu)) {
-					printk("syscall propagated");
+				if (nitro_should_propagate(vcpu, ENTER)) {
+					printk(KERN_DEBUG "syscall propagated");
 					nitro_fill_event(vcpu, SYSCALL, ENTER);
 					return 0;
 				} else {
@@ -5522,8 +5522,8 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 			printk(KERN_DEBUG "handle_exception: sysret");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
 				nitro_do_continue(vcpu);
-				if (nitro_should_propagate(vcpu)) {
-					printk("sysret propagated");
+				if (nitro_should_propagate(vcpu, EXIT)) {
+					printk(KERN_DEBUG "sysret propagated");
 					nitro_fill_event(vcpu, SYSCALL, EXIT);
 					return 0;
 				} else {
@@ -5547,7 +5547,8 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 		if (is_sysenter(vcpu)) {
 			printk(KERN_DEBUG "handle_exception: sysenter");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
-				if (nitro_should_propagate(vcpu)) {
+				if (nitro_should_propagate(vcpu, ENTER)) {
+					printk(KERN_DEBUG "sysenter propagated");
 					nitro_fill_event(vcpu, SYSENTER, ENTER);
 					return 0;
 				} else {
@@ -5559,7 +5560,8 @@ static int handle_exception(struct kvm_vcpu *vcpu)
 			printk(KERN_DEBUG "handle_exception: sysexit");
 			if(nitro_is_trap_set(vcpu->kvm, NITRO_TRAP_SYSCALL)){
 				nitro_do_continue(vcpu);
-				if (nitro_should_propagate(vcpu)) {
+				if (nitro_should_propagate(vcpu, EXIT)) {
+					printk(KERN_DEBUG "sysexit propagated");
 					nitro_fill_event(vcpu, SYSENTER, EXIT);
 					return 0;
 				} else {
