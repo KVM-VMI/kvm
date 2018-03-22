@@ -122,7 +122,7 @@ void nitro_wait(struct kvm_vcpu *vcpu) {
   printk(KERN_DEBUG "nitro_wait: past up");
 
   // Note we do not have a timeout here. Let's be careful.
-  wait_for_completion(&(vcpu->nitro.k_wait_cv));
+  wait_for_completion_killable(&(vcpu->nitro.k_wait_cv));
   printk(KERN_DEBUG "nitro_wait: past wait_for_completion");
 
   if (vcpu->nitro.event.direction == ENTER) {
