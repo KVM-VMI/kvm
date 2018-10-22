@@ -53,6 +53,7 @@ void nitro_create_vcpu_hook(struct kvm_vcpu *vcpu){
 }
 
 void nitro_destroy_vcpu_hook(struct kvm_vcpu *vcpu){
+	printk(KERN_INFO "nitro: destroying nitro on VCPU %d (PID: %d)\n", vcpu->vcpu_id, vcpu->kvm->mm->owner->pid);
 	struct syscall_stack_item *tmp;
 	struct list_head *pos, *n;
 
