@@ -11,6 +11,7 @@
 
 // 12 bits -> 1024 entries
 #define NITRO_SYSCALL_FILTER_HT_BITS 12
+#define NITRO_SYSCALL_STACK_SIZE 1024
 
 struct syscall_stack_item
 {
@@ -35,7 +36,8 @@ struct nitro_vcpu{
   struct completion k_wait_cv;
   struct semaphore n_wait_sem;
   struct event event;
-  struct syscall_stack_item stack;
+  uint64_t syscall_stack[NITRO_SYSCALL_STACK_SIZE];
+  int syscall_stack_counter;
 };
 
 struct kvm* nitro_get_vm_by_creator(pid_t);

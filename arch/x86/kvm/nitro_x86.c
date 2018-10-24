@@ -124,33 +124,31 @@ void nitro_report_event(struct kvm_vcpu *vcpu, uint64_t syscall_nb){
 void nitro_process_event(struct kvm_vcpu *vcpu)
 {
 	uint64_t syscall_nb = 0;
+	struct syscall_stack_item *item= NULL;
+
 	if (vcpu->nitro.event.direction == ENTER)
 	{
 		syscall_nb = vcpu->nitro.event.regs.rax;
-		// create new syscall stack item
-		struct syscall_stack_item *item = kmalloc(sizeof(struct syscall_stack_item), GFP_KERNEL);
-		item->syscall_nb = syscall_nb;
-		// add it at tail
-		list_add_tail(&item->list, &vcpu->nitro.stack.list);
+		if (!vcpu->nitro.syscall_stack_counter >= NITRO_SYSCALL_STACK_SIZE)
+		{
+			vcpu->nitro.syscall_stack[vcpu->nitro.syscall_stack_counter] = syscall_nb;
+			vcpu->nitro.syscall_stack_counter++;
+		}
+		else
+			printk(KERN_INFO "enter: syscall enter - stack is full\n");
 	}
 	else
 	{
 		// EXIT
 		// pop last syscall nb
-		if (!list_empty(&vcpu->nitro.stack.list))
+		// check if not full
+		if (!vcpu->nitro.syscall_stack_counter >= NITRO_SYSCALL_STACK_SIZE)
 		{
-			// take last entry
-			struct syscall_stack_item *item;
-			item = list_last_entry(&vcpu->nitro.stack.list, struct syscall_stack_item, list);
-			syscall_nb = item->syscall_nb;
-			// delete from list
-			list_del(&item->list);
-			// free item
-			kfree(item);
+			syscall_nb = vcpu->nitro.syscall_stack[vcpu->nitro.syscall_stack_counter];
 		}
 		else
 		{
-			printk(KERN_DEBUG "syscall exit without enter, not reporting, event = FALSE\n");
+			printk(KERN_DEBUG "nitro: syscall exit - stack is full\n");
 			vcpu->nitro.event.present = false;
 			return;
 		}
