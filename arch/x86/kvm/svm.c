@@ -1066,6 +1066,11 @@ static void set_msr_interception(struct vcpu_svm *svm,
 	unsigned long tmp;
 	u32 offset;
 
+#ifdef CONFIG_KVM_INTROSPECTION
+	if (!write && kvmi_monitored_msr(&svm->vcpu, msr))
+		return;
+#endif /* CONFIG_KVM_INTROSPECTION */
+
 	/*
 	 * If this warning triggers extend the direct_access_msrs list at the
 	 * beginning of the file
