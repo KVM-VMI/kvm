@@ -8546,6 +8546,13 @@ int kvm_arch_vcpu_set_guest_debug(struct kvm_vcpu *vcpu,
 			kvm_queue_exception(vcpu, BP_VECTOR);
 	}
 
+#ifdef CONFIG_KVM_INTROSPECTION
+	if (kvmi_bp_intercepted(vcpu, dbg->control)) {
+		ret = -EBUSY;
+		goto out;
+	}
+#endif
+
 	/*
 	 * Read rflags as long as potentially injected trace flags are still
 	 * filtered out.
