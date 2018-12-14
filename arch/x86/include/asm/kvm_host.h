@@ -757,6 +757,9 @@ struct kvm_vcpu_arch {
 	/* set at EPT violation at this point */
 	unsigned long exit_qualification;
 
+	/* #PF translated error code from EPT/NPT exit reason */
+	u64 error_code;
+
 	/* pv related host specific info */
 	struct {
 		bool pv_unhalted;
@@ -1186,6 +1189,13 @@ struct kvm_x86_ops {
 
 	int (*nested_enable_evmcs)(struct kvm_vcpu *vcpu,
 				   uint16_t *vmcs_version);
+
+	void (*msr_intercept)(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable);
+	u64 (*fault_gla)(struct kvm_vcpu *vcpu);
+	void (*set_mtf)(struct kvm_vcpu *vcpu, bool enable);
+	bool (*nested_pagefault)(struct kvm_vcpu *vcpu);
+	bool (*spt_fault)(struct kvm_vcpu *vcpu);
 };
 
 struct kvm_arch_async_pf {
@@ -1283,6 +1293,7 @@ extern u64  kvm_max_tsc_scaling_ratio;
 extern u64  kvm_default_tsc_scaling_ratio;
 
 extern u64 kvm_mce_cap_supported;
+extern bool kvm_eptp_switching_supported;
 
 enum emulation_result {
 	EMULATE_DONE,         /* no further processing */
@@ -1581,4 +1592,11 @@ static inline int kvm_cpu_get_apicid(int mps_cpu)
 #define put_smstate(type, buf, offset, val)                      \
 	*(type *)((buf) + (offset) - 0x7e00) = val
 
+void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable);
+u64 kvm_mmu_fault_gla(struct kvm_vcpu *vcpu);
+bool kvm_mmu_nested_pagefault(struct kvm_vcpu *vcpu);
+bool kvm_spt_fault(struct kvm_vcpu *vcpu);
+void kvm_set_mtf(struct kvm_vcpu *vcpu, bool enable);
+void kvm_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 #endif /* _ASM_X86_KVM_HOST_H */

@@ -6119,3 +6119,13 @@ void kvm_mmu_module_exit(void)
 	unregister_shrinker(&mmu_shrinker);
 	mmu_audit_disable();
 }
+
+u64 kvm_mmu_fault_gla(struct kvm_vcpu *vcpu)
+{
+	return kvm_x86_ops->fault_gla(vcpu);
+}
+
+bool kvm_mmu_nested_pagefault(struct kvm_vcpu *vcpu)
+{
+	return kvm_x86_ops->nested_pagefault(vcpu);
+}

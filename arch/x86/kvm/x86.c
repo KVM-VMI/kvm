@@ -150,6 +150,9 @@ EXPORT_SYMBOL_GPL(enable_vmware_backdoor);
 static bool __read_mostly force_emulation_prefix = false;
 module_param(force_emulation_prefix, bool, S_IRUGO);
 
+bool __read_mostly kvm_eptp_switching_supported;
+EXPORT_SYMBOL_GPL(kvm_eptp_switching_supported);
+
 #define KVM_NR_SHARED_MSRS 16
 
 struct kvm_shared_msrs_global {
@@ -3714,8 +3717,8 @@ static void load_xsave(struct kvm_vcpu *vcpu, u8 *src)
 	}
 }
 
-static void kvm_vcpu_ioctl_x86_get_xsave(struct kvm_vcpu *vcpu,
-					 struct kvm_xsave *guest_xsave)
+void kvm_vcpu_ioctl_x86_get_xsave(struct kvm_vcpu *vcpu,
+				  struct kvm_xsave *guest_xsave)
 {
 	if (boot_cpu_has(X86_FEATURE_XSAVE)) {
 		memset(guest_xsave, 0, sizeof(struct kvm_xsave));
@@ -6349,7 +6352,9 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu,
 
 		trace_kvm_emulate_insn_start(vcpu);
 		++vcpu->stat.insn_emulation;
-		if (r != EMULATION_OK)  {
+		if (r == EMULATION_USER_EXIT)
+			return EMULATE_DONE;
+		if (r != EMULATION_OK) {
 			if (emulation_type & EMULTYPE_TRAP_UD)
 				return EMULATE_FAIL;
 			if (reexecute_instruction(vcpu, cr2, write_fault_to_spt,
@@ -6390,6 +6395,8 @@ restart:
 
 	r = x86_emulate_insn(ctxt);
 
+	if (r == EMULATION_USER_EXIT)
+		return EMULATE_DONE;
 	if (r == EMULATION_INTERCEPTED)
 		return EMULATE_DONE;
 
@@ -8169,6 +8176,11 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	return 0;
 }
 
+void kvm_arch_vcpu_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
+{
+	__get_regs(vcpu, regs);
+}
+
 static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
 	vcpu->arch.emulate_regs_need_sync_from_vcpu = true;
@@ -8207,6 +8219,39 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	__set_regs(vcpu, regs);
 	vcpu_put(vcpu);
 	return 0;
+}
+
+/*
+ * Similar to __set_regs() but it does not reset the exceptions
+ */
+void kvm_arch_vcpu_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
+{
+	vcpu->arch.emulate_regs_need_sync_from_vcpu = true;
+	vcpu->arch.emulate_regs_need_sync_to_vcpu = false;
+
+	kvm_register_write(vcpu, VCPU_REGS_RAX, regs->rax);
+	kvm_register_write(vcpu, VCPU_REGS_RBX, regs->rbx);
+	kvm_register_write(vcpu, VCPU_REGS_RCX, regs->rcx);
+	kvm_register_write(vcpu, VCPU_REGS_RDX, regs->rdx);
+	kvm_register_write(vcpu, VCPU_REGS_RSI, regs->rsi);
+	kvm_register_write(vcpu, VCPU_REGS_RDI, regs->rdi);
+	kvm_register_write(vcpu, VCPU_REGS_RSP, regs->rsp);
+	kvm_register_write(vcpu, VCPU_REGS_RBP, regs->rbp);
+#ifdef CONFIG_X86_64
+	kvm_register_write(vcpu, VCPU_REGS_R8, regs->r8);
+	kvm_register_write(vcpu, VCPU_REGS_R9, regs->r9);
+	kvm_register_write(vcpu, VCPU_REGS_R10, regs->r10);
+	kvm_register_write(vcpu, VCPU_REGS_R11, regs->r11);
+	kvm_register_write(vcpu, VCPU_REGS_R12, regs->r12);
+	kvm_register_write(vcpu, VCPU_REGS_R13, regs->r13);
+	kvm_register_write(vcpu, VCPU_REGS_R14, regs->r14);
+	kvm_register_write(vcpu, VCPU_REGS_R15, regs->r15);
+#endif
+
+	kvm_rip_write(vcpu, regs->rip);
+	kvm_set_rflags(vcpu, regs->rflags | X86_EFLAGS_FIXED);
+
+	kvm_make_request(KVM_REQ_EVENT, vcpu);
 }
 
 void kvm_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
@@ -8262,6 +8307,11 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 	__get_sregs(vcpu, sregs);
 	vcpu_put(vcpu);
 	return 0;
+}
+
+void kvm_arch_vcpu_get_sregs(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
+{
+	__get_sregs(vcpu, sregs);
 }
 
 int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
@@ -8457,16 +8507,15 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 	return ret;
 }
 
-int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
-					struct kvm_guest_debug *dbg)
+int kvm_arch_vcpu_set_guest_debug(struct kvm_vcpu *vcpu,
+				  struct kvm_guest_debug *dbg)
 {
 	unsigned long rflags;
-	int i, r;
-
-	vcpu_load(vcpu);
+	int i;
+	int ret = 0;
 
 	if (dbg->control & (KVM_GUESTDBG_INJECT_DB | KVM_GUESTDBG_INJECT_BP)) {
-		r = -EBUSY;
+		ret = -EBUSY;
 		if (vcpu->arch.exception.pending)
 			goto out;
 		if (dbg->control & KVM_GUESTDBG_INJECT_DB)
@@ -8507,11 +8556,19 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 
 	kvm_x86_ops->update_bp_intercept(vcpu);
 
-	r = 0;
-
 out:
+	return ret;
+}
+
+int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
+					struct kvm_guest_debug *dbg)
+{
+	int ret;
+
+	vcpu_load(vcpu);
+	ret = kvm_arch_vcpu_set_guest_debug(vcpu, dbg);
 	vcpu_put(vcpu);
-	return r;
+	return ret;
 }
 
 /*
@@ -9761,6 +9818,36 @@ bool kvm_vector_hashing_enabled(void)
 	return vector_hashing;
 }
 EXPORT_SYMBOL_GPL(kvm_vector_hashing_enabled);
+
+void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable)
+{
+	kvm_x86_ops->msr_intercept(vcpu, msr, enable);
+}
+EXPORT_SYMBOL_GPL(kvm_arch_msr_intercept);
+
+void kvm_arch_queue_bp(struct kvm_vcpu *vcpu)
+{
+	kvm_queue_exception(vcpu, BP_VECTOR);
+}
+
+void kvm_set_mtf(struct kvm_vcpu *vcpu, bool enable)
+{
+	kvm_x86_ops->set_mtf(vcpu, enable);
+}
+EXPORT_SYMBOL(kvm_set_mtf);
+
+void kvm_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
+{
+	kvm_x86_ops->set_interrupt_shadow(vcpu, mask);
+}
+EXPORT_SYMBOL(kvm_set_interrupt_shadow);
+
+bool kvm_spt_fault(struct kvm_vcpu *vcpu)
+{
+	return kvm_x86_ops->spt_fault(vcpu);
+}
+EXPORT_SYMBOL(kvm_spt_fault);
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);
