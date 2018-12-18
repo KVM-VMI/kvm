@@ -7773,6 +7773,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		}
 	}
 
+	if (kvmi_lost_exception(vcpu))
+		kvmi_trap_event(vcpu);
+
 	r = kvm_mmu_reload(vcpu);
 	if (unlikely(r)) {
 		goto cancel_injection;
