@@ -7293,6 +7293,35 @@ static int handle_set_cr4(struct kvm_vcpu *vcpu, unsigned long val)
 
 static int handle_desc(struct kvm_vcpu *vcpu)
 {
+#ifdef CONFIG_KVM_INTROSPECTION
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	u32 exit_reason = vmx->exit_reason;
+	unsigned long exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+	u32 vmx_instruction_info = vmcs_read32(VMX_INSTRUCTION_INFO);
+	unsigned char store = (vmx_instruction_info >> 29) & 0x1;
+	unsigned char descriptor = 0;
+
+	if (exit_reason == EXIT_REASON_GDTR_IDTR) {
+		if ((vmx_instruction_info >> 28) & 0x1)
+			descriptor = KVMI_DESC_IDTR;
+		else
+			descriptor = KVMI_DESC_GDTR;
+	} else {
+		if ((vmx_instruction_info >> 28) & 0x1)
+			descriptor = KVMI_DESC_TR;
+		else
+			descriptor = KVMI_DESC_LDTR;
+	}
+
+	/*
+	 * For now, this function returns false only when the guest
+	 * is ungracefully stopped (crashed) by the introspection tool.
+	 */
+	if (!kvmi_descriptor_event(vcpu, vmx_instruction_info,
+				   exit_qualification, descriptor, store))
+		return false;
+#endif /* CONFIG_KVM_INTROSPECTION */
+
 	WARN_ON(!(vcpu->arch.cr4 & X86_CR4_UMIP));
 	return kvm_emulate_instruction(vcpu, 0) == EMULATE_DONE;
 }
