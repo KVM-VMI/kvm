@@ -40,6 +40,7 @@
 #include <linux/uaccess.h>
 #include <linux/hash.h>
 #include <linux/kern_levels.h>
+#include <linux/kvmi.h>
 
 #include <asm/page.h>
 #include <asm/pat.h>
@@ -2458,6 +2459,9 @@ static void clear_sp_write_flooding_count(u64 *spte)
 static unsigned int kvm_mmu_page_track_acc(struct kvm_vcpu *vcpu, gfn_t gfn,
 					   unsigned int acc)
 {
+	if (!kvmi_tracked_gfn(vcpu, gfn))
+		return acc;
+
 	if (kvm_page_track_is_active(vcpu, gfn, KVM_PAGE_TRACK_PREREAD))
 		acc &= ~ACC_USER_MASK;
 	if (kvm_page_track_is_active(vcpu, gfn, KVM_PAGE_TRACK_PREWRITE) ||
@@ -5433,8 +5437,13 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gva_t cr2, u64 error_code,
 	 */
 	if (vcpu->arch.mmu->direct_map &&
 	    (error_code & PFERR_NESTED_GUEST_PAGE) == PFERR_NESTED_GUEST_PAGE) {
-		kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(cr2));
-		return 1;
+		if (kvmi_tracked_gfn(vcpu, gpa_to_gfn(cr2))) {
+			if (kvmi_update_ad_flags(vcpu))
+				return 1;
+		} else {
+			kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(cr2));
+			return 1;
+		}
 	}
 
 	/*

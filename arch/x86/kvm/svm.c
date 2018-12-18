@@ -18,6 +18,7 @@
 #define pr_fmt(fmt) "SVM: " fmt
 
 #include <linux/kvm_host.h>
+#include <linux/kvmi.h>
 
 #include "irq.h"
 #include "mmu.h"
@@ -50,6 +51,7 @@
 #include <asm/kvm_para.h>
 #include <asm/irq_remapping.h>
 #include <asm/spec-ctrl.h>
+#include <asm/kvmi.h>
 
 #include <asm/virtext.h>
 #include "trace.h"

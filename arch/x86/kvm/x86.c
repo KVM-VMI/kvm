@@ -20,6 +20,8 @@
  */
 
 #include <linux/kvm_host.h>
+#include <linux/kvmi.h>
+#include <uapi/linux/kvmi.h>
 #include "irq.h"
 #include "mmu.h"
 #include "i8254.h"
@@ -3076,6 +3078,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = kvm_x86_ops->get_nested_state ?
 			kvm_x86_ops->get_nested_state(NULL, 0, 0) : 0;
 		break;
+#ifdef CONFIG_KVM_INTROSPECTION
+	case KVM_CAP_INTROSPECTION:
+		r = KVMI_VERSION;
+		break;
+#endif
 	default:
 		break;
 	}
@@ -5314,7 +5321,7 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 	 * operation using rep will only have the initial GPA from the NPF
 	 * occurred.
 	 */
-	if (vcpu->arch.gpa_available &&
+	if (vcpu->arch.gpa_available && !kvmi_is_present() &&
 	    emulator_can_use_gpa(ctxt) &&
 	    (addr & ~PAGE_MASK) == (vcpu->arch.gpa_val & ~PAGE_MASK)) {
 		gpa = vcpu->arch.gpa_val;
@@ -6096,7 +6103,8 @@ static bool reexecute_instruction(struct kvm_vcpu *vcpu, gva_t cr2,
 		indirect_shadow_pages = vcpu->kvm->arch.indirect_shadow_pages;
 		spin_unlock(&vcpu->kvm->mmu_lock);
 
-		if (indirect_shadow_pages)
+		if (indirect_shadow_pages
+		    && !kvmi_tracked_gfn(vcpu, gpa_to_gfn(gpa)))
 			kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
 
 		return true;
@@ -6107,7 +6115,8 @@ static bool reexecute_instruction(struct kvm_vcpu *vcpu, gva_t cr2,
 	 * and it failed try to unshadow page and re-enter the
 	 * guest to let CPU execute the instruction.
 	 */
-	kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
+	if (!kvmi_tracked_gfn(vcpu, gpa_to_gfn(gpa)))
+		kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
 
 	/*
 	 * If the access faults on its page table, it can not
@@ -6158,6 +6167,9 @@ static bool retry_instruction(struct x86_emulate_ctxt *ctxt,
 
 	if (!vcpu->arch.mmu->direct_map)
 		gpa = kvm_mmu_gva_to_gpa_write(vcpu, cr2, NULL);
+
+	if (kvmi_tracked_gfn(vcpu, gpa_to_gfn(gpa)))
+		return false;
 
 	kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
 
@@ -6324,6 +6336,8 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu,
 
 	vcpu->arch.l1tf_flush_l1d = true;
 
+	kvmi_init_emulate(vcpu);
+
 	/*
 	 * Clear write_fault_to_shadow_pgtable here to ensure it is
 	 * never reused.
@@ -6360,6 +6374,8 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu,
 		if (r != EMULATION_OK) {
 			if (emulation_type & EMULTYPE_TRAP_UD)
 				return EMULATE_FAIL;
+			if (!kvmi_track_emul_unimplemented(vcpu, cr2))
+				return EMULATE_DONE;
 			if (reexecute_instruction(vcpu, cr2, write_fault_to_spt,
 						emulation_type))
 				return EMULATE_DONE;
@@ -6429,9 +6445,10 @@ restart:
 			writeback = false;
 		r = EMULATE_USER_EXIT;
 		vcpu->arch.complete_userspace_io = complete_emulated_mmio;
-	} else if (r == EMULATION_RESTART)
+	} else if (r == EMULATION_RESTART) {
+		kvmi_activate_rep_complete(vcpu);
 		goto restart;
-	else
+	} else
 		r = EMULATE_DONE;
 
 	if (writeback) {
@@ -7677,6 +7694,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		 */
 		if (kvm_check_request(KVM_REQ_HV_STIMER, vcpu))
 			kvm_hv_process_stimers(vcpu);
+
+		if (kvm_check_request(KVM_REQ_INTROSPECTION, vcpu))
+			kvmi_handle_requests(vcpu);
 	}
 
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win) {
@@ -9490,6 +9510,9 @@ static inline bool kvm_vcpu_has_events(struct kvm_vcpu *vcpu)
 
 	if (kvm_test_request(KVM_REQ_SMI, vcpu) ||
 	    (vcpu->arch.smi_pending && !is_smm(vcpu)))
+		return true;
+
+	if (kvm_test_request(KVM_REQ_INTROSPECTION, vcpu))
 		return true;
 
 	if (kvm_arch_interrupt_allowed(vcpu) &&
