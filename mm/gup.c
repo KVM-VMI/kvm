@@ -450,6 +450,7 @@ struct page *follow_page(struct vm_area_struct *vma, unsigned long address,
 		put_dev_pagemap(ctx.pgmap);
 	return page;
 }
+EXPORT_SYMBOL(follow_page_mask);
 
 static int get_gate_page(struct mm_struct *mm, unsigned long address,
 		unsigned int gup_flags, struct vm_area_struct **vma,

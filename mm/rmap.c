@@ -219,6 +219,34 @@ int __anon_vma_prepare(struct vm_area_struct *vma)
  out_enomem:
 	return -ENOMEM;
 }
+EXPORT_SYMBOL(__anon_vma_prepare);
+
+
+int anon_vma_assign(struct vm_area_struct *vma, struct anon_vma *anon_vma)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	struct anon_vma_chain *avc;
+
+	avc = anon_vma_chain_alloc(GFP_KERNEL);
+	if (avc == NULL)
+		return -ENOMEM;
+
+	anon_vma_lock_write(anon_vma);
+	/* page_table_lock to protect against threads */
+	spin_lock(&mm->page_table_lock);
+
+	/* link req_anon_vma to map_vma */
+	vma->anon_vma = anon_vma;
+	anon_vma_chain_link(vma, avc, anon_vma);
+	/* vma reference or self-parent link for new root */
+	anon_vma->degree++;
+
+	spin_unlock(&mm->page_table_lock);
+	anon_vma_unlock_write(anon_vma);
+
+	return 0;
+}
+EXPORT_SYMBOL(anon_vma_assign);
 
 /*
  * This is a useful helper function for locking the anon_vma root as
@@ -372,6 +400,7 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	unlink_anon_vmas(vma);
 	return -ENOMEM;
 }
+EXPORT_SYMBOL(anon_vma_fork);
 
 void unlink_anon_vmas(struct vm_area_struct *vma)
 {
@@ -419,6 +448,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		anon_vma_chain_free(avc);
 	}
 }
+EXPORT_SYMBOL(unlink_anon_vmas);
 
 static void anon_vma_ctor(void *data)
 {
@@ -496,6 +526,7 @@ out:
 
 	return anon_vma;
 }
+EXPORT_SYMBOL(page_get_anon_vma);
 
 /*
  * Similar to page_get_anon_vma() except it locks the anon_vma.
@@ -740,6 +771,7 @@ pmd_t *mm_find_pmd(struct mm_struct *mm, unsigned long address)
 out:
 	return pmd;
 }
+EXPORT_SYMBOL(mm_find_pmd);
 
 struct page_referenced_arg {
 	int mapcount;
@@ -1017,9 +1049,9 @@ void page_move_anon_rmap(struct page *page, struct vm_area_struct *vma)
 
 /**
  * __page_set_anon_rmap - set up new anonymous rmap
- * @page:	Page to add to rmap	
+ * @page:	Page to add to rmap
  * @vma:	VM area to add page to.
- * @address:	User virtual address of the mapping	
+ * @address:	User virtual address of the mapping
  * @exclusive:	the page is exclusively owned by the current process
  */
 static void __page_set_anon_rmap(struct page *page,
@@ -1168,6 +1200,7 @@ void page_add_new_anon_rmap(struct page *page,
 	__mod_node_page_state(page_pgdat(page), NR_ANON_MAPPED, nr);
 	__page_set_anon_rmap(page, vma, address, 1);
 }
+EXPORT_SYMBOL(page_add_new_anon_rmap);
 
 /**
  * page_add_file_rmap - add pte mapping to a file page
@@ -1329,6 +1362,7 @@ void page_remove_rmap(struct page *page, bool compound)
 	 * faster for those pages still in swapcache.
 	 */
 }
+EXPORT_SYMBOL(page_remove_rmap);
 
 /*
  * @arg: enum ttu_flags will be passed to this argument
@@ -1756,6 +1790,7 @@ void __put_anon_vma(struct anon_vma *anon_vma)
 	if (root != anon_vma && atomic_dec_and_test(&root->refcount))
 		anon_vma_free(root);
 }
+EXPORT_SYMBOL(__put_anon_vma);
 
 static struct anon_vma *rmap_walk_anon_lock(struct page *page,
 					struct rmap_walk_control *rwc)

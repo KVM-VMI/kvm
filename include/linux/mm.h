@@ -1206,6 +1206,9 @@ void page_address_init(void);
 #define page_address_init()  do { } while(0)
 #endif
 
+/* rmap.c */
+extern pmd_t *mm_find_pmd(struct mm_struct *mm, unsigned long address);
+
 extern void *page_rmapping(struct page *page);
 extern struct anon_vma *page_anon_vma(struct page *page);
 extern struct address_space *page_mapping(struct page *page);
@@ -2785,6 +2788,16 @@ static inline unsigned int debug_guardpage_minorder(void) { return 0; }
 static inline bool debug_guardpage_enabled(void) { return false; }
 static inline bool page_is_guard(struct page *page) { return false; }
 #endif /* CONFIG_DEBUG_PAGEALLOC */
+
+#if IS_ENABLED(CONFIG_REMOTE_MAPPING)
+extern int mm_remote_map(struct mm_struct *req_mm, unsigned long req_hva,
+			 unsigned long map_hva);
+extern int mm_remote_unmap(unsigned long map_hva);
+#else /* CONFIG_REMOTE_MAPPING */
+static inline int mm_remote_map(struct mm_struct *req_mm, unsigned long req_hva,
+				unsigned long map_hva) { return -EINVAL; }
+static inline int mm_remote_unmap(unsigned long map_hva) { return -EINVAL; }
+#endif /* CONFIG_REMOTE_MAPPING */
 
 #if MAX_NUMNODES > 1
 void __init setup_nr_node_ids(void);
