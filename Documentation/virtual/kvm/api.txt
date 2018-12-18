@@ -3753,6 +3753,58 @@ Coalesced pio is based on coalesced mmio. There is little difference
 between coalesced mmio and pio except that coalesced pio records accesses
 to I/O ports.
 
+4.998 KVM_INTROSPECTION_HOOK
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_introspection (in)
+Returns: 0 on success, a negative value on error
+
+This ioctl is used to enable the introspection of the current VM.
+
+struct kvm_introspection {
+	int fd;
+	__u32 padding;
+	__u32 commands;
+	__u32 events;
+	__u8 uuid[16];
+};
+
+fd is the file handle of a socket connected to the introspection tool,
+
+commands is a bitmask with the introspection commands allowed on this VM,
+
+events is a bitmask with the introspection events allowed on this VM.
+
+uuid is used for debug and error messages.
+
+It can fail with -EFAULT if:
+ - memory allocation failed
+ - this VM is already introspected
+ - the file handle doesn't correspond to an active socket
+
+The KVMI version can be retrieved using the KVM_CAP_INTROSPECTION of
+the KVM_CHECK_EXTENSION ioctl() at run-time.
+
+4.999 KVM_INTROSPECTION_UNHOOK
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: none
+Returns: 0 on success, a negative value on error
+
+This ioctl is used to disable the introspection of the current VM.
+It is useful when the VM is paused/suspended/migrated.
+
+It can fail with -EFAULT if:
+  - the introspection is not enabled
+  - the socket (passed with KVM_INTROSPECTION_HOOK) had an error
+
+If the ioctl is successful, the userspace should give the introspection
+tool a chance to unhook the VM.
+
 5. The kvm_run structure
 ------------------------
 
@@ -4888,6 +4940,7 @@ CPU when the exception is taken. If this virtual SError is taken to EL1 using
 AArch64, this value will be reported in the ISS field of ESR_ELx.
 
 See KVM_CAP_VCPU_EVENTS for more details.
+
 8.20 KVM_CAP_HYPERV_SEND_IPI
 
 Architectures: x86
@@ -4895,3 +4948,9 @@ Architectures: x86
 This capability indicates that KVM supports paravirtualized Hyper-V IPI send
 hypercalls:
 HvCallSendSyntheticClusterIpi, HvCallSendSyntheticClusterIpiEx.
+
+8.99 KVM_CAP_INTROSPECTION
+
+Architectures: all
+Parameters: none
+Returns: KVMI version on success, 0 on error
