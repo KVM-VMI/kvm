@@ -3358,6 +3358,8 @@ static void vmx_queue_exception(struct kvm_vcpu *vcpu)
 	u32 error_code = vcpu->arch.exception.error_code;
 	u32 intr_info = nr | INTR_INFO_VALID_MASK;
 
+	trace_kvm_inj_exception(vcpu);
+
 	kvm_deliver_exception_payload(vcpu);
 
 	if (has_error_code) {
@@ -6856,7 +6858,7 @@ static void vmx_inject_irq(struct kvm_vcpu *vcpu)
 	uint32_t intr;
 	int irq = vcpu->arch.interrupt.nr;
 
-	trace_kvm_inj_virq(irq);
+	trace_kvm_inj_interrupt(vcpu);
 
 	++vcpu->stat.irq_injections;
 	if (vmx->rmode.vm86_active) {
@@ -6882,6 +6884,8 @@ static void vmx_inject_irq(struct kvm_vcpu *vcpu)
 static void vmx_inject_nmi(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	trace_kvm_inj_nmi(vcpu);
 
 	if (!enable_vnmi) {
 		/*
@@ -11102,6 +11106,8 @@ static void vmx_complete_interrupts(struct vcpu_vmx *vmx)
 
 static void vmx_cancel_injection(struct kvm_vcpu *vcpu)
 {
+	trace_kvm_cancel_inj(vcpu);
+
 	__vmx_complete_interrupts(vcpu,
 				  vmcs_read32(VM_ENTRY_INTR_INFO_FIELD),
 				  VM_ENTRY_INSTRUCTION_LEN,
