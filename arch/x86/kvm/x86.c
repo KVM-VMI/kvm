@@ -7147,8 +7147,7 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool req_int_win)
 	int r;
 
 	/* try to reinject previous events if any */
-
-	if (vcpu->arch.exception.injected)
+	if (vcpu->arch.exception.injected && !kvmi_vcpu_enabled_ss(vcpu))
 		kvm_x86_ops->queue_exception(vcpu);
 	/*
 	 * Do not inject an NMI or interrupt if there is a pending
@@ -7184,7 +7183,7 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool req_int_win)
 	}
 
 	/* try to inject new event if pending */
-	if (vcpu->arch.exception.pending) {
+	if (vcpu->arch.exception.pending && !kvmi_vcpu_enabled_ss(vcpu)) {
 		WARN_ON_ONCE(vcpu->arch.exception.injected);
 		vcpu->arch.exception.pending = false;
 		vcpu->arch.exception.injected = true;
