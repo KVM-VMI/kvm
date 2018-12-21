@@ -1,0 +1,95 @@
+Build instructions
+==================
+
+Kernel
+------
+
+Enable the CONFIG_KVM_INTROSPECTION feature (besides the KVM ones)
+in the kernel config file.
+
+	Virtualization
+		Kernel-based Virtual Machine (KVM) support
+			VM Introspection
+
+You should boot this kernel on a real system or under a hypervisor
+supporting nested virtualization.
+
+QEMU
+----
+
+Regardless of how you will run the introspection tool, you need a custom
+QEMU (the kvmi branch - https://github.com/KVM-VMI/qemu/tree/kvmi-v5). If
+you're planning to run the introspection tool in another VM, make sure
+you build QEMU with vsock support.
+
+Introspection tool
+------------------
+
+Just run 'make' in this directory. It will build a simple introspection
+tool (kvmi-test) and a wrapper over the KVMI API (libkvmi.so).
+
+Testing
+=======
+
+You will need a VM image that can be started by QEMU (the introspected VM).
+
+Run the introspection tool on host
+----------------------------------
+
+Start the introspection tool:
+
+	LD_LIBRARY_PATH=./ ./kvmi-test /tmp/introspector
+
+In another terminal, run the VM prepared for introspection with:
+
+	qemu-system-x86_64 ... \
+		-chardev socket,path=/tmp/introspector,id=chardev0,reconnect=10 \
+		-object secret,id=key0,data=some \
+		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
+		-accel kvm,introspection=kvmi
+
+QEMU will connect to the introspection tool, pass the file descriptor to
+the host kernel through /dev/kvm and boot the VM.
+
+This simple introspection tool will pause the introspected VM, enable
+a couple of introspection events (CR3, CR4, MSR_STAR) and resume the VM.
+
+Run the introspection tool in another VM
+----------------------------------------
+
+In order to use the KVMI memory mapping for this particular VM (running
+the introspection tool) you will have to enable KVM_INTROSPECTION_GUEST
+in its kernel. But, in this case, for the host kernel, you have to
+enable CONFIG_REMOTE_MAPPING and disable CONFIG_KSM CONFIG_CMA,
+CONFIG_TRANSPARENT_HUGEPAGE, CONFIG_COMPACTION and CONFIG_MIGRATION.
+
+When you start this VM use an additional QEMU argument:
+
+	qemu-system-x86_64 ... \
+		-device vhost-vsock-pci,id=vhost-vsock-pci0,guest-cid=3
+
+Make sure the QEMU process has write access to /dev/vhost-vsock.
+
+Copy kvmi-test and libkvmi.so to this new VM and run the kvmi-test program:
+
+	LD_LIBRARY_PATH=./ ./kvmi-test 1234
+
+Make sure that kvmi-test has write access to /dev/vsock.
+
+While the kvmi-test program is running, start the introspected VM from host with:
+
+	qemu-system-x86_64 ... \
+		-chardev socket,id=chardev0,cid=3,port=1234,reconnect=10 \
+		-object secret,id=key0,data=some \
+		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
+		-accel kvm,introspection=kvmi
+
+Debug messages
+==============
+
+echo 8 > /proc/sys/kernel/printk
+echo "file kvmi_msg.c +p" >> /sys/kernel/debug/dynamic_debug/control
+echo "file kvmi.c +p" >> /sys/kernel/debug/dynamic_debug/control
+
+echo 'kvmi:*' > /sys/kernel/debug/tracing/set_event
+cat /sys/kernel/debug/tracing/trace_pipe
