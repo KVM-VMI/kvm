@@ -2,7 +2,7 @@
 /*
  * KVM introspection
  *
- * Copyright (C) 2017-2018 Bitdefender S.R.L.
+ * Copyright (C) 2017-2019 Bitdefender S.R.L.
  *
  */
 #include <linux/file.h>
@@ -830,11 +830,12 @@ static struct kvmi_msg_hdr *kvmi_msg_recv(struct kvmi *ikvm)
 		goto out;
 	}
 
-	/* read the rest of the buf */
-	buf = (unsigned char *) msg + sizeof(*msg) + fixed;
-	err = kvmi_sock_read(ikvm, buf, dynamic - fixed);
-	if (err)
-		goto out;
+	if (dynamic > fixed) {
+		buf = (unsigned char *) msg + sizeof(*msg) + fixed;
+		err = kvmi_sock_read(ikvm, buf, dynamic - fixed);
+		if (err)
+			goto out;
+	}
 
 	/* message fully read */
 	return msg;
