@@ -29,6 +29,10 @@
 static unsigned int events;
 static void *Dom;
 
+static const char *access_str[] = {
+	"---", "r--", "-w-", "rw-", "--x", "r-x", "-wx", "rwx",
+};
+
 static void die( const char *msg )
 {
 	perror( msg );
@@ -43,6 +47,19 @@ static void reply_continue( void *dom, struct kvmi_dom_event *ev, void *_rpl, si
 	rpl->event  = ev->event.common.event;
 
 	printf( "Reply with CONTINUE\n" );
+
+	if ( kvmi_reply_event( dom, ev->seq, rpl, rpl_size ) )
+		die( "kvmi_reply_event" );
+}
+
+static void reply_retry( void *dom, struct kvmi_dom_event *ev, void *_rpl, size_t rpl_size )
+{
+	struct kvmi_event_reply *rpl = _rpl;
+
+	rpl->action = KVMI_EVENT_ACTION_RETRY;
+	rpl->event  = ev->event.common.event;
+
+	printf( "Reply with RETRY\n" );
 
 	if ( kvmi_reply_event( dom, ev->seq, rpl, rpl_size ) )
 		die( "kvmi_reply_event" );
@@ -91,9 +108,9 @@ static void handle_pause_vcpu_event( void *dom, struct kvmi_dom_event *ev )
 	if ( first_time ) {
 		bool enable = true;
 
-		events |= KVMI_EVENT_CR_FLAG | KVMI_EVENT_MSR_FLAG;
+		events |= KVMI_EVENT_CR_FLAG | KVMI_EVENT_MSR_FLAG | KVMI_EVENT_PF_FLAG;
 
-		printf( "Enabling CR and MSR events for vCPU%d (0x%x)\n", vcpu, events );
+		printf( "Enabling CR, MSR and PF events for vCPU%d (0x%x)\n", vcpu, events );
 
 		if ( kvmi_control_events( dom, vcpu, events ) )
 			die( "kvmi_control_events" );
@@ -117,19 +134,100 @@ static void handle_pause_vcpu_event( void *dom, struct kvmi_dom_event *ev )
 	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
 }
 
+static __u8 get_page_access( void *dom, __u16 vcpu, __u64 gpa )
+{
+	unsigned char access;
+
+	printf( "Get page access vCPU:%u gpa:%llx\n", vcpu, gpa );
+
+	if ( kvmi_get_page_access( dom, vcpu, gpa, &access ) )
+		die( "kvmi_set_page_access" );
+
+	printf( "Access is %s (%x)\n", access_str[access & 7], access );
+
+	return access;
+}
+
+static void set_page_access( void *dom, __u16 vcpu, __u64 gpa, __u8 access )
+{
+	printf( "Set page access vCPU:%u gpa:%llx access:%s (%x)\n", vcpu, gpa, access_str[access & 7], access );
+
+	if ( kvmi_set_page_access( dom, vcpu, &gpa, &access, 1 ) )
+		die( "kvmi_set_page_access" );
+}
+
+static bool write_protect_page( void *dom, __u16 vcpu, __u64 gpa )
+{
+	__u8 access = get_page_access( dom, vcpu, gpa );
+
+	if ( access & KVMI_PAGE_ACCESS_W ) {
+		access &= ~KVMI_PAGE_ACCESS_W;
+		set_page_access( dom, vcpu, gpa, access );
+
+		return true;
+	}
+
+	return false;
+}
+
+static void maybe_start_pf_test( void *dom, struct kvmi_dom_event *ev )
+{
+	static bool started;
+	__u64       cr3  = ev->event.common.sregs.cr3;
+	__u16       vcpu = ev->event.common.vcpu;
+	__u64       pt   = cr3 & ~0xfff;
+
+	if ( started || !pt )
+		return;
+
+	printf( "Starting #PF test with CR3:%llx\n", cr3 );
+
+	for ( __u64 end = pt + 10 * 4096; pt < end; pt += 4096 )
+		if ( write_protect_page( dom, vcpu, pt ) )
+			started = true;
+}
+
+static void handle_pf_event( void *dom, struct kvmi_dom_event *ev )
+{
+	struct kvmi_event_pf *pf   = &ev->event.page_fault;
+	__u16                 vcpu = ev->event.common.vcpu;
+	struct {
+		struct kvmi_event_reply    common;
+		struct kvmi_event_pf_reply pf;
+	} rpl = {};
+
+	printf( "PF vCPU %u gva:%llx gpa:%llx mode:%s (%x)\n", vcpu, pf->gva, pf->gpa, access_str[pf->mode & 7],
+	        pf->mode );
+
+	if ( pf->mode & KVMI_PAGE_ACCESS_W ) {
+		__u8 access = get_page_access( dom, vcpu, pf->gpa );
+
+		access |= KVMI_PAGE_ACCESS_W;
+
+		set_page_access( dom, vcpu, pf->gpa, access );
+	}
+
+	reply_retry( dom, ev, &rpl, sizeof( rpl ) );
+}
+
 static void handle_event( void *dom, struct kvmi_dom_event *ev )
 {
 	unsigned int id = ev->event.common.event;
 
 	switch ( id ) {
 		case KVMI_EVENT_CR:
+			maybe_start_pf_test( dom, ev );
 			handle_cr_event( dom, ev );
 			break;
 		case KVMI_EVENT_MSR:
 			handle_msr_event( dom, ev );
 			break;
 		case KVMI_EVENT_PAUSE_VCPU:
+			maybe_start_pf_test( dom, ev );
 			handle_pause_vcpu_event( dom, ev );
+			break;
+		case KVMI_EVENT_PF:
+			handle_pf_event( dom, ev );
 			break;
 		default:
 			fprintf( stderr, "Unknown event %d\n", id );
