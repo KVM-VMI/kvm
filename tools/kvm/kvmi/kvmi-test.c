@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Bitdefender S.R.L.
+ * Copyright (C) 2017-2019 Bitdefender S.R.L.
  *
  * The program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
@@ -151,7 +151,7 @@ static void pause_vm( void *dom )
 
 static int new_guest( void *dom, unsigned char ( *uuid )[16], void *ctx )
 {
-	int k, err, count;
+	int k;
 
 	printf( "New guest: " );
 
