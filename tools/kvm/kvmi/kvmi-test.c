@@ -27,7 +27,7 @@
 #define MSR_STAR 0xc0000081
 
 static unsigned int events;
-static void *Dom;
+static void *       Dom;
 
 static const char *access_str[] = {
 	"---", "r--", "-w-", "rw-", "--x", "r-x", "-wx", "rwx",
@@ -311,7 +311,7 @@ int main( int argc, char **argv )
 
 		printf( "Waiting...\n" );
 
-		if ( kvmi_wait_event( Dom, 30*1024 ) ) {
+		if ( kvmi_wait_event( Dom, 30 * 1024 ) ) {
 			if ( errno == ETIMEDOUT ) {
 				printf( "No event.\n" );
 				continue;
