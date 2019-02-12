@@ -21,7 +21,7 @@ QEMU
 ----
 
 Regardless of how you will run the introspection tool, you need a custom
-QEMU (the kvmi branch - https://github.com/KVM-VMI/qemu/tree/kvmi-v5). If
+QEMU (the kvmi branch - https://github.com/KVM-VMI/qemu/tree/kvmi). If
 you're planning to run the introspection tool in another VM, make sure
 you build QEMU with vsock support.
 
