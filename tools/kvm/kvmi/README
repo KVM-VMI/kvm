@@ -17,6 +17,9 @@ Enable the CONFIG_KVM_INTROSPECTION and CONFIG_REMOTE_MAPPING features
 You should boot this kernel on a real system or under a hypervisor
 supporting nested virtualization.
 
+For convenience, "make kvmi_defconfig" can be used, which is based on
+x86_64_defconfig.
+
 QEMU
 ----
 
