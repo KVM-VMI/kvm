@@ -4,12 +4,15 @@ Build instructions
 Kernel
 ------
 
-Enable the CONFIG_KVM_INTROSPECTION feature (besides the KVM ones)
-in the kernel config file.
+Enable the CONFIG_KVM_INTROSPECTION and CONFIG_REMOTE_MAPPING features
+(besides the KVM ones) in the kernel config file.
 
 	Virtualization
 		Kernel-based Virtual Machine (KVM) support
 			VM Introspection
+
+	Memory Management options
+		Remote memory mapping
 
 You should boot this kernel on a real system or under a hypervisor
 supporting nested virtualization.
