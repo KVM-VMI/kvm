@@ -21,13 +21,14 @@
 
 #include <kvmi/libkvmi.h>
 
+#define MAX_VCPU 256
+
 #define CR3 3
 #define CR4 4
 
 #define MSR_STAR 0xc0000081
 
-static unsigned int events;
-static void *       Dom;
+static void *Dom;
 
 static const char *access_str[] = {
 	"---", "r--", "-w-", "rw-", "--x", "r-x", "-wx", "rwx",
@@ -97,38 +98,43 @@ static void handle_msr_event( void *dom, struct kvmi_dom_event *ev )
 	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
 }
 
+static void enable_vcpu_events( void *dom, unsigned int vcpu )
+{
+	unsigned int events = KVMI_EVENT_CR_FLAG | KVMI_EVENT_MSR_FLAG | KVMI_EVENT_PF_FLAG;
+	bool         enable = true;
+
+	printf( "Enabling CR, MSR and PF events 0x%x (vcpu%u)\n", events, vcpu );
+
+	if ( kvmi_control_events( dom, vcpu, events ) )
+		die( "kvmi_control_events" );
+
+	printf( "Enabling CR3 events...\n" );
+
+	if ( kvmi_control_cr( dom, vcpu, CR3, enable ) )
+		die( "kvmi_control_cr(3)" );
+
+	printf( "Enabling CR4 events...\n" );
+
+	if ( kvmi_control_cr( dom, vcpu, CR4, enable ) )
+		die( "kvmi_control_cr(4)" );
+
+	printf( "Enabling MSR_STAR events...\n" );
+
+	if ( kvmi_control_msr( dom, vcpu, MSR_STAR, enable ) )
+		die( "kvmi_control_msr(STAR)" );
+}
+
 static void handle_pause_vcpu_event( void *dom, struct kvmi_dom_event *ev )
 {
-	bool                    first_time = ( events == 0 );
-	struct kvmi_event_reply rpl        = { 0 };
-	unsigned int            vcpu       = ev->event.common.vcpu;
+	struct kvmi_event_reply rpl  = { 0 };
+	unsigned int            vcpu = ev->event.common.vcpu;
+	static bool             events_enabled[MAX_VCPU];
 
-	printf( "PAUSE vCPU %u\n", vcpu );
+	printf( "PAUSE (vcpu%u)\n", vcpu );
 
-	if ( first_time ) {
-		bool enable = true;
-
-		events |= KVMI_EVENT_CR_FLAG | KVMI_EVENT_MSR_FLAG | KVMI_EVENT_PF_FLAG;
-
-		printf( "Enabling CR, MSR and PF events for vCPU%d (0x%x)\n", vcpu, events );
-
-		if ( kvmi_control_events( dom, vcpu, events ) )
-			die( "kvmi_control_events" );
-
-		printf( "Enabling CR3 events...\n" );
-
-		if ( kvmi_control_cr( dom, vcpu, CR3, enable ) )
-			die( "kvmi_control_cr(3)" );
-
-		printf( "Enabling CR4 events...\n" );
-
-		if ( kvmi_control_cr( dom, vcpu, CR4, enable ) )
-			die( "kvmi_control_cr(4)" );
-
-		printf( "Enabling MSR_STAR events...\n" );
-
-		if ( kvmi_control_msr( dom, vcpu, MSR_STAR, enable ) )
-			die( "kvmi_control_msr(STAR)" );
+	if ( vcpu < MAX_VCPU && !events_enabled[vcpu] ) {
+		enable_vcpu_events( dom, vcpu );
+		events_enabled[vcpu] = true;
 	}
 
 	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
