@@ -23,6 +23,9 @@
 
 #define MAX_VCPU 256
 
+#define EPT_TEST_PAGES 20
+#define PAGE_SIZE 4096
+
 #define CR3 3
 #define CR4 4
 
@@ -47,7 +50,7 @@ static void reply_continue( void *dom, struct kvmi_dom_event *ev, void *_rpl, si
 	rpl->action = KVMI_EVENT_ACTION_CONTINUE;
 	rpl->event  = ev->event.common.event;
 
-	printf( "Reply with CONTINUE\n" );
+	printf( "Reply with CONTINUE (vcpu%u)\n", ev->event.common.vcpu );
 
 	if ( kvmi_reply_event( dom, ev->seq, rpl, rpl_size ) )
 		die( "kvmi_reply_event" );
@@ -60,7 +63,7 @@ static void reply_retry( void *dom, struct kvmi_dom_event *ev, void *_rpl, size_
 	rpl->action = KVMI_EVENT_ACTION_RETRY;
 	rpl->event  = ev->event.common.event;
 
-	printf( "Reply with RETRY\n" );
+	printf( "Reply with RETRY (vcpu%u)\n", ev->event.common.vcpu );
 
 	if ( kvmi_reply_event( dom, ev->seq, rpl, rpl_size ) )
 		die( "kvmi_reply_event" );
@@ -76,7 +79,7 @@ static void handle_cr_event( void *dom, struct kvmi_dom_event *ev )
 		} cr;
 	} rpl = { 0 };
 
-	printf( "CR%d %llx -> %llx\n", cr->cr, cr->old_value, cr->new_value );
+	printf( "CR%d 0x%llx -> 0x%llx (vcpu%u)\n", cr->cr, cr->old_value, cr->new_value, ev->event.common.vcpu );
 
 	rpl.cr.new_val = cr->new_value;
 	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
@@ -92,7 +95,8 @@ static void handle_msr_event( void *dom, struct kvmi_dom_event *ev )
 		} msr;
 	} rpl = { 0 };
 
-	printf( "MSR: %x %llx -> %llx\n", msr->msr, msr->old_value, msr->new_value );
+	printf( "MSR 0x%x 0x%llx -> 0x%llx (vcpu%u)\n", msr->msr, msr->old_value, msr->new_value,
+	        ev->event.common.vcpu );
 
 	rpl.msr.new_val = msr->new_value;
 	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
@@ -144,19 +148,19 @@ static __u8 get_page_access( void *dom, __u16 vcpu, __u64 gpa )
 {
 	unsigned char access;
 
-	printf( "Get page access vCPU:%u gpa:%llx\n", vcpu, gpa );
+	printf( "Get page access gpa 0x%llx (vcpu%u)\n", gpa, vcpu );
 
 	if ( kvmi_get_page_access( dom, vcpu, gpa, &access ) )
 		die( "kvmi_set_page_access" );
 
-	printf( "Access is %s (%x)\n", access_str[access & 7], access );
+	printf( "Access is %s (0x%x)\n", access_str[access & 7], access );
 
 	return access;
 }
 
 static void set_page_access( void *dom, __u16 vcpu, __u64 gpa, __u8 access )
 {
-	printf( "Set page access vCPU:%u gpa:%llx access:%s (%x)\n", vcpu, gpa, access_str[access & 7], access );
+	printf( "Set page access gpa 0x%llx access %s [0x%x] (vcpu%u)\n", gpa, access_str[access & 7], access, vcpu );
 
 	if ( kvmi_set_page_access( dom, vcpu, &gpa, &access, 1 ) )
 		die( "kvmi_set_page_access" );
@@ -186,9 +190,9 @@ static void maybe_start_pf_test( void *dom, struct kvmi_dom_event *ev )
 	if ( started || !pt )
 		return;
 
-	printf( "Starting #PF test with CR3:%llx\n", cr3 );
+	printf( "Starting #PF test with CR3 0x%llx (vcpu%u)\n", cr3, vcpu );
 
-	for ( __u64 end = pt + 10 * 4096; pt < end; pt += 4096 )
+	for ( __u64 end = pt + EPT_TEST_PAGES * PAGE_SIZE; pt < end; pt += PAGE_SIZE )
 		if ( write_protect_page( dom, vcpu, pt ) )
 			started = true;
 }
@@ -202,8 +206,8 @@ static void handle_pf_event( void *dom, struct kvmi_dom_event *ev )
 		struct kvmi_event_pf_reply pf;
 	} rpl = {};
 
-	printf( "PF vCPU %u gva:%llx gpa:%llx mode:%s (%x)\n", vcpu, pf->gva, pf->gpa, access_str[pf->mode & 7],
-	        pf->mode );
+	printf( "PF gva 0x%llx gpa 0x%llx mode %s [0x%x] (vcpu%u)\n", pf->gva, pf->gpa, access_str[pf->mode & 7],
+	        pf->mode, vcpu );
 
 	if ( pf->mode & KVMI_PAGE_ACCESS_W ) {
 		__u8 access = get_page_access( dom, vcpu, pf->gpa );
@@ -262,7 +266,7 @@ static int new_guest( void *dom, unsigned char ( *uuid )[16], void *ctx )
 	for ( k = 0; k < 16; k++ )
 		printf( "%.2x ", ( *uuid )[k] );
 
-	printf( "fd:%d ctx:%p\n", kvmi_connection_fd( dom ), ctx );
+	printf( "fd %d ctx %p\n", kvmi_connection_fd( dom ), ctx );
 
 	pause_vm( dom );
 
@@ -279,7 +283,7 @@ static int new_handshake( const struct kvmi_qemu2introspector *qemu, struct kvmi
 
 static void log_cb( kvmi_log_level level, const char *s, void *ctx )
 {
-	printf( "level=%d: %s\n", level, s );
+	printf( "[level=%d]: %s\n", level, s );
 }
 
 int main( int argc, char **argv )
