@@ -98,7 +98,7 @@ config KVM_MMU_AUDIT
 
 config KVM_INTROSPECTION
 	bool "VM Introspection"
-	depends on KVM && (KVM_INTEL || KVM_AMD) && REMOTE_MAPPING && VHOST_VSOCK
+	depends on KVM && (KVM_INTEL || KVM_AMD) && REMOTE_MAPPING
 	help
 	 This option adds introspection capabilities to a VM.
 

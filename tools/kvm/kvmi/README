@@ -4,21 +4,27 @@ Build instructions
 Kernel
 ------
 
-Enable the CONFIG_KVM_INTROSPECTION feature (besides the KVM ones)
-in the kernel config file.
+Enable the CONFIG_KVM_INTROSPECTION and CONFIG_REMOTE_MAPPING features
+(besides the KVM ones) in the kernel config file.
 
 	Virtualization
 		Kernel-based Virtual Machine (KVM) support
 			VM Introspection
 
+	Memory Management options
+		Remote memory mapping
+
 You should boot this kernel on a real system or under a hypervisor
 supporting nested virtualization.
+
+For convenience, "make kvmi_defconfig" can be used, which is based on
+x86_64_defconfig.
 
 QEMU
 ----
 
 Regardless of how you will run the introspection tool, you need a custom
-QEMU (the kvmi branch - https://github.com/KVM-VMI/qemu/tree/kvmi-v5). If
+QEMU (the kvmi branch - https://github.com/KVM-VMI/qemu/tree/kvmi). If
 you're planning to run the introspection tool in another VM, make sure
 you build QEMU with vsock support.
 
@@ -43,6 +49,7 @@ Start the introspection tool:
 In another terminal, run the VM prepared for introspection with:
 
 	qemu-system-x86_64 ... \
+		-enable-kvm \
 		-chardev socket,path=/tmp/introspector,id=chardev0,reconnect=10 \
 		-object secret,id=key0,data=some \
 		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
@@ -79,6 +86,7 @@ Make sure that kvmi-test has write access to /dev/vsock.
 While the kvmi-test program is running, start the introspected VM from host with:
 
 	qemu-system-x86_64 ... \
+		-enable-kvm \
 		-chardev socket,id=chardev0,cid=3,port=1234,reconnect=10 \
 		-object secret,id=key0,data=some \
 		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
