@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Bitdefender S.R.L.
+ * Copyright (C) 2017-2019 Bitdefender S.R.L.
  *
  * The KVMI Library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -85,8 +85,11 @@ int   kvmi_control_cr( void *dom, unsigned short vcpu, unsigned int cr, bool ena
 int   kvmi_control_msr( void *dom, unsigned short vcpu, unsigned int msr, bool enable );
 int   kvmi_pause_all_vcpus( void *dom, unsigned int *count );
 int   kvmi_get_page_access( void *dom, unsigned short vcpu, unsigned long long int gpa, unsigned char *access );
+int   kvmi_get_page_write_bitmap( void *dom, __u16 vcpu, __u64 gpa, __u32 *bitmap );
 int   kvmi_set_page_access( void *dom, unsigned short vcpu, unsigned long long int *gpa, unsigned char *access,
                             unsigned short count );
+int   kvmi_set_page_write_bitmap( void *dom, __u16 vcpu, __u64 *gpa, __u32 *bitmap,
+				  unsigned short count );
 int   kvmi_get_vcpu_count( void *dom, unsigned int *count );
 int64_t kvmi_get_starttime( const void *dom );
 int     kvmi_get_tsc_speed( void *dom, unsigned long long int *speed );
