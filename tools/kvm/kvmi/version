@@ -10,6 +10,7 @@ KVMI_1.0 {
 		kvmi_domain_name;
 		kvmi_get_cpuid;
 		kvmi_get_page_access;
+		kvmi_get_page_write_bitmap;
 		kvmi_get_registers;
 		kvmi_get_starttime;
 		kvmi_get_tsc_speed;
@@ -25,6 +26,7 @@ KVMI_1.0 {
 		kvmi_reply_event;
 		kvmi_set_event_cb;
 		kvmi_set_page_access;
+		kvmi_set_page_write_bitmap;
 		kvmi_set_registers;
 		kvmi_shutdown_guest;
 		kvmi_uninit;

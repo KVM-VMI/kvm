@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Bitdefender S.R.L.
+ * Copyright (C) 2017-2019 Bitdefender S.R.L.
  *
  * The KVMI Library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -933,6 +933,36 @@ out:
 	return err;
 }
 
+int kvmi_get_page_write_bitmap( void *dom, __u16 vcpu, __u64 gpa, __u32 *bitmap )
+{
+	struct kvmi_get_page_write_bitmap *      req      = NULL;
+	struct kvmi_get_page_write_bitmap_reply *rpl      = NULL;
+	size_t                                   req_size = sizeof( *req ) + 1 * sizeof( req->gpa[0] );
+	size_t                                   rpl_size = sizeof( *rpl ) + 1 * sizeof( rpl->bitmap[0] );
+	int                                      err      = -1;
+
+	req = malloc( req_size );
+	rpl = malloc( rpl_size );
+	if ( !req || !rpl )
+		goto out;
+
+	memset( req, 0, req_size );
+	req->vcpu   = vcpu;
+	req->count  = 1;
+	req->gpa[0] = gpa;
+
+	err = request( dom, KVMI_GET_PAGE_WRITE_BITMAP, req, req_size, rpl, rpl_size );
+
+	if ( !err )
+		*bitmap = rpl->bitmap[0];
+
+out:
+	free( req );
+	free( rpl );
+
+	return err;
+}
+
 int kvmi_set_page_access( void *dom, unsigned short vcpu, unsigned long long int *gpa, unsigned char *access,
                           unsigned short count )
 {
@@ -954,6 +984,33 @@ int kvmi_set_page_access( void *dom, unsigned short vcpu, unsigned long long int
 	}
 
 	err = request( dom, KVMI_SET_PAGE_ACCESS, req, req_size, NULL, 0 );
+
+	free( req );
+
+	return err;
+}
+
+int kvmi_set_page_write_bitmap( void *dom, __u16 vcpu, __u64 *gpa, __u32 *bitmap,
+				unsigned short count )
+{
+	struct kvmi_set_page_write_bitmap *req;
+	size_t                             req_size = sizeof( *req ) + count * sizeof( req->entries[0] );
+	int                                err      = -1, k;
+
+	req = malloc( req_size );
+	if ( !req )
+		return -1;
+
+	memset( req, 0, req_size );
+	req->vcpu  = vcpu;
+	req->count = count;
+
+	for ( k = 0; k < count; k++ ) {
+		req->entries[k].gpa    = gpa[k];
+		req->entries[k].bitmap = bitmap[k];
+	}
+
+	err = request( dom, KVMI_SET_PAGE_WRITE_BITMAP, req, req_size, NULL, 0 );
 
 	free( req );
 
