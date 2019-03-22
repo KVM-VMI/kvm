@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 #include <kvmi/libkvmi.h>
 
@@ -286,6 +287,77 @@ static void log_cb( kvmi_log_level level, const char *s, void *ctx )
 	printf( "[level=%d]: %s\n", level, s );
 }
 
+static int spp_bypass = 0;
+
+static void spp_bitmap_test( void *dom)
+{
+	int ret = 0;
+	__u64 cmd;
+	__u64 gfn;
+	__u64 gpa;
+	__u32 bitmap;
+	__u32 origin_bitmap;
+
+	char buff[64] = {0};
+
+	printf("please input gfn :\n\
+		777 for bypass spp test,\n\
+		888 to skip this round.\n");
+
+	fgets(buff, 63, stdin);
+
+	cmd = atoll(buff);
+
+	if(cmd == 777)
+	{
+		spp_bypass = 1;
+		return;
+	}
+
+	if(cmd == 888)
+	      return;
+
+	printf("input gfn: 0x%llx(%lld)\n", cmd, cmd);
+
+
+	gfn = cmd;
+
+	memset(buff, 0, sizeof(buff));
+
+	printf("please input spp bitmap:\n");
+
+	fgets(buff, 63, stdin);
+
+	bitmap = atoll(buff);
+	printf("input spp bitmap: 0x%llx(%lld)\n", bitmap, bitmap);
+
+	/* to cheat kvmi function.*/
+	gpa = gfn << 12;
+
+	ret = kvmi_set_page_write_bitmap(dom, 0, &gpa, &bitmap, 1);
+
+	if(ret < 0)
+	      printf("failed to set spp bitmap.\n");
+	else
+	      printf("set spp bit map successfully.\n");
+
+	origin_bitmap = bitmap;
+	bitmap = 0;
+
+	ret = kvmi_get_page_write_bitmap(dom, 0, gpa, &bitmap);
+
+	if(ret <0)
+	      printf("failed to get spp bitmap. error = %d\n", ret);
+	else
+	      printf("bitmap for gfn(0x%llx) is 0x%x\n", gfn, bitmap);
+
+	if (bitmap == origin_bitmap)
+	      printf("spp test passed!\n");
+	else
+	      printf("spp test failed.\n");
+
+}
+
 int main( int argc, char **argv )
 {
 	void *ctx;
@@ -324,6 +396,10 @@ int main( int argc, char **argv )
 		if ( kvmi_wait_event( Dom, 30 * 1024 ) ) {
 			if ( errno == ETIMEDOUT ) {
 				printf( "No event.\n" );
+
+				if (!spp_bypass)
+					spp_bitmap_test(Dom);
+
 				continue;
 			}
 			die( "kvmi_wait_event" );
