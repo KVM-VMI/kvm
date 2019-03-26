@@ -33,6 +33,7 @@
 #include <linux/kvm_para.h>
 #include <sys/stat.h>
 #include <stdarg.h>
+#include <linux/kvmi.h>
 
 #define MIN( X, Y ) ( ( X ) < ( Y ) ? ( X ) : ( Y ) )
 
