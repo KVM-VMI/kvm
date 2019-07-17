@@ -114,6 +114,8 @@ static u64 __read_mostly host_xss;
 bool __read_mostly enable_pml = 1;
 module_param_named(pml, enable_pml, bool, S_IRUGO);
 
+static bool __read_mostly spp_supported = 0;
+
 #define MSR_BITMAP_MODE_X2APIC		1
 #define MSR_BITMAP_MODE_X2APIC_APICV	2
 
@@ -2247,6 +2249,7 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 			SECONDARY_EXEC_RDSEED_EXITING |
 			SECONDARY_EXEC_RDRAND_EXITING |
 			SECONDARY_EXEC_ENABLE_PML |
+			SECONDARY_EXEC_ENABLE_SPP |
 			SECONDARY_EXEC_TSC_SCALING |
 			SECONDARY_EXEC_PT_USE_GPA |
 			SECONDARY_EXEC_PT_CONCEAL_VMX |
@@ -3900,6 +3903,9 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 
 	if (!enable_pml)
 		exec_control &= ~SECONDARY_EXEC_ENABLE_PML;
+
+	if (!spp_supported)
+		exec_control &= ~SECONDARY_EXEC_ENABLE_SPP;
 
 	if (vmx_xsaves_supported()) {
 		/* Exposing XSAVES only when XSAVE is exposed */
@@ -7569,6 +7575,10 @@ static __init int hardware_setup(void)
 
 	if (!cpu_has_vmx_flexpriority())
 		flexpriority_enabled = 0;
+
+	if (cpu_has_vmx_ept_spp() && enable_ept &&
+	    boot_cpu_has(X86_FEATURE_SPP))
+		spp_supported = 1;
 
 	if (!cpu_has_virtual_nmis())
 		enable_vnmi = 0;
