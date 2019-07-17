@@ -2853,11 +2853,17 @@ u64 construct_eptp(struct kvm_vcpu *vcpu, unsigned long root_hpa)
 	return eptp;
 }
 
+static inline u64 construct_spptp(unsigned long root_hpa)
+{
+	return root_hpa & PAGE_MASK;
+}
+
 void vmx_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 {
 	struct kvm *kvm = vcpu->kvm;
 	unsigned long guest_cr3;
 	u64 eptp;
+	u64 spptp;
 
 	guest_cr3 = cr3;
 	if (enable_ept) {
@@ -2878,6 +2884,12 @@ void vmx_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 		else
 			guest_cr3 = to_kvm_vmx(kvm)->ept_identity_map_addr;
 		ept_load_pdptrs(vcpu);
+	}
+
+	if (kvm->arch.spp_active && VALID_PAGE(vcpu->arch.mmu->sppt_root)) {
+		spptp = construct_spptp(vcpu->arch.mmu->sppt_root);
+		vmcs_write64(SPPT_POINTER, spptp);
+		vmx_flush_tlb(vcpu, true);
 	}
 
 	vmcs_writel(GUEST_CR3, guest_cr3);
@@ -5743,6 +5755,9 @@ static void dump_vmcs(void)
 		pr_err("PostedIntrVec = 0x%02x\n", vmcs_read16(POSTED_INTR_NV));
 	if ((secondary_exec_control & SECONDARY_EXEC_ENABLE_EPT))
 		pr_err("EPT pointer = 0x%016llx\n", vmcs_read64(EPT_POINTER));
+	if ((secondary_exec_control & SECONDARY_EXEC_ENABLE_SPP))
+		pr_err("SPPT pointer = 0x%016llx\n", vmcs_read64(SPPT_POINTER));
+
 	n = vmcs_read32(CR3_TARGET_COUNT);
 	for (i = 0; i + 1 < n; i += 4)
 		pr_err("CR3 target%u=%016lx target%u=%016lx\n",
@@ -7646,6 +7661,12 @@ static __init int hardware_setup(void)
 		kvm_x86_ops->enable_log_dirty_pt_masked = NULL;
 	}
 
+	if (!spp_supported) {
+		kvm_x86_ops->get_subpages = NULL;
+		kvm_x86_ops->set_subpages = NULL;
+		kvm_x86_ops->init_spp = NULL;
+	}
+
 	if (!cpu_has_vmx_preemption_timer())
 		kvm_x86_ops->request_immediate_exit = __kvm_request_immediate_exit;
 
@@ -7704,6 +7725,28 @@ static bool vmx_spt_fault(struct kvm_vcpu *vcpu)
 	const struct vcpu_vmx *vmx = to_vmx(vcpu);
 
 	return (vmx->exit_reason == EXIT_REASON_EPT_VIOLATION);
+}
+
+static bool vmx_get_spp_status(void)
+{
+	return spp_supported;
+}
+
+static int vmx_get_subpages(struct kvm *kvm,
+			    struct kvm_subpage *spp_info)
+{
+	return kvm_get_subpages(kvm, spp_info);
+}
+
+static int vmx_set_subpages(struct kvm *kvm,
+			    struct kvm_subpage *spp_info)
+{
+	return kvm_set_subpages(kvm, spp_info);
+}
+
+static int vmx_init_spp(struct kvm *kvm)
+{
+	return kvm_init_spp(kvm);
 }
 
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
@@ -7856,6 +7899,11 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.set_nested_state = NULL,
 	.get_vmcs12_pages = NULL,
 	.nested_enable_evmcs = NULL,
+
+	.get_spp_status = vmx_get_spp_status,
+	.get_subpages = vmx_get_subpages,
+	.set_subpages = vmx_set_subpages,
+	.init_spp = vmx_init_spp,
 };
 
 static void vmx_cleanup_l1d_flush(void)

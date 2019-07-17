@@ -3846,6 +3846,9 @@ void kvm_mmu_free_roots(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 		    (mmu->root_level >= PT64_ROOT_4LEVEL || mmu->direct_map)) {
 			mmu_free_root_page(vcpu->kvm, &mmu->root_hpa,
 					   &invalid_list);
+			if (vcpu->kvm->arch.spp_active)
+				mmu_free_root_page(vcpu->kvm, &mmu->sppt_root,
+						   &invalid_list);
 		} else {
 			for (i = 0; i < 4; ++i)
 				if (mmu->pae_root[i] != 0)
@@ -4510,6 +4513,158 @@ int kvm_mmu_setup_spp_structure(struct kvm_vcpu *vcpu,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_setup_spp_structure);
+
+int kvm_mmu_init_spp(struct kvm *kvm)
+{
+	int i, ret;
+	struct kvm_vcpu *vcpu;
+	int root_level;
+	struct kvm_mmu_page *ssp_sp;
+
+
+	if (!kvm_x86_ops->get_spp_status())
+	      return -ENODEV;
+
+	if (kvm->arch.spp_active)
+	      return 0;
+
+	ret = kvm_subpage_create_bitmaps(kvm);
+
+	if (ret)
+	      return ret;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		/* prepare caches for SPP setup.*/
+		mmu_topup_memory_caches(vcpu);
+		root_level = vcpu->arch.mmu->shadow_root_level;
+		ssp_sp = kvm_mmu_get_spp_page(vcpu, 0, root_level);
+		++ssp_sp->root_count;
+		vcpu->arch.mmu->sppt_root = __pa(ssp_sp->spt);
+		kvm_make_request(KVM_REQ_LOAD_CR3, vcpu);
+	}
+
+	kvm->arch.spp_active = true;
+	return 0;
+}
+
+int kvm_mmu_get_subpages(struct kvm *kvm, struct kvm_subpage *spp_info,
+			 bool mmu_locked)
+{
+	u32 *access = spp_info->access_map;
+	gfn_t gfn = spp_info->base_gfn;
+	int npages = spp_info->npages;
+	struct kvm_memory_slot *slot;
+	int i;
+	int ret;
+
+	if (!kvm->arch.spp_active)
+	      return -ENODEV;
+
+	if (!mmu_locked)
+	      spin_lock(&kvm->mmu_lock);
+
+	for (i = 0; i < npages; i++, gfn++) {
+		slot = gfn_to_memslot(kvm, gfn);
+		if (!slot) {
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+		access[i] = *gfn_to_subpage_wp_info(slot, gfn);
+	}
+
+	ret = i;
+
+out_unlock:
+	if (!mmu_locked)
+	      spin_unlock(&kvm->mmu_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_get_subpages);
+
+int kvm_mmu_set_subpages(struct kvm *kvm, struct kvm_subpage *spp_info,
+			 bool mmu_locked)
+{
+	u32 *access = spp_info->access_map;
+	gfn_t gfn = spp_info->base_gfn;
+	int npages = spp_info->npages;
+	struct kvm_memory_slot *slot;
+	struct kvm_vcpu *vcpu;
+	struct kvm_rmap_head *rmap_head;
+	int i, k;
+	u32 *wp_map;
+	int ret = -EFAULT;
+
+	if (!kvm->arch.spp_active)
+		return -ENODEV;
+
+	if (!mmu_locked)
+	      spin_lock(&kvm->mmu_lock);
+
+	for (i = 0; i < npages; i++, gfn++) {
+		slot = gfn_to_memslot(kvm, gfn);
+		if (!slot)
+			goto out_unlock;
+
+		/*
+		 * check whether the target 4KB page exists in EPT leaf
+		 * entries.If it's there, we can setup SPP protection now,
+		 * otherwise, need to defer it to EPT page fault handler.
+		 */
+		rmap_head = __gfn_to_rmap(gfn, PT_PAGE_TABLE_LEVEL, slot);
+
+		if (rmap_head->val) {
+			/*
+			 * if all subpages are not writable, open SPP bit in
+			 * EPT leaf entry to enable SPP protection for
+			 * corresponding page.
+			 */
+			if (access[i] != FULL_SPP_ACCESS) {
+				ret = kvm_mmu_open_subpage_write_protect(kvm,
+						slot, gfn);
+
+				if (ret)
+					goto out_err;
+
+				kvm_for_each_vcpu(k, vcpu, kvm)
+					kvm_mmu_setup_spp_structure(vcpu,
+						access[i], gfn);
+			} else {
+				ret = kvm_mmu_clear_subpage_write_protect(kvm,
+						slot, gfn);
+				if (ret)
+					goto out_err;
+			}
+
+		} else
+			pr_info("%s - No ETP entry, gfn = 0x%llx, access = 0x%x.\n", __func__, gfn, access[i]);
+
+		/* if this function is called in tdp_page_fault() or
+		 * spp_handler(), mmu_locked = true, SPP access bitmap
+		 * is being used, otherwise, it's being stored.
+		 */
+		if (!mmu_locked) {
+			wp_map = gfn_to_subpage_wp_info(slot, gfn);
+			*wp_map = access[i];
+		}
+	}
+
+	ret = i;
+out_err:
+	if (ret < 0)
+	      pr_info("SPP-Error, didn't get the gfn:" \
+		      "%llx from EPT leaf.\n"
+		      "Current we don't support SPP on" \
+		      "huge page.\n"
+		      "Please disable huge page and have" \
+		      "another try.\n", gfn);
+out_unlock:
+	if (!mmu_locked)
+	      spin_unlock(&kvm->mmu_lock);
+
+	return ret;
+}
+
 static void nonpaging_init_context(struct kvm_vcpu *vcpu,
 				   struct kvm_mmu *context)
 {
@@ -5207,6 +5362,9 @@ static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu)
 	context->get_cr3 = get_cr3;
 	context->get_pdptr = kvm_pdptr_read;
 	context->inject_page_fault = kvm_inject_page_fault;
+	context->get_subpages = kvm_x86_ops->get_subpages;
+	context->set_subpages = kvm_x86_ops->set_subpages;
+	context->init_spp = kvm_x86_ops->init_spp;
 
 	if (!is_paging(vcpu)) {
 		context->nx = false;
@@ -5403,6 +5561,8 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu, bool reset_roots)
 		uint i;
 
 		vcpu->arch.mmu->root_hpa = INVALID_PAGE;
+		if (!vcpu->kvm->arch.spp_active)
+			vcpu->arch.mmu->sppt_root = INVALID_PAGE;
 
 		for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 			vcpu->arch.mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;

@@ -834,6 +834,9 @@ int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu);
 
 struct kvm_mmu_page *kvm_mmu_get_spp_page(struct kvm_vcpu *vcpu,
 			gfn_t gfn, unsigned int level);
+int kvm_get_subpages(struct kvm *kvm, struct kvm_subpage *spp_info);
+int kvm_set_subpages(struct kvm *kvm, struct kvm_subpage *spp_info);
+int kvm_init_spp(struct kvm *kvm);
 
 #ifndef __KVM_HAVE_ARCH_VM_ALLOC
 /*

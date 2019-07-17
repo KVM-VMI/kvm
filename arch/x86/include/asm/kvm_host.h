@@ -399,8 +399,13 @@ struct kvm_mmu {
 	void (*invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa);
 	void (*update_pte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			   u64 *spte, const void *pte);
+	int (*get_subpages)(struct kvm *kvm, struct kvm_subpage *spp_info);
+	int (*set_subpages)(struct kvm *kvm, struct kvm_subpage *spp_info);
+	int (*init_spp)(struct kvm *kvm);
+
 	hpa_t root_hpa;
 	gpa_t root_cr3;
+	hpa_t sppt_root;
 	union kvm_mmu_role mmu_role;
 	u8 root_level;
 	u8 shadow_root_level;
@@ -929,6 +934,8 @@ struct kvm_arch {
 
 	bool guest_can_read_msr_platform_info;
 	bool exception_payload_enabled;
+
+	bool spp_active;
 };
 
 struct kvm_vm_stat {
@@ -1202,6 +1209,11 @@ struct kvm_x86_ops {
 	int (*nested_enable_evmcs)(struct kvm_vcpu *vcpu,
 				   uint16_t *vmcs_version);
 	uint16_t (*nested_get_evmcs_version)(struct kvm_vcpu *vcpu);
+
+	bool (*get_spp_status)(void);
+	int (*get_subpages)(struct kvm *kvm, struct kvm_subpage *spp_info);
+	int (*set_subpages)(struct kvm *kvm, struct kvm_subpage *spp_info);
+	int (*init_spp)(struct kvm *kvm);
 };
 
 struct kvm_arch_async_pf {
@@ -1419,6 +1431,12 @@ int kvm_mmu_setup_spp_structure(struct kvm_vcpu *vcpu,
 void kvm_mmu_invlpg(struct kvm_vcpu *vcpu, gva_t gva);
 void kvm_mmu_invpcid_gva(struct kvm_vcpu *vcpu, gva_t gva, unsigned long pcid);
 void kvm_mmu_new_cr3(struct kvm_vcpu *vcpu, gpa_t new_cr3, bool skip_tlb_flush);
+
+int kvm_mmu_get_subpages(struct kvm *kvm, struct kvm_subpage *spp_info,
+			 bool mmu_locked);
+int kvm_mmu_set_subpages(struct kvm *kvm, struct kvm_subpage *spp_info,
+			 bool mmu_locked);
+int kvm_mmu_init_spp(struct kvm *kvm);
 
 void kvm_enable_tdp(void);
 void kvm_disable_tdp(void);
