@@ -837,6 +837,9 @@ struct kvm_mmu_page *kvm_mmu_get_spp_page(struct kvm_vcpu *vcpu,
 int kvm_get_subpages(struct kvm *kvm, struct kvm_subpage *spp_info);
 int kvm_set_subpages(struct kvm *kvm, struct kvm_subpage *spp_info);
 int kvm_init_spp(struct kvm *kvm);
+int kvm_arch_get_subpages(struct kvm *kvm, struct kvm_subpage *spp_info);
+int kvm_arch_set_subpages(struct kvm *kvm, struct kvm_subpage *spp_info);
+int kvm_arch_init_spp(struct kvm *kvm);
 
 #ifndef __KVM_HAVE_ARCH_VM_ALLOC
 /*
