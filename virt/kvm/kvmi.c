@@ -1529,7 +1529,7 @@ int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 		err = kvmi_control_event_breakpoint(vcpu, enable);
 		break;
 	default:
-		err = 0;
+		err = kvmi_arch_cmd_control_event(vcpu, event_id, enable);
 		break;
 	}
 

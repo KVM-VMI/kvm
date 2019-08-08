@@ -189,6 +189,7 @@ u32 kvmi_msg_send_hypercall(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
 		     bool *singlestep, bool *rep_complete,
 		     u64 *ctx_addr, u8 *ctx, u32 *ctx_size);
+u32 kvmi_msg_send_descriptor(struct kvm_vcpu *vcpu, u8 descriptor, u8 write);
 u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_pause_vcpu(struct kvm_vcpu *vcpu);
 int kvmi_msg_send_unhook(struct kvmi *ikvm);
@@ -228,6 +229,8 @@ void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action,
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
 				    struct kvm_memory_slot *slot,
 				    struct kvmi_mem_access *m);
+int kvmi_arch_cmd_control_event(struct kvm_vcpu *vcpu, unsigned int event_id,
+				bool enable);
 int kvmi_arch_cmd_get_registers(struct kvm_vcpu *vcpu,
 				const struct kvmi_msg_hdr *msg,
 				const struct kvmi_get_registers *req,

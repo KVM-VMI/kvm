@@ -268,6 +268,8 @@ struct vcpu_vmx {
 	u64 msr_ia32_feature_control_valid_bits;
 	u64 ept_pointer;
 
+	bool tracking_desc;
+
 	struct pt_desc pt_desc;
 };
 

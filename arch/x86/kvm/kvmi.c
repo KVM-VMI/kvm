@@ -161,6 +161,38 @@ bool kvmi_monitored_msr(struct kvm_vcpu *vcpu, u32 msr)
 }
 EXPORT_SYMBOL(kvmi_monitored_msr);
 
+static int kvmi_control_event_desc(struct kvm_vcpu *vcpu, bool enable)
+{
+	int err = 0;
+
+	if (enable) {
+		if (!is_event_enabled(vcpu, KVMI_EVENT_DESCRIPTOR))
+			if (!kvm_arch_vcpu_intercept_desc(vcpu, true))
+				err = -KVM_EOPNOTSUPP;
+	} else if (is_event_enabled(vcpu, KVMI_EVENT_DESCRIPTOR)) {
+		kvm_arch_vcpu_intercept_desc(vcpu, false);
+	}
+
+	return err;
+}
+
+int kvmi_arch_cmd_control_event(struct kvm_vcpu *vcpu, unsigned int event_id,
+				bool enable)
+{
+	int err;
+
+	switch (event_id) {
+	case KVMI_EVENT_DESCRIPTOR:
+		err = kvmi_control_event_desc(vcpu, enable);
+		break;
+	default:
+		err = 0;
+		break;
+	}
+
+	return err;
+}
+
 static void *alloc_get_registers_reply(const struct kvmi_msg_hdr *msg,
 				       const struct kvmi_get_registers *req,
 				       size_t *rpl_size)
@@ -603,6 +635,44 @@ void kvmi_arch_trap_event(struct kvm_vcpu *vcpu)
 		kvmi_handle_common_event_actions(vcpu, action, "TRAP");
 	}
 }
+
+static bool __kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor,
+				    u8 write)
+{
+	u32 action;
+	bool ret = false;
+
+	action = kvmi_msg_send_descriptor(vcpu, descriptor, write);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ret = true;
+		break;
+	case KVMI_EVENT_ACTION_RETRY:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "DESC");
+	}
+
+	return ret;
+}
+
+bool kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor, u8 write)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_DESCRIPTOR))
+		ret = __kvmi_descriptor_event(vcpu, descriptor, write);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_descriptor_event);
 
 int kvmi_arch_cmd_get_cpuid(struct kvm_vcpu *vcpu,
 			    const struct kvmi_get_cpuid *req,

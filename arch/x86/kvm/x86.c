@@ -10140,6 +10140,12 @@ bool kvm_spt_fault(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL(kvm_spt_fault);
 
+bool kvm_arch_vcpu_intercept_desc(struct kvm_vcpu *vcpu, bool enable)
+{
+	return kvm_x86_ops->desc_intercept(vcpu, enable);
+}
+EXPORT_SYMBOL(kvm_arch_vcpu_intercept_desc);
+
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_virq);

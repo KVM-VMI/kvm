@@ -22,6 +22,7 @@
 #include <linux/kernel.h>
 #include <linux/kvm_host.h>
 #include <asm/kvmi_host.h>
+#include <uapi/linux/kvmi.h>
 #include <linux/kvmi.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -2922,8 +2923,9 @@ int vmx_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 			hw_cr4 &= ~X86_CR4_UMIP;
 		} else if (!is_guest_mode(vcpu) ||
 			!nested_cpu_has2(get_vmcs12(vcpu), SECONDARY_EXEC_DESC))
-			vmcs_clear_bits(SECONDARY_VM_EXEC_CONTROL,
-					SECONDARY_EXEC_DESC);
+			if (!to_vmx(vcpu)->tracking_desc)
+				vmcs_clear_bits(SECONDARY_VM_EXEC_CONTROL,
+						SECONDARY_EXEC_DESC);
 	}
 
 	if (cr4 & X86_CR4_VMXE) {
@@ -4691,7 +4693,43 @@ static int handle_set_cr4(struct kvm_vcpu *vcpu, unsigned long val)
 
 static int handle_desc(struct kvm_vcpu *vcpu)
 {
+#ifdef CONFIG_KVM_INTROSPECTION
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	u32 exit_reason = vmx->exit_reason;
+	u32 vmx_instruction_info = vmcs_read32(VMX_INSTRUCTION_INFO);
+	u8 store = (vmx_instruction_info >> 29) & 0x1;
+	u8 descriptor = 0;
+
+	if (!vmx->tracking_desc)
+		goto emulate;
+
+	if (exit_reason == EXIT_REASON_GDTR_IDTR) {
+		if ((vmx_instruction_info >> 28) & 0x1)
+			descriptor = KVMI_DESC_IDTR;
+		else
+			descriptor = KVMI_DESC_GDTR;
+	} else {
+		if ((vmx_instruction_info >> 28) & 0x1)
+			descriptor = KVMI_DESC_TR;
+		else
+			descriptor = KVMI_DESC_LDTR;
+	}
+
+	/*
+	 * For now, this function returns false only when the guest
+	 * is ungracefully stopped (crashed) or the current instruction
+	 * is skipped by the introspection tool.
+	 */
+	if (!kvmi_descriptor_event(vcpu, descriptor, store))
+		return 1;
+emulate:
+	/*
+	 * We are here because X86_CR4_UMIP was set or
+	 * KVMI enabled the interception.
+	 */
+#else
 	WARN_ON(!(vcpu->arch.cr4 & X86_CR4_UMIP));
+#endif /* CONFIG_KVM_INTROSPECTION */
 	return kvm_emulate_instruction(vcpu, 0) == EMULATE_DONE;
 }
 
@@ -7840,6 +7878,22 @@ static bool vmx_spt_fault(struct kvm_vcpu *vcpu)
 	return (vmx->exit_reason == EXIT_REASON_EPT_VIOLATION);
 }
 
+static bool vmx_desc_intercept(struct kvm_vcpu *vcpu, bool enable)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	if (!cpu_has_secondary_exec_ctrls())
+		return false;
+
+	if (enable)
+		vmcs_set_bits(SECONDARY_VM_EXEC_CONTROL, SECONDARY_EXEC_DESC);
+	else
+		vmcs_clear_bits(SECONDARY_VM_EXEC_CONTROL, SECONDARY_EXEC_DESC);
+
+	vmx->tracking_desc = enable;
+	return true;
+}
+
 static bool vmx_get_spp_status(void)
 {
 	return spp_supported;
@@ -7875,6 +7929,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 
 	.msr_intercept = vmx_msr_intercept,
 	.cr3_write_exiting = vmx_cr3_write_exiting,
+	.desc_intercept = vmx_desc_intercept,
 	.nested_pagefault = vmx_nested_pagefault,
 	.spt_fault = vmx_spt_fault,
 
