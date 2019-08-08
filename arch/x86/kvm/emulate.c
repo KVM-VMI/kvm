@@ -1229,6 +1229,10 @@ static u8 simd_prefix_to_bytes(const struct x86_emulate_ctxt *ctxt,
 	u8 bytes = 16;
 
 	switch (ctxt->b) {
+	case 0x10:
+		/* movss m32, xmm */
+		/* movsd m64, xmm */
+		/* movups m128, xmm */
 	case 0x11:
 		/* movss xmm, m32 */
 		/* movsd xmm, m64 */
