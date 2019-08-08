@@ -7784,6 +7784,15 @@ static __exit void hardware_unsetup(void)
 	free_kvm_area();
 }
 
+static void vmx_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+			      bool enable)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	unsigned long *msr_bitmap = vmx->vmcs01.msr_bitmap;
+
+	vmx_set_intercept_for_msr(msr_bitmap, msr, MSR_TYPE_W, enable);
+}
+
 static void vmx_cr3_write_exiting(struct kvm_vcpu *vcpu,
 					 bool enable)
 {
@@ -7844,6 +7853,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_accelerated_tpr = report_flexpriority,
 	.has_emulated_msr = vmx_has_emulated_msr,
 
+	.msr_intercept = vmx_msr_intercept,
 	.cr3_write_exiting = vmx_cr3_write_exiting,
 	.nested_pagefault = vmx_nested_pagefault,
 	.spt_fault = vmx_spt_fault,

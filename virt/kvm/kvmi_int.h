@@ -27,7 +27,7 @@
 #define IVCPU(vcpu) ((struct kvmi_vcpu *)((vcpu)->kvmi))
 
 #define KVMI_NUM_CR 9
-
+#define KVMI_NUM_MSR 0x2000
 #define KVMI_CTX_DATA_SIZE FIELD_SIZEOF(struct kvmi_event_pf_reply, ctx_data)
 
 #define KVMI_MSG_SIZE_ALLOC (sizeof(struct kvmi_msg_hdr) + KVMI_MSG_SIZE)
@@ -120,6 +120,10 @@ struct kvmi_vcpu {
 
 	DECLARE_BITMAP(ev_mask, KVMI_NUM_EVENTS);
 	DECLARE_BITMAP(cr_mask, KVMI_NUM_CR);
+	struct {
+		DECLARE_BITMAP(low, KVMI_NUM_MSR);
+		DECLARE_BITMAP(high, KVMI_NUM_MSR);
+	} msr_mask;
 
 	struct list_head job_list;
 	spinlock_t job_lock;
@@ -258,5 +262,7 @@ int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 				   u64 address);
 int kvmi_arch_cmd_control_cr(struct kvm_vcpu *vcpu,
 			     const struct kvmi_control_cr *req);
+int kvmi_arch_cmd_control_msr(struct kvm_vcpu *vcpu,
+			      const struct kvmi_control_msr *req);
 
 #endif

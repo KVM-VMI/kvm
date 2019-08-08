@@ -9,6 +9,133 @@
 #include <asm/vmx.h>
 #include "../../../virt/kvm/kvmi_int.h"
 
+static unsigned long *msr_mask(struct kvm_vcpu *vcpu, unsigned int *msr)
+{
+	switch (*msr) {
+	case 0 ... 0x1fff:
+		return IVCPU(vcpu)->msr_mask.low;
+	case 0xc0000000 ... 0xc0001fff:
+		*msr &= 0x1fff;
+		return IVCPU(vcpu)->msr_mask.high;
+	}
+
+	return NULL;
+}
+
+static bool test_msr_mask(struct kvm_vcpu *vcpu, unsigned int msr)
+{
+	unsigned long *mask = msr_mask(vcpu, &msr);
+
+	if (!mask)
+		return false;
+	if (!test_bit(msr, mask))
+		return false;
+
+	return true;
+}
+
+static int msr_control(struct kvm_vcpu *vcpu, unsigned int msr, bool enable)
+{
+	unsigned long *mask = msr_mask(vcpu, &msr);
+
+	if (!mask)
+		return -KVM_EINVAL;
+	if (enable)
+		set_bit(msr, mask);
+	else
+		clear_bit(msr, mask);
+	return 0;
+}
+
+int kvmi_arch_cmd_control_msr(struct kvm_vcpu *vcpu,
+			      const struct kvmi_control_msr *req)
+{
+	int err;
+
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	err = msr_control(vcpu, req->msr, req->enable);
+
+	if (!err && req->enable)
+		kvm_arch_msr_intercept(vcpu, req->msr, req->enable);
+
+	return err;
+}
+
+static u32 kvmi_send_msr(struct kvm_vcpu *vcpu, u32 msr, u64 old_value,
+			 u64 new_value, u64 *ret_value)
+{
+	struct kvmi_event_msr e = {
+		.msr = msr,
+		.old_value = old_value,
+		.new_value = new_value,
+	};
+	struct kvmi_event_msr_reply r;
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_MSR, &e, sizeof(e),
+			      &r, sizeof(r), &action);
+	if (err) {
+		*ret_value = new_value;
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	*ret_value = r.new_val;
+	return action;
+}
+
+static bool __kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	struct msr_data old_msr = {
+		.host_initiated = true,
+		.index = msr->index,
+	};
+	bool ret = false;
+	u64 ret_value;
+	u32 action;
+
+	if (!test_msr_mask(vcpu, msr->index))
+		return true;
+	if (kvm_get_msr(vcpu, &old_msr))
+		return true;
+	if (old_msr.data == msr->data)
+		return true;
+
+	action = kvmi_send_msr(vcpu, msr->index, old_msr.data, msr->data,
+			       &ret_value);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		msr->data = ret_value;
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "MSR");
+	}
+
+	return ret;
+}
+
+bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	if (msr->host_initiated)
+		return true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_MSR))
+		ret = __kvmi_msr_event(vcpu, msr);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 static void *alloc_get_registers_reply(const struct kvmi_msg_hdr *msg,
 				       const struct kvmi_get_registers *req,
 				       size_t *rpl_size)

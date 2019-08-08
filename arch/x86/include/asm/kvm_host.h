@@ -1013,6 +1013,8 @@ struct kvm_x86_ops {
 	bool (*has_emulated_msr)(int index);
 	void (*cpuid_update)(struct kvm_vcpu *vcpu);
 
+	void (*msr_intercept)(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable);
 	void (*cr3_write_exiting)(struct kvm_vcpu *vcpu, bool enable);
 	bool (*nested_pagefault)(struct kvm_vcpu *vcpu);
 	bool (*spt_fault)(struct kvm_vcpu *vcpu);
@@ -1621,6 +1623,8 @@ static inline int kvm_cpu_get_apicid(int mps_cpu)
 #define put_smstate(type, buf, offset, val)                      \
 	*(type *)((buf) + (offset) - 0x7e00) = val
 
+void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable);
 bool kvm_mmu_nested_pagefault(struct kvm_vcpu *vcpu);
 bool kvm_spt_fault(struct kvm_vcpu *vcpu);
 void kvm_control_cr3_write_exiting(struct kvm_vcpu *vcpu, bool enable);

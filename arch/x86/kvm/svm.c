@@ -7098,6 +7098,20 @@ static int nested_enable_evmcs(struct kvm_vcpu *vcpu,
 	return -ENODEV;
 }
 
+static void svm_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	u32 *msrpm = svm->msrpm;
+
+	/*
+	 * The below code enable or disable the msr interception for both
+	 * read and write. The best way will be to get here the current
+	 * bit status for read and send that value as argument.
+	 */
+	set_msr_interception(msrpm, msr, enable, enable);
+}
+
 static bool svm_nested_pagefault(struct kvm_vcpu *vcpu)
 {
 	return false;
@@ -7126,6 +7140,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.has_emulated_msr = svm_has_emulated_msr,
 
 	.cr3_write_exiting = svm_cr3_write_exiting,
+	.msr_intercept = svm_msr_intercept,
 	.nested_pagefault = svm_nested_pagefault,
 	.spt_fault = svm_spt_fault,
 

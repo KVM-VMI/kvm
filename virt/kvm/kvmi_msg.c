@@ -26,6 +26,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_CONTROL_CMD_RESPONSE]  = "KVMI_CONTROL_CMD_RESPONSE",
 	[KVMI_CONTROL_CR]            = "KVMI_CONTROL_CR",
 	[KVMI_CONTROL_EVENTS]        = "KVMI_CONTROL_EVENTS",
+	[KVMI_CONTROL_MSR]           = "KVMI_CONTROL_MSR",
 	[KVMI_CONTROL_SPP]           = "KVMI_CONTROL_SPP",
 	[KVMI_CONTROL_VM_EVENTS]     = "KVMI_CONTROL_VM_EVENTS",
 	[KVMI_EVENT]                 = "KVMI_EVENT",
@@ -674,6 +675,17 @@ static int handle_control_cr(struct kvm_vcpu *vcpu,
 	return reply_cb(vcpu, msg, ec, NULL, 0);
 }
 
+static int handle_control_msr(struct kvm_vcpu *vcpu,
+			      const struct kvmi_msg_hdr *msg, const void *req,
+			      vcpu_reply_fct reply_cb)
+{
+	int ec;
+
+	ec = kvmi_arch_cmd_control_msr(vcpu, req);
+
+	return reply_cb(vcpu, msg, ec, NULL, 0);
+}
+
 static int handle_get_cpuid(struct kvm_vcpu *vcpu,
 			    const struct kvmi_msg_hdr *msg,
 			    const void *req, vcpu_reply_fct reply_cb)
@@ -699,6 +711,7 @@ static int(*const msg_vcpu[])(struct kvm_vcpu *,
 			      vcpu_reply_fct) = {
 	[KVMI_CONTROL_CR]       = handle_control_cr,
 	[KVMI_CONTROL_EVENTS]   = handle_control_events,
+	[KVMI_CONTROL_MSR]      = handle_control_msr,
 	[KVMI_EVENT_REPLY]      = handle_event_reply,
 	[KVMI_GET_CPUID]        = handle_get_cpuid,
 	[KVMI_GET_REGISTERS]    = handle_get_registers,

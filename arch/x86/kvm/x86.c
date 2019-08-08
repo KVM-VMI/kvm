@@ -1319,6 +1319,9 @@ EXPORT_SYMBOL_GPL(kvm_enable_efer_bits);
  */
 int kvm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
+	if (!kvmi_msr_event(vcpu, msr))
+		return 1;
+
 	switch (msr->index) {
 	case MSR_FS_BASE:
 	case MSR_GS_BASE:
@@ -10082,6 +10085,13 @@ bool kvm_vector_hashing_enabled(void)
 	return vector_hashing;
 }
 EXPORT_SYMBOL_GPL(kvm_vector_hashing_enabled);
+
+void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
+				bool enable)
+{
+	kvm_x86_ops->msr_intercept(vcpu, msr, enable);
+}
+EXPORT_SYMBOL_GPL(kvm_arch_msr_intercept);
 
 void kvm_control_cr3_write_exiting(struct kvm_vcpu *vcpu, bool enable)
 {
