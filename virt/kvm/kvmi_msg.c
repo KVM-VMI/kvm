@@ -25,6 +25,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_CHECK_EVENT]           = "KVMI_CHECK_EVENT",
 	[KVMI_CONTROL_CMD_RESPONSE]  = "KVMI_CONTROL_CMD_RESPONSE",
 	[KVMI_CONTROL_EVENTS]        = "KVMI_CONTROL_EVENTS",
+	[KVMI_CONTROL_SPP]           = "KVMI_CONTROL_SPP",
 	[KVMI_CONTROL_VM_EVENTS]     = "KVMI_CONTROL_VM_EVENTS",
 	[KVMI_EVENT]                 = "KVMI_EVENT",
 	[KVMI_EVENT_REPLY]           = "KVMI_EVENT_REPLY",
@@ -300,6 +301,37 @@ static int kvmi_get_vcpu(struct kvmi *ikvm, unsigned int vcpu_idx,
 	return 0;
 }
 
+static bool enable_spp(struct kvmi *ikvm)
+{
+	if (!ikvm->spp.initialized) {
+		int err = kvmi_arch_cmd_control_spp(ikvm);
+
+		ikvm->spp.initialized = true;
+
+		if (!err)
+			atomic_set(&ikvm->spp.enabled, true);
+	}
+
+	return atomic_read(&ikvm->spp.enabled);
+}
+
+static int handle_control_spp(struct kvmi *ikvm,
+			      const struct kvmi_msg_hdr *msg,
+			      const void *_req)
+{
+	const struct kvmi_control_spp *req = _req;
+	int ec;
+
+	if (req->padding1 || req->padding2 || req->padding3)
+		ec = -KVM_EINVAL;
+	else if (req->enable && enable_spp(ikvm))
+		ec = 0;
+	else
+		ec = -KVM_EOPNOTSUPP;
+
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
+}
+
 static int handle_control_cmd_response(struct kvmi *ikvm,
 					const struct kvmi_msg_hdr *msg,
 					const void *_req)
@@ -364,6 +396,7 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_CHECK_COMMAND]         = handle_check_command,
 	[KVMI_CHECK_EVENT]           = handle_check_event,
 	[KVMI_CONTROL_CMD_RESPONSE]  = handle_control_cmd_response,
+	[KVMI_CONTROL_SPP]           = handle_control_spp,
 	[KVMI_CONTROL_VM_EVENTS]     = handle_control_vm_events,
 	[KVMI_GET_GUEST_INFO]        = handle_get_guest_info,
 	[KVMI_GET_PAGE_ACCESS]       = handle_get_page_access,

@@ -260,3 +260,7 @@ int kvmi_arch_cmd_set_page_access(struct kvmi *ikvm,
 	return ec;
 }
 
+int kvmi_arch_cmd_control_spp(struct kvmi *ikvm)
+{
+	return kvm_arch_init_spp(ikvm->kvm);
+}

@@ -130,6 +130,11 @@ struct kvmi {
 	DECLARE_BITMAP(event_allow_mask, KVMI_NUM_EVENTS);
 	DECLARE_BITMAP(vm_ev_mask, KVMI_NUM_EVENTS);
 
+	struct {
+		bool initialized;
+		atomic_t enabled;
+	} spp;
+
 	bool cmd_reply_disabled;
 };
 
@@ -184,6 +189,7 @@ int kvmi_arch_cmd_get_page_access(struct kvmi *ikvm,
 int kvmi_arch_cmd_set_page_access(struct kvmi *ikvm,
 				  const struct kvmi_msg_hdr *msg,
 				  const struct kvmi_set_page_access *req);
+int kvmi_arch_cmd_control_spp(struct kvmi *ikvm);
 void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev);
 bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			u8 access);

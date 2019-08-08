@@ -142,6 +142,13 @@ struct kvmi_set_page_access {
 	struct kvmi_page_access_entry entries[0];
 };
 
+struct kvmi_control_spp {
+	__u8 enable;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
+};
+
 struct kvmi_get_vcpu_info_reply {
 	__u64 tsc_speed;
 };

@@ -617,6 +617,39 @@ In order to 'forget' an address, all the access bits ('rwx') must be set.
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
 
+11. KVMI_CONTROL_SPP
+--------------------
+
+:Architectures: x86/intel
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_control_spp {
+		__u8 enable;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 padding3;
+	}
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Enables/disables subpage protection (SPP) for the current VM.
+
+If SPP is not enabled, *KVMI_GET_PAGE_WRITE_BITMAP* and
+*KVMI_SET_PAGE_WRITE_BITMAP* commands will fail.
+
+:Errors:
+
+* -KVM_EINVAL - padding is not zero
+* -KVM_EOPNOTSUPP - the hardware doesn't support SPP
+* -KVM_EOPNOTSUPP - the current implementation can't disable SPP
+
 Events
 ======
 
