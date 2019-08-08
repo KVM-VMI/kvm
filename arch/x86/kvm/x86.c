@@ -9884,6 +9884,12 @@ bool kvm_vector_hashing_enabled(void)
 }
 EXPORT_SYMBOL_GPL(kvm_vector_hashing_enabled);
 
+bool kvm_spt_fault(struct kvm_vcpu *vcpu)
+{
+	return kvm_x86_ops->spt_fault(vcpu);
+}
+EXPORT_SYMBOL(kvm_spt_fault);
+
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_virq);

@@ -7689,6 +7689,13 @@ static bool vmx_nested_pagefault(struct kvm_vcpu *vcpu)
 	return true;
 }
 
+static bool vmx_spt_fault(struct kvm_vcpu *vcpu)
+{
+	const struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	return (vmx->exit_reason == EXIT_REASON_EPT_VIOLATION);
+}
+
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -7701,6 +7708,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.has_emulated_msr = vmx_has_emulated_msr,
 
 	.nested_pagefault = vmx_nested_pagefault,
+	.spt_fault = vmx_spt_fault,
 
 	.vm_init = vmx_vm_init,
 	.vm_alloc = vmx_vm_alloc,

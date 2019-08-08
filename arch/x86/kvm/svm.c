@@ -7103,6 +7103,13 @@ static bool svm_nested_pagefault(struct kvm_vcpu *vcpu)
 	return false;
 }
 
+static bool svm_spt_fault(struct kvm_vcpu *vcpu)
+{
+	const struct vcpu_svm *svm = to_svm(vcpu);
+
+	return (svm->vmcb->control.exit_code == SVM_EXIT_NPF);
+}
+
 static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = has_svm,
 	.disabled_by_bios = is_disabled,
@@ -7115,6 +7122,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.has_emulated_msr = svm_has_emulated_msr,
 
 	.nested_pagefault = svm_nested_pagefault,
+	.spt_fault = svm_spt_fault,
 
 	.vcpu_create = svm_create_vcpu,
 	.vcpu_free = svm_free_vcpu,
