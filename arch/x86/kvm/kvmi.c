@@ -183,3 +183,44 @@ void kvmi_arch_update_page_tracking(struct kvm *kvm,
 		}
 	}
 }
+
+int kvmi_arch_cmd_get_page_access(struct kvmi *ikvm,
+				  const struct kvmi_msg_hdr *msg,
+				  const struct kvmi_get_page_access *req,
+				  struct kvmi_get_page_access_reply **dest,
+				  size_t *dest_size)
+{
+	struct kvmi_get_page_access_reply *rpl = NULL;
+	size_t rpl_size = 0;
+	size_t k, n = req->count;
+	int ec = 0;
+
+	if (req->padding)
+		return -KVM_EINVAL;
+
+	if (msg->size < sizeof(*req) + req->count * sizeof(req->gpa[0]))
+		return -KVM_EINVAL;
+
+	if (req->view != 0)	/* TODO */
+		return -KVM_EOPNOTSUPP;
+
+	rpl_size = sizeof(*rpl) + sizeof(rpl->access[0]) * n;
+	rpl = kvmi_msg_alloc_check(rpl_size);
+	if (!rpl)
+		return -KVM_ENOMEM;
+
+	for (k = 0; k < n && ec == 0; k++)
+		ec = kvmi_cmd_get_page_access(ikvm, req->gpa[k],
+					      &rpl->access[k]);
+
+	if (ec) {
+		kvmi_msg_free(rpl);
+		return ec;
+	}
+
+	*dest = rpl;
+	*dest_size = rpl_size;
+
+	return 0;
+}
+

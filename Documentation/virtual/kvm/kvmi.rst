@@ -509,6 +509,60 @@ by the *KVMI_CONTROL_VM_EVENTS* command.
 * -KVM_EPERM - the access is restricted by the host
 * -KVM_EOPNOTSUPP - one the events can't be intercepted in the current setup
 
+9. KVMI_GET_PAGE_ACCESS
+-----------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_get_page_access {
+		__u16 view;
+		__u16 count;
+		__u32 padding;
+		__u64 gpa[0];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_get_page_access_reply {
+		__u8 access[0];
+	};
+
+Returns the spte access bits (rwx) for an array of ``count`` guest
+physical addresses.
+
+The valid access bits for *KVMI_GET_PAGE_ACCESS* and *KVMI_SET_PAGE_ACCESS*
+are::
+
+	KVMI_PAGE_ACCESS_R
+	KVMI_PAGE_ACCESS_W
+	KVMI_PAGE_ACCESS_X
+
+By default, for any guest physical address, the returned access mode will
+be 'rwx' (all the above bits). If the introspection tool must prevent
+the code execution from a guest page, for example, it should use the
+KVMI_SET_PAGE_ACCESS command to set the 'rw' bits for any guest physical
+addresses contained in that page. Of course, in order to receive
+page fault events when these violations take place, the KVMI_CONTROL_EVENTS
+command must be used to enable this type of event (KVMI_EVENT_PF).
+
+On Intel hardware with multiple EPT views, the ``view`` argument selects the
+EPT view (0 is primary). On all other hardware it must be zero.
+
+:Errors:
+
+* -KVM_EINVAL - the selected SPT view is invalid
+* -KVM_EINVAL - padding is not zero
+* -KVM_EOPNOTSUPP - a SPT view was selected but the hardware doesn't support it
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_ENOMEM - not enough memory to allocate the reply
+
 Events
 ======
 

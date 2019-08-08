@@ -1072,6 +1072,15 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 	kvmi_put(vcpu->kvm);
 }
 
+int kvmi_cmd_get_page_access(struct kvmi *ikvm, u64 gpa, u8 *access)
+{
+	gfn_t gfn = gpa_to_gfn(gpa);
+
+	kvmi_get_gfn_access(ikvm, gfn, access);
+
+	return 0;
+}
+
 int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 			    bool enable)
 {

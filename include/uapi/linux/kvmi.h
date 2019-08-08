@@ -116,6 +116,17 @@ struct kvmi_get_guest_info_reply {
 	__u32 padding[3];
 };
 
+struct kvmi_get_page_access {
+	__u16 view;
+	__u16 count;
+	__u32 padding;
+	__u64 gpa[0];
+};
+
+struct kvmi_get_page_access_reply {
+	__u8 access[0];
+};
+
 struct kvmi_get_vcpu_info_reply {
 	__u64 tsc_speed;
 };

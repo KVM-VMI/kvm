@@ -29,6 +29,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_EVENT]                 = "KVMI_EVENT",
 	[KVMI_EVENT_REPLY]           = "KVMI_EVENT_REPLY",
 	[KVMI_GET_GUEST_INFO]        = "KVMI_GET_GUEST_INFO",
+	[KVMI_GET_PAGE_ACCESS]       = "KVMI_GET_PAGE_ACCESS",
 	[KVMI_GET_VCPU_INFO]         = "KVMI_GET_VCPU_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
 };
@@ -323,6 +324,21 @@ static int handle_control_cmd_response(struct kvmi *ikvm,
 	return err;
 }
 
+static int handle_get_page_access(struct kvmi *ikvm,
+				  const struct kvmi_msg_hdr *msg,
+				  const void *req)
+{
+	struct kvmi_get_page_access_reply *rpl = NULL;
+	size_t rpl_size = 0;
+	int err, ec;
+
+	ec = kvmi_arch_cmd_get_page_access(ikvm, msg, req, &rpl, &rpl_size);
+
+	err = kvmi_msg_vm_maybe_reply(ikvm, msg, ec, rpl, rpl_size);
+	kvmi_msg_free(rpl);
+	return err;
+}
+
 static bool invalid_vcpu_hdr(const struct kvmi_vcpu_hdr *hdr)
 {
 	return hdr->padding1 || hdr->padding2;
@@ -338,6 +354,7 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_CONTROL_CMD_RESPONSE]  = handle_control_cmd_response,
 	[KVMI_CONTROL_VM_EVENTS]     = handle_control_vm_events,
 	[KVMI_GET_GUEST_INFO]        = handle_get_guest_info,
+	[KVMI_GET_PAGE_ACCESS]       = handle_get_page_access,
 	[KVMI_GET_VERSION]           = handle_get_version,
 };
 
