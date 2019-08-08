@@ -1212,6 +1212,31 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 	kvmi_put(vcpu->kvm);
 }
 
+void kvmi_post_reply(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	if (ivcpu->have_delayed_regs) {
+		kvm_arch_vcpu_set_regs(vcpu, &ivcpu->delayed_regs);
+		ivcpu->have_delayed_regs = false;
+	}
+}
+
+int kvmi_cmd_set_registers(struct kvm_vcpu *vcpu, const struct kvm_regs *regs)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	if (ivcpu->reply_waiting) {
+		/* defer set registers until we get the reply */
+		memcpy(&ivcpu->delayed_regs, regs, sizeof(ivcpu->delayed_regs));
+		ivcpu->have_delayed_regs = true;
+	} else {
+		kvmi_err(IKVM(vcpu->kvm), "Dropped KVMI_SET_REGISTERS\n");
+	}
+
+	return 0;
+}
+
 int kvmi_cmd_get_page_access(struct kvmi *ikvm, u64 gpa, u8 *access)
 {
 	gfn_t gfn = gpa_to_gfn(gpa);

@@ -39,6 +39,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_READ_PHYSICAL]         = "KVMI_READ_PHYSICAL",
 	[KVMI_SET_PAGE_ACCESS]       = "KVMI_SET_PAGE_ACCESS",
 	[KVMI_SET_PAGE_WRITE_BITMAP] = "KVMI_SET_PAGE_WRITE_BITMAP",
+	[KVMI_SET_REGISTERS]         = "KVMI_SET_REGISTERS",
 	[KVMI_WRITE_PHYSICAL]        = "KVMI_WRITE_PHYSICAL",
 };
 
@@ -605,6 +606,19 @@ static int handle_get_registers(struct kvm_vcpu *vcpu,
 	return err;
 }
 
+static int handle_set_registers(struct kvm_vcpu *vcpu,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req,
+				vcpu_reply_fct reply_cb)
+{
+	const struct kvm_regs *regs = _req;
+	int err;
+
+	err = kvmi_cmd_set_registers(vcpu, regs);
+
+	return reply_cb(vcpu, msg, err, NULL, 0);
+}
+
 static int handle_control_events(struct kvm_vcpu *vcpu,
 				 const struct kvmi_msg_hdr *msg,
 				 const void *_req,
@@ -640,6 +654,7 @@ static int(*const msg_vcpu[])(struct kvm_vcpu *,
 	[KVMI_EVENT_REPLY]      = handle_event_reply,
 	[KVMI_GET_REGISTERS]    = handle_get_registers,
 	[KVMI_GET_VCPU_INFO]    = handle_get_vcpu_info,
+	[KVMI_SET_REGISTERS]    = handle_set_registers,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *_ctx)
@@ -937,6 +952,7 @@ int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
 	if (err)
 		goto out;
 
+	kvmi_post_reply(vcpu);
 	*action = ivcpu->reply.action;
 
 out:
