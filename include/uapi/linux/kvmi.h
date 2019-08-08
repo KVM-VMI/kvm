@@ -177,6 +177,13 @@ struct kvmi_get_vcpu_info_reply {
 	__u64 tsc_speed;
 };
 
+struct kvmi_pause_vcpu {
+	__u8 wait;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
+};
+
 struct kvmi_control_events {
 	__u16 event_id;
 	__u8 enable;

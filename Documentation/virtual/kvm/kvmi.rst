@@ -820,6 +820,48 @@ one page (offset + size <= PAGE_SIZE).
 
 * -KVM_EINVAL - the specified gpa is invalid
 
+16. KVMI_PAUSE_VCPU
+-------------------
+
+:Architecture: all
+:Versions: >= 1
+:Parameters:
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_pause_vcpu {
+		__u8 wait;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 padding3;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Kicks the vCPU from guest.
+
+If `wait` is 1, the command will wait for vCPU to acknowledge the IPI.
+
+The vCPU will handle the pending commands/events and send the
+*KVMI_EVENT_PAUSE_VCPU* event (one for every successful *KVMI_PAUSE_VCPU*
+command) before returning to guest.
+
+Please note that new vCPUs might by created at any time.
+The introspection tool should use *KVMI_CONTROL_VM_EVENTS* to enable the
+*KVMI_EVENT_CREATE_VCPU* event in order to stop these new vCPUs as well
+(by delaying the event reply).
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EBUSY  - the selected vCPU has too many queued *KVMI_EVENT_PAUSE_VCPU* events
+* -KVM_EPERM  - the *KVMI_EVENT_PAUSE_VCPU* event is disallowed (see *KVMI_CONTROL_EVENTS*)
+		and the introspection tool expects a reply.
 Events
 ======
 
@@ -992,3 +1034,29 @@ The *RETRY* action is used by the introspector to retry the execution of
 the current instruction. Either using single-step (if ``singlestep`` is
 not zero) or return to guest (if the introspector changed the instruction
 pointer or the page restrictions).
+
+4. KVMI_EVENT_PAUSE_VCPU
+------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent in response to a *KVMI_PAUSE_VCPU* command and
+cannot be disabled via *KVMI_CONTROL_EVENTS*.
+
+This event has a low priority. It will be sent after any other vCPU
+introspection event and when no vCPU introspection command is queued.
+

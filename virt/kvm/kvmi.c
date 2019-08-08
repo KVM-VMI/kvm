@@ -11,6 +11,8 @@
 #include <linux/kthread.h>
 #include <linux/bitmap.h>
 
+#define MAX_PAUSE_REQUESTS 1001
+
 static struct kmem_cache *msg_cache;
 static struct kmem_cache *radix_cache;
 static struct kmem_cache *job_cache;
@@ -1090,6 +1092,39 @@ static bool kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 	return ret;
 }
 
+static bool __kvmi_pause_vcpu_event(struct kvm_vcpu *vcpu)
+{
+	u32 action;
+	bool ret = false;
+
+	action = kvmi_msg_send_pause_vcpu(vcpu);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "PAUSE");
+	}
+
+	return ret;
+}
+
+static bool kvmi_pause_vcpu_event(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	ret = __kvmi_pause_vcpu_event(vcpu);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 void kvmi_run_jobs(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
@@ -1154,6 +1189,7 @@ int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu)
 
 void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 {
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
 	struct kvmi *ikvm;
 
 	ikvm = kvmi_get(vcpu->kvm);
@@ -1165,6 +1201,12 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 
 		if (err)
 			break;
+
+		if (!atomic_read(&ivcpu->pause_requests))
+			break;
+
+		atomic_dec(&ivcpu->pause_requests);
+		kvmi_pause_vcpu_event(vcpu);
 	}
 
 	kvmi_put(vcpu->kvm);
@@ -1351,10 +1393,33 @@ int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 	return 0;
 }
 
+int kvmi_cmd_pause_vcpu(struct kvm_vcpu *vcpu, bool wait)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	unsigned int req = KVM_REQ_INTROSPECTION;
+
+	if (atomic_read(&ivcpu->pause_requests) > MAX_PAUSE_REQUESTS)
+		return -KVM_EBUSY;
+
+	atomic_inc(&ivcpu->pause_requests);
+	kvm_make_request(req, vcpu);
+	if (wait)
+		kvm_vcpu_kick_and_wait(vcpu);
+	else
+		kvm_vcpu_kick(vcpu);
+
+	return 0;
+}
+
 static void kvmi_job_abort(struct kvm_vcpu *vcpu, void *ctx)
 {
 	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
 
+	/*
+	 * The thread that might increment this atomic is stopped
+	 * and this thread is the only one that could decrement it.
+	 */
+	atomic_set(&ivcpu->pause_requests, 0);
 	ivcpu->reply_waiting = false;
 }
 

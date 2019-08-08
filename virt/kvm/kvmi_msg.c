@@ -34,6 +34,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_GET_PAGE_WRITE_BITMAP] = "KVMI_GET_PAGE_WRITE_BITMAP",
 	[KVMI_GET_VCPU_INFO]         = "KVMI_GET_VCPU_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
+	[KVMI_PAUSE_VCPU]            = "KVMI_PAUSE_VCPU",
 	[KVMI_READ_PHYSICAL]         = "KVMI_READ_PHYSICAL",
 	[KVMI_SET_PAGE_ACCESS]       = "KVMI_SET_PAGE_ACCESS",
 	[KVMI_SET_PAGE_WRITE_BITMAP] = "KVMI_SET_PAGE_WRITE_BITMAP",
@@ -458,6 +459,53 @@ static bool invalid_vcpu_hdr(const struct kvmi_vcpu_hdr *hdr)
 }
 
 /*
+ * We handle this vCPU command on the receiving thread to make it easier
+ * for userspace to implement a 'pause VM' command. Usually, this is done
+ * by sending one 'pause vCPU' command for every vCPU. By handling the
+ * command here, the userspace can:
+ *    - optimize, by not requesting a reply for the first N-1 vCPU's
+ *    - consider the VM stopped once it receives the reply
+ *      for the last 'pause vCPU' command
+ */
+static int handle_pause_vcpu(struct kvmi *ikvm,
+			     const struct kvmi_msg_hdr *msg,
+			     const void *_req)
+{
+	const struct kvmi_pause_vcpu *req = _req;
+	const struct kvmi_vcpu_hdr *cmd;
+	struct kvm_vcpu *vcpu = NULL;
+	int err;
+
+	if (req->padding1 || req->padding2 || req->padding3) {
+		err = -KVM_EINVAL;
+		goto reply;
+	}
+
+	cmd = (const struct kvmi_vcpu_hdr *) (msg + 1);
+
+	if (invalid_vcpu_hdr(cmd)) {
+		err = -KVM_EINVAL;
+		goto reply;
+	}
+
+	if (!is_event_allowed(ikvm, KVMI_EVENT_PAUSE_VCPU)) {
+		err = -KVM_EPERM;
+
+		if (ikvm->cmd_reply_disabled)
+			return kvmi_msg_vm_reply(ikvm, msg, err, NULL, 0);
+
+		goto reply;
+	}
+
+	err = kvmi_get_vcpu(ikvm, cmd->vcpu, &vcpu);
+	if (!err)
+		err = kvmi_cmd_pause_vcpu(vcpu, req->wait == 1);
+
+reply:
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, err, NULL, 0);
+}
+
+/*
  * These commands are executed on the receiving thread/worker.
  */
 static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
@@ -471,6 +519,7 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_GET_PAGE_ACCESS]       = handle_get_page_access,
 	[KVMI_GET_PAGE_WRITE_BITMAP] = handle_get_page_write_bitmap,
 	[KVMI_GET_VERSION]           = handle_get_version,
+	[KVMI_PAUSE_VCPU]            = handle_pause_vcpu,
 	[KVMI_READ_PHYSICAL]         = handle_read_physical,
 	[KVMI_SET_PAGE_ACCESS]       = handle_set_page_access,
 	[KVMI_SET_PAGE_WRITE_BITMAP] = handle_set_page_write_bitmap,
@@ -960,6 +1009,18 @@ u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu)
 	int err, action;
 
 	err = kvmi_send_event(vcpu, KVMI_EVENT_CREATE_VCPU, NULL, 0,
+			      NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}
+
+u32 kvmi_msg_send_pause_vcpu(struct kvm_vcpu *vcpu)
+{
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_PAUSE_VCPU, NULL, 0,
 			      NULL, 0, &action);
 	if (err)
 		return KVMI_EVENT_ACTION_CONTINUE;

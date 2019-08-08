@@ -100,6 +100,8 @@ struct kvmi_vcpu {
 	bool rep_complete;
 	bool effective_rep_complete;
 
+	atomic_t pause_requests;
+
 	bool reply_waiting;
 	struct kvmi_vcpu_reply reply;
 
@@ -164,6 +166,7 @@ u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
 		     bool *singlestep, bool *rep_complete,
 		     u64 *ctx_addr, u8 *ctx, u32 *ctx_size);
 u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu);
+u32 kvmi_msg_send_pause_vcpu(struct kvm_vcpu *vcpu);
 int kvmi_msg_send_unhook(struct kvmi *ikvm);
 
 /* kvmi.c */
@@ -185,6 +188,7 @@ int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 			    bool enable);
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 			       bool enable);
+int kvmi_cmd_pause_vcpu(struct kvm_vcpu *vcpu, bool wait);
 int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu);
 int kvmi_add_job(struct kvm_vcpu *vcpu,
 		 void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
