@@ -6178,6 +6178,9 @@ static void toggle_interruptibility(struct kvm_vcpu *vcpu, u32 mask)
 static bool inject_emulated_exception(struct kvm_vcpu *vcpu)
 {
 	struct x86_emulate_ctxt *ctxt = &vcpu->arch.emulate_ctxt;
+
+	trace_kvm_inj_emul_exception(vcpu, &ctxt->exception);
+
 	if (ctxt->exception.vector == PF_VECTOR)
 		return kvm_propagate_fault(vcpu, &ctxt->exception);
 
@@ -7487,10 +7490,6 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool req_int_win)
 
 	/* try to inject new event if pending */
 	if (vcpu->arch.exception.pending) {
-		trace_kvm_inj_exception(vcpu->arch.exception.nr,
-					vcpu->arch.exception.has_error_code,
-					vcpu->arch.exception.error_code);
-
 		WARN_ON_ONCE(vcpu->arch.exception.injected);
 		vcpu->arch.exception.pending = false;
 		vcpu->arch.exception.injected = true;
@@ -10250,7 +10249,10 @@ EXPORT_SYMBOL(kvm_arch_vcpu_intercept_desc);
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);
-EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_virq);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_interrupt);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_nmi);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_exception);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_cancel_inj);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_page_fault);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_msr);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_cr);

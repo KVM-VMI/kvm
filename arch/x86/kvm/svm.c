@@ -799,6 +799,8 @@ static void svm_queue_exception(struct kvm_vcpu *vcpu)
 	bool reinject = vcpu->arch.exception.injected;
 	u32 error_code = vcpu->arch.exception.error_code;
 
+	trace_kvm_inj_exception(vcpu);
+
 	/*
 	 * If we are within a nested VM we'd better #VMEXIT and let the guest
 	 * handle the exception
@@ -5108,6 +5110,8 @@ static void svm_inject_nmi(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
+	trace_kvm_inj_nmi(vcpu);
+
 	svm->vmcb->control.event_inj = SVM_EVTINJ_VALID | SVM_EVTINJ_TYPE_NMI;
 	vcpu->arch.hflags |= HF_NMI_MASK;
 	set_intercept(svm, INTERCEPT_IRET);
@@ -5133,7 +5137,8 @@ static void svm_set_irq(struct kvm_vcpu *vcpu)
 
 	BUG_ON(!(gif_set(svm)));
 
-	trace_kvm_inj_virq(vcpu->arch.interrupt.nr);
+	trace_kvm_inj_interrupt(vcpu);
+
 	++vcpu->stat.irq_injections;
 
 	svm->vmcb->control.event_inj = vcpu->arch.interrupt.nr |
@@ -5636,6 +5641,8 @@ static void svm_cancel_injection(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct vmcb_control_area *control = &svm->vmcb->control;
+
+	trace_kvm_cancel_inj(vcpu);
 
 	control->exit_int_info = control->event_inj;
 	control->exit_int_info_err = control->event_inj_err;

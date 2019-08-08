@@ -227,6 +227,7 @@ TRACE_EVENT(kvm_exit,
 	TP_ARGS(exit_reason, vcpu, isa),
 
 	TP_STRUCT__entry(
+		__field(	unsigned int,	vcpu_id		)
 		__field(	unsigned int,	exit_reason	)
 		__field(	unsigned long,	guest_rip	)
 		__field(	u32,	        isa             )
@@ -235,6 +236,7 @@ TRACE_EVENT(kvm_exit,
 	),
 
 	TP_fast_assign(
+		__entry->vcpu_id	= vcpu->vcpu_id;
 		__entry->exit_reason	= exit_reason;
 		__entry->guest_rip	= kvm_rip_read(vcpu);
 		__entry->isa            = isa;
@@ -242,7 +244,8 @@ TRACE_EVENT(kvm_exit,
 					   &__entry->info2);
 	),
 
-	TP_printk("reason %s rip 0x%lx info %llx %llx",
+	TP_printk("vcpu %u reason %s rip 0x%lx info %llx %llx",
+		 __entry->vcpu_id,
 		 (__entry->isa == KVM_ISA_VMX) ?
 		 __print_symbolic(__entry->exit_reason, VMX_EXIT_REASONS) :
 		 __print_symbolic(__entry->exit_reason, SVM_EXIT_REASONS),
@@ -252,19 +255,38 @@ TRACE_EVENT(kvm_exit,
 /*
  * Tracepoint for kvm interrupt injection:
  */
-TRACE_EVENT(kvm_inj_virq,
-	TP_PROTO(unsigned int irq),
-	TP_ARGS(irq),
-
+TRACE_EVENT(kvm_inj_interrupt,
+	TP_PROTO(struct kvm_vcpu *vcpu),
+	TP_ARGS(vcpu),
 	TP_STRUCT__entry(
-		__field(	unsigned int,	irq		)
+		__field(__u32, vcpu_id)
+		__field(__u32, nr)
 	),
-
 	TP_fast_assign(
-		__entry->irq		= irq;
+		__entry->vcpu_id = vcpu->vcpu_id;
+		__entry->nr = vcpu->arch.interrupt.nr;
 	),
+	TP_printk("vcpu %u irq %u",
+		  __entry->vcpu_id,
+		  __entry->nr
+	)
+);
 
-	TP_printk("irq %u", __entry->irq)
+/*
+ * Tracepoint for kvm nmi injection:
+ */
+TRACE_EVENT(kvm_inj_nmi,
+	TP_PROTO(struct kvm_vcpu *vcpu),
+	TP_ARGS(vcpu),
+	TP_STRUCT__entry(
+		__field(__u32, vcpu_id)
+	),
+	TP_fast_assign(
+		__entry->vcpu_id = vcpu->vcpu_id;
+	),
+	TP_printk("vcpu %u",
+		  __entry->vcpu_id
+	)
 );
 
 #define EXS(x) { x##_VECTOR, "#" #x }
@@ -275,28 +297,76 @@ TRACE_EVENT(kvm_inj_virq,
 	EXS(MF), EXS(AC), EXS(MC)
 
 /*
- * Tracepoint for kvm interrupt injection:
+ * Tracepoint for kvm exception injection:
  */
-TRACE_EVENT(kvm_inj_exception,
-	TP_PROTO(unsigned exception, bool has_error, unsigned error_code),
-	TP_ARGS(exception, has_error, error_code),
-
+TRACE_EVENT(
+	kvm_inj_exception,
+	TP_PROTO(struct kvm_vcpu *vcpu),
+	TP_ARGS(vcpu),
 	TP_STRUCT__entry(
-		__field(	u8,	exception	)
-		__field(	u8,	has_error	)
-		__field(	u32,	error_code	)
+		__field(__u32, vcpu_id)
+		__field(__u8, nr)
+		__field(__u64, address)
+		__field(__u16, error_code)
+		__field(bool, has_error_code)
 	),
-
 	TP_fast_assign(
-		__entry->exception	= exception;
-		__entry->has_error	= has_error;
-		__entry->error_code	= error_code;
+		__entry->vcpu_id = vcpu->vcpu_id;
+		__entry->nr = vcpu->arch.exception.nr;
+		__entry->address = vcpu->arch.exception.nested_apf ?
+			vcpu->arch.apf.nested_apf_token : vcpu->arch.cr2;
+		__entry->error_code = vcpu->arch.exception.error_code;
+		__entry->has_error_code = vcpu->arch.exception.has_error_code;
 	),
+	TP_printk("vcpu %u %s address %llx error %x",
+		  __entry->vcpu_id,
+		  __print_symbolic(__entry->nr, kvm_trace_sym_exc),
+		  __entry->nr == PF_VECTOR ? __entry->address : 0,
+		  __entry->has_error_code ? __entry->error_code : 0
+	)
+);
 
-	TP_printk("%s (0x%x)",
-		  __print_symbolic(__entry->exception, kvm_trace_sym_exc),
-		  /* FIXME: don't print error_code if not present */
-		  __entry->has_error ? __entry->error_code : 0)
+TRACE_EVENT(
+	kvm_inj_emul_exception,
+	TP_PROTO(struct kvm_vcpu *vcpu, struct x86_exception *fault),
+	TP_ARGS(vcpu, fault),
+	TP_STRUCT__entry(
+		__field(__u32, vcpu_id)
+		__field(__u8, vector)
+		__field(__u64, address)
+		__field(__u16, error_code)
+		__field(bool, error_code_valid)
+	),
+	TP_fast_assign(
+		__entry->vcpu_id = vcpu->vcpu_id;
+		__entry->vector = fault->vector;
+		__entry->address = fault->address;
+		__entry->error_code = fault->error_code;
+		__entry->error_code_valid = fault->error_code_valid;
+	),
+	TP_printk("vcpu %u %s address %llx error %x",
+		  __entry->vcpu_id,
+		  __print_symbolic(__entry->vector, kvm_trace_sym_exc),
+		  __entry->vector == PF_VECTOR ? __entry->address : 0,
+		  __entry->error_code_valid ? __entry->error_code : 0
+	)
+);
+
+/*
+ * Tracepoint for kvm cancel injection:
+ */
+TRACE_EVENT(kvm_cancel_inj,
+	TP_PROTO(struct kvm_vcpu *vcpu),
+	TP_ARGS(vcpu),
+	TP_STRUCT__entry(
+		__field(__u32, vcpu_id)
+	),
+	TP_fast_assign(
+		__entry->vcpu_id = vcpu->vcpu_id;
+	),
+	TP_printk("vcpu %u",
+		  __entry->vcpu_id
+	)
 );
 
 /*
