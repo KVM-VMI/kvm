@@ -2282,16 +2282,32 @@ void kvm_vcpu_block(struct kvm_vcpu *vcpu)
 	kvm_arch_vcpu_blocking(vcpu);
 
 	for (;;) {
-		prepare_to_swait_exclusive(&vcpu->wq, &wait, TASK_INTERRUPTIBLE);
+		bool do_kvmi_work = false;
 
-		if (kvm_vcpu_check_block(vcpu) < 0)
+		for (;;) {
+			prepare_to_swait_exclusive(&vcpu->wq, &wait,
+						   TASK_INTERRUPTIBLE);
+
+			if (kvm_vcpu_check_block(vcpu) < 0)
+				break;
+
+			waited = true;
+			schedule();
+
+			if (kvm_check_request(KVM_REQ_INTROSPECTION, vcpu)) {
+				do_kvmi_work = true;
+				break;
+			}
+		}
+
+		finish_swait(&vcpu->wq, &wait);
+
+		if (do_kvmi_work)
+			kvmi_handle_requests(vcpu);
+		else
 			break;
-
-		waited = true;
-		schedule();
 	}
 
-	finish_swait(&vcpu->wq, &wait);
 	cur = ktime_get();
 
 	kvm_arch_vcpu_unblocking(vcpu);
