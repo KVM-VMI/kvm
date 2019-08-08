@@ -99,6 +99,24 @@ static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access,
 	m->access = access;
 	m->write_bitmap = write_bitmap;
 
+	/*
+	 * Only try to set SPP bitmap when the page is writable.
+	 * Be careful, kvm_mmu_set_subpages() will enable page write-protection
+	 * by default when set SPP bitmap. If bitmap contains all 1s, it'll
+	 * make the page writable by default too.
+	 */
+	if (!(access & KVMI_PAGE_ACCESS_W) && kvmi_spp_enabled(ikvm)) {
+		struct kvm_subpage spp_info;
+
+		spp_info.base_gfn = gfn;
+		spp_info.npages = 1;
+		spp_info.access_map[0] = write_bitmap;
+
+		err = kvm_arch_set_subpages(kvm, &spp_info);
+		if (err)
+			goto exit;
+	}
+
 	if (radix_tree_preload(GFP_KERNEL)) {
 		err = -KVM_ENOMEM;
 		goto exit;
@@ -1179,6 +1197,25 @@ int kvmi_cmd_set_page_access(struct kvmi *ikvm, u64 gpa, u8 access)
 	u32 write_bitmap;
 
 	kvmi_get_gfn_access(ikvm, gfn, &ignored_access, &write_bitmap);
+
+	return kvmi_set_gfn_access(ikvm->kvm, gfn, access, write_bitmap);
+}
+
+int kvmi_cmd_set_page_write_bitmap(struct kvmi *ikvm, u64 gpa,
+				   u32 write_bitmap)
+{
+	bool write_allowed_for_all;
+	gfn_t gfn = gpa_to_gfn(gpa);
+	u32 ignored_write_bitmap;
+	u8 access;
+
+	kvmi_get_gfn_access(ikvm, gfn, &access, &ignored_write_bitmap);
+
+	write_allowed_for_all = (write_bitmap == (u32)((1ULL << 32) - 1));
+	if (write_allowed_for_all)
+		access |= KVMI_PAGE_ACCESS_W;
+	else
+		access &= ~KVMI_PAGE_ACCESS_W;
 
 	return kvmi_set_gfn_access(ikvm->kvm, gfn, access, write_bitmap);
 }

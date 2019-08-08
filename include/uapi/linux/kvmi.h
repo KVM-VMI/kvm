@@ -160,6 +160,19 @@ struct kvmi_get_page_write_bitmap_reply {
 	__u32 bitmap[0];
 };
 
+struct kvmi_page_write_bitmap_entry {
+	__u64 gpa;
+	__u32 bitmap;
+	__u32 padding;
+};
+
+struct kvmi_set_page_write_bitmap {
+	__u16 view;
+	__u16 count;
+	__u32 padding;
+	struct kvmi_page_write_bitmap_entry entries[0];
+};
+
 struct kvmi_get_vcpu_info_reply {
 	__u64 tsc_speed;
 };

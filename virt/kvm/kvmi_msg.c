@@ -35,6 +35,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_GET_VCPU_INFO]         = "KVMI_GET_VCPU_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
 	[KVMI_SET_PAGE_ACCESS]       = "KVMI_SET_PAGE_ACCESS",
+	[KVMI_SET_PAGE_WRITE_BITMAP] = "KVMI_SET_PAGE_WRITE_BITMAP",
 };
 
 static bool is_known_message(u16 id)
@@ -400,6 +401,17 @@ static int handle_get_page_write_bitmap(struct kvmi *ikvm,
 	return err;
 }
 
+static int handle_set_page_write_bitmap(struct kvmi *ikvm,
+					const struct kvmi_msg_hdr *msg,
+					const void *req)
+{
+	int ec;
+
+	ec = kvmi_arch_cmd_set_page_write_bitmap(ikvm, msg, req);
+
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
+}
+
 static bool invalid_vcpu_hdr(const struct kvmi_vcpu_hdr *hdr)
 {
 	return hdr->padding1 || hdr->padding2;
@@ -420,6 +432,7 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_GET_PAGE_WRITE_BITMAP] = handle_get_page_write_bitmap,
 	[KVMI_GET_VERSION]           = handle_get_version,
 	[KVMI_SET_PAGE_ACCESS]       = handle_set_page_access,
+	[KVMI_SET_PAGE_WRITE_BITMAP] = handle_set_page_write_bitmap,
 };
 
 static int handle_event_reply(struct kvm_vcpu *vcpu,

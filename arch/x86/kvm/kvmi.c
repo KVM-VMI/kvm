@@ -304,6 +304,36 @@ int kvmi_arch_cmd_set_page_access(struct kvmi *ikvm,
 	return ec;
 }
 
+int kvmi_arch_cmd_set_page_write_bitmap(struct kvmi *ikvm,
+					const struct kvmi_msg_hdr *msg,
+					const struct kvmi_set_page_write_bitmap
+					*req)
+{
+	u16 k, n = req->count;
+	int ec = 0;
+
+	if (req->padding)
+		return -KVM_EINVAL;
+
+	if (msg->size < sizeof(*req) + req->count * sizeof(req->entries[0]))
+		return -KVM_EINVAL;
+
+	if (!kvmi_spp_enabled(ikvm))
+		return -KVM_EOPNOTSUPP;
+
+	if (req->view != 0)	/* TODO */
+		return -KVM_EOPNOTSUPP;
+
+	for (k = 0; k < n && ec == 0; k++) {
+		u64 gpa = req->entries[k].gpa;
+		u32 bitmap = req->entries[k].bitmap;
+
+		ec = kvmi_cmd_set_page_write_bitmap(ikvm, gpa, bitmap);
+	}
+
+	return ec;
+}
+
 int kvmi_arch_cmd_control_spp(struct kvmi *ikvm)
 {
 	return kvm_arch_init_spp(ikvm->kvm);
