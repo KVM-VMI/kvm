@@ -75,7 +75,16 @@
 
 #define KVMI_NUM_COMMANDS KVMI_NEXT_AVAILABLE_COMMAND
 
+struct kvmi_job {
+	struct list_head link;
+	void *ctx;
+	void (*fct)(struct kvm_vcpu *vcpu, void *ctx);
+	void (*free_fct)(void *ctx);
+};
+
 struct kvmi_vcpu {
+	struct list_head job_list;
+	spinlock_t job_lock;
 };
 
 #define IKVM(kvm) ((struct kvmi *)((kvm)->kvmi))

@@ -11,6 +11,9 @@
 #include <linux/bitmap.h>
 
 static struct kmem_cache *msg_cache;
+static struct kmem_cache *job_cache;
+
+static void kvmi_abort_events(struct kvm *kvm);
 
 void *kvmi_msg_alloc(void)
 {
@@ -34,14 +37,19 @@ static void kvmi_cache_destroy(void)
 {
 	kmem_cache_destroy(msg_cache);
 	msg_cache = NULL;
+	kmem_cache_destroy(job_cache);
+	job_cache = NULL;
 }
 
 static int kvmi_cache_create(void)
 {
+	job_cache = kmem_cache_create("kvmi_job",
+				      sizeof(struct kvmi_job),
+				      0, SLAB_ACCOUNT, NULL);
 	msg_cache = kmem_cache_create("kvmi_msg", KVMI_MSG_SIZE_ALLOC,
 				      4096, SLAB_ACCOUNT, NULL);
 
-	if (!msg_cache) {
+	if (!msg_cache || !job_cache) {
 		kvmi_cache_destroy();
 
 		return -1;
@@ -80,6 +88,53 @@ static bool alloc_kvmi(struct kvm *kvm, const struct kvm_introspection *qemu)
 	return true;
 }
 
+static int __kvmi_add_job(struct kvm_vcpu *vcpu,
+			  void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
+			  void *ctx, void (*free_fct)(void *ctx))
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvmi_job *job;
+
+	job = kmem_cache_zalloc(job_cache, GFP_KERNEL);
+	if (unlikely(!job))
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&job->link);
+	job->fct = fct;
+	job->ctx = ctx;
+	job->free_fct = free_fct;
+
+	spin_lock(&ivcpu->job_lock);
+	list_add_tail(&job->link, &ivcpu->job_list);
+	spin_unlock(&ivcpu->job_lock);
+
+	return 0;
+}
+
+int kvmi_add_job(struct kvm_vcpu *vcpu,
+		 void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
+		 void *ctx, void (*free_fct)(void *ctx))
+{
+	int err;
+
+	err = __kvmi_add_job(vcpu, fct, ctx, free_fct);
+
+	if (!err) {
+		kvm_make_request(KVM_REQ_INTROSPECTION, vcpu);
+		kvm_vcpu_kick(vcpu);
+	}
+
+	return err;
+}
+
+static void kvmi_free_job(struct kvmi_job *job)
+{
+	if (job->free_fct)
+		job->free_fct(job->ctx);
+
+	kmem_cache_free(job_cache, job);
+}
+
 static bool alloc_ivcpu(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_vcpu *ivcpu;
@@ -87,6 +142,9 @@ static bool alloc_ivcpu(struct kvm_vcpu *vcpu)
 	ivcpu = kzalloc(sizeof(*ivcpu), GFP_KERNEL);
 	if (!ivcpu)
 		return false;
+
+	INIT_LIST_HEAD(&ivcpu->job_list);
+	spin_lock_init(&ivcpu->job_lock);
 
 	vcpu->kvmi = ivcpu;
 
@@ -99,6 +157,27 @@ struct kvmi * __must_check kvmi_get(struct kvm *kvm)
 		return kvm->kvmi;
 
 	return NULL;
+}
+
+static void kvmi_clear_vcpu_jobs(struct kvm *kvm)
+{
+	int i;
+	struct kvm_vcpu *vcpu;
+	struct kvmi_job *cur, *next;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+		if (!ivcpu)
+			continue;
+
+		spin_lock(&ivcpu->job_lock);
+		list_for_each_entry_safe(cur, next, &ivcpu->job_list, link) {
+			list_del(&cur->link);
+			kvmi_free_job(cur);
+		}
+		spin_unlock(&ivcpu->job_lock);
+	}
 }
 
 static void kvmi_destroy(struct kvm *kvm)
@@ -118,6 +197,7 @@ static void kvmi_destroy(struct kvm *kvm)
 static void kvmi_release(struct kvm *kvm)
 {
 	kvmi_sock_put(IKVM(kvm));
+	kvmi_clear_vcpu_jobs(kvm);
 	kvmi_destroy(kvm);
 
 	complete(&kvm->kvmi_completed);
@@ -178,6 +258,13 @@ static void kvmi_end_introspection(struct kvmi *ikvm)
 
 	/* Signal QEMU which is waiting for POLLHUP. */
 	kvmi_sock_shutdown(ikvm);
+
+	/*
+	 * Trigger all the VCPUs out of waiting for replies. Although the
+	 * introspection is still enabled, sending additional events will
+	 * fail because the socket is shut down. Waiting will not be possible.
+	 */
+	kvmi_abort_events(kvm);
 
 	/*
 	 * At this moment the socket is shut down, no more commands will come
@@ -418,6 +505,19 @@ int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 		clear_bit(event_id, ikvm->vm_ev_mask);
 
 	return 0;
+}
+
+static void kvmi_job_abort(struct kvm_vcpu *vcpu, void *ctx)
+{
+}
+
+static void kvmi_abort_events(struct kvm *kvm)
+{
+	int i;
+	struct kvm_vcpu *vcpu;
+
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		kvmi_add_job(vcpu, kvmi_job_abort, NULL, NULL);
 }
 
 int kvmi_ioctl_unhook(struct kvm *kvm, bool force_reset)
