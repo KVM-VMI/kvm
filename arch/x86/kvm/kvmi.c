@@ -136,6 +136,31 @@ bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	return ret;
 }
 
+bool kvmi_monitored_msr(struct kvm_vcpu *vcpu, u32 msr)
+{
+	struct kvmi *ikvm;
+	bool ret = false;
+
+	if (!vcpu)
+		return false;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return false;
+
+	if (test_msr_mask(vcpu, msr)) {
+		kvmi_warn_once(ikvm,
+			       "Trying to disable write interception for MSR %x\n",
+			       msr);
+		ret = true;
+	}
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_monitored_msr);
+
 static void *alloc_get_registers_reply(const struct kvmi_msg_hdr *msg,
 				       const struct kvmi_get_registers *req,
 				       size_t *rpl_size)

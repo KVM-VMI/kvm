@@ -18,6 +18,7 @@
 #define pr_fmt(fmt) "SVM: " fmt
 
 #include <linux/kvm_host.h>
+#include <asm/kvmi_host.h>
 
 #include "irq.h"
 #include "mmu.h"
@@ -1049,12 +1050,18 @@ static bool msr_write_intercepted(struct kvm_vcpu *vcpu, unsigned msr)
 	return !!test_bit(bit_write,  &tmp);
 }
 
-static void set_msr_interception(u32 *msrpm, unsigned msr,
+static void set_msr_interception(struct vcpu_svm *svm,
+				 u32 *msrpm, unsigned int msr,
 				 int read, int write)
 {
 	u8 bit_read, bit_write;
 	unsigned long tmp;
 	u32 offset;
+
+#ifdef CONFIG_KVM_INTROSPECTION
+	if (!write && kvmi_monitored_msr(&svm->vcpu, msr))
+		return;
+#endif /* CONFIG_KVM_INTROSPECTION */
 
 	/*
 	 * If this warning triggers extend the direct_access_msrs list at the
@@ -1085,7 +1092,7 @@ static void svm_vcpu_init_msrpm(u32 *msrpm)
 		if (!direct_access_msrs[i].always)
 			continue;
 
-		set_msr_interception(msrpm, direct_access_msrs[i].index, 1, 1);
+		set_msr_interception(NULL, msrpm, direct_access_msrs[i].index, 1, 1);
 	}
 }
 
@@ -1137,10 +1144,10 @@ static void svm_enable_lbrv(struct vcpu_svm *svm)
 	u32 *msrpm = svm->msrpm;
 
 	svm->vmcb->control.virt_ext |= LBR_CTL_ENABLE_MASK;
-	set_msr_interception(msrpm, MSR_IA32_LASTBRANCHFROMIP, 1, 1);
-	set_msr_interception(msrpm, MSR_IA32_LASTBRANCHTOIP, 1, 1);
-	set_msr_interception(msrpm, MSR_IA32_LASTINTFROMIP, 1, 1);
-	set_msr_interception(msrpm, MSR_IA32_LASTINTTOIP, 1, 1);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTBRANCHFROMIP, 1, 1);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTBRANCHTOIP, 1, 1);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTINTFROMIP, 1, 1);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTINTTOIP, 1, 1);
 }
 
 static void svm_disable_lbrv(struct vcpu_svm *svm)
@@ -1148,10 +1155,10 @@ static void svm_disable_lbrv(struct vcpu_svm *svm)
 	u32 *msrpm = svm->msrpm;
 
 	svm->vmcb->control.virt_ext &= ~LBR_CTL_ENABLE_MASK;
-	set_msr_interception(msrpm, MSR_IA32_LASTBRANCHFROMIP, 0, 0);
-	set_msr_interception(msrpm, MSR_IA32_LASTBRANCHTOIP, 0, 0);
-	set_msr_interception(msrpm, MSR_IA32_LASTINTFROMIP, 0, 0);
-	set_msr_interception(msrpm, MSR_IA32_LASTINTTOIP, 0, 0);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTBRANCHFROMIP, 0, 0);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTBRANCHTOIP, 0, 0);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTINTFROMIP, 0, 0);
+	set_msr_interception(svm, msrpm, MSR_IA32_LASTINTTOIP, 0, 0);
 }
 
 static void disable_nmi_singlestep(struct vcpu_svm *svm)
@@ -4290,7 +4297,7 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		 * We update the L1 MSR bit as well since it will end up
 		 * touching the MSR anyway now.
 		 */
-		set_msr_interception(svm->msrpm, MSR_IA32_SPEC_CTRL, 1, 1);
+		set_msr_interception(svm, svm->msrpm, MSR_IA32_SPEC_CTRL, 1, 1);
 		break;
 	case MSR_IA32_PRED_CMD:
 		if (!msr->host_initiated &&
@@ -4306,7 +4313,7 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		wrmsrl(MSR_IA32_PRED_CMD, PRED_CMD_IBPB);
 		if (is_guest_mode(vcpu))
 			break;
-		set_msr_interception(svm->msrpm, MSR_IA32_PRED_CMD, 0, 1);
+		set_msr_interception(svm, svm->msrpm, MSR_IA32_PRED_CMD, 0, 1);
 		break;
 	case MSR_AMD64_VIRT_SPEC_CTRL:
 		if (!msr->host_initiated &&
@@ -7109,7 +7116,7 @@ static void svm_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 	 * read and write. The best way will be to get here the current
 	 * bit status for read and send that value as argument.
 	 */
-	set_msr_interception(msrpm, msr, enable, enable);
+	set_msr_interception(svm, msrpm, msr, enable, enable);
 }
 
 static bool svm_nested_pagefault(struct kvm_vcpu *vcpu)

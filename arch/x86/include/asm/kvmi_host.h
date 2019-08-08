@@ -12,6 +12,7 @@ struct kvmi_arch_mem_access {
 #ifdef CONFIG_KVM_INTROSPECTION
 
 bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr);
+bool kvmi_monitored_msr(struct kvm_vcpu *vcpu, u32 msr);
 bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
 		   unsigned long old_value, unsigned long *new_value);
 
@@ -20,6 +21,11 @@ bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
 static inline bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
 	return true;
+}
+
+static inline bool kvmi_monitored_msr(struct kvm_vcpu *vcpu, u32 msr)
+{
+	return false;
 }
 
 static inline bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
