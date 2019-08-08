@@ -6418,6 +6418,8 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu,
 
 	vcpu->arch.l1tf_flush_l1d = true;
 
+	kvmi_init_emulate(vcpu);
+
 	/*
 	 * Clear write_fault_to_shadow_pgtable here to ensure it is
 	 * never reused.
@@ -6523,9 +6525,10 @@ restart:
 			writeback = false;
 		r = EMULATE_USER_EXIT;
 		vcpu->arch.complete_userspace_io = complete_emulated_mmio;
-	} else if (r == EMULATION_RESTART)
+	} else if (r == EMULATION_RESTART) {
+		kvmi_activate_rep_complete(vcpu);
 		goto restart;
-	else
+	} else
 		r = EMULATE_DONE;
 
 	if (writeback) {

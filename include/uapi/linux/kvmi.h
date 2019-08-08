@@ -155,4 +155,22 @@ struct kvmi_event_reply {
 	__u32 padding2;
 };
 
+struct kvmi_event_pf {
+	__u64 gva;
+	__u64 gpa;
+	__u8 access;
+	__u8 padding1;
+	__u16 view;
+	__u32 padding2;
+};
+
+struct kvmi_event_pf_reply {
+	__u64 ctx_addr;
+	__u32 ctx_size;
+	__u8 singlestep;
+	__u8 rep_complete;
+	__u16 padding;
+	__u8 ctx_data[256];
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */

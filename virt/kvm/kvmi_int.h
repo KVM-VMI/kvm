@@ -26,6 +26,8 @@
 
 #define IVCPU(vcpu) ((struct kvmi_vcpu *)((vcpu)->kvmi))
 
+#define KVMI_CTX_DATA_SIZE FIELD_SIZEOF(struct kvmi_event_pf_reply, ctx_data)
+
 #define KVMI_MSG_SIZE_ALLOC (sizeof(struct kvmi_msg_hdr) + KVMI_MSG_SIZE)
 
 #define KVMI_KNOWN_VCPU_EVENTS ( \
@@ -92,6 +94,12 @@ struct kvmi_vcpu_reply {
 };
 
 struct kvmi_vcpu {
+	u8 ctx_data[KVMI_CTX_DATA_SIZE];
+	u32 ctx_size;
+	u64 ctx_addr;
+	bool rep_complete;
+	bool effective_rep_complete;
+
 	bool reply_waiting;
 	struct kvmi_vcpu_reply reply;
 
@@ -141,6 +149,9 @@ bool kvmi_sock_get(struct kvmi *ikvm, int fd);
 void kvmi_sock_shutdown(struct kvmi *ikvm);
 void kvmi_sock_put(struct kvmi *ikvm);
 bool kvmi_msg_process(struct kvmi *ikvm);
+u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
+		     bool *singlestep, bool *rep_complete,
+		     u64 *ctx_addr, u8 *ctx, u32 *ctx_size);
 u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu);
 int kvmi_msg_send_unhook(struct kvmi *ikvm);
 
@@ -156,6 +167,8 @@ int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu);
 int kvmi_add_job(struct kvm_vcpu *vcpu,
 		 void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
 		 void *ctx, void (*free_fct)(void *ctx));
+void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action,
+				      const char *str);
 
 /* arch */
 void kvmi_arch_update_page_tracking(struct kvm *kvm,

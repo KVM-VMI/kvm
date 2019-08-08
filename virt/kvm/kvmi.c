@@ -387,6 +387,52 @@ static bool is_pf_of_interest(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
 	return kvmi_restricted_access(IKVM(kvm), gpa, access);
 }
 
+/*
+ * The custom input is defined by a virtual address and size, and all reads
+ * must be within this space. Reads that are completely outside should be
+ * satisfyied using guest memory. Overlapping reads are erroneous.
+ */
+static int use_custom_input(struct kvm_vcpu *vcpu, gva_t gva, u8 *new,
+			    int bytes)
+{
+	unsigned int offset;
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	if (!ivcpu->ctx_size || !bytes)
+		return 0;
+
+	if (bytes < 0 || bytes > ivcpu->ctx_size) {
+		kvmi_warn_once(IKVM(vcpu->kvm),
+			       "invalid range: %d (max: %u)\n",
+			       bytes, ivcpu->ctx_size);
+		return 0;
+	}
+
+	if (gva + bytes <= ivcpu->ctx_addr ||
+	    gva >= ivcpu->ctx_addr + ivcpu->ctx_size)
+		return 0;
+
+	if (gva < ivcpu->ctx_addr && gva + bytes > ivcpu->ctx_addr) {
+		kvmi_warn_once(IKVM(vcpu->kvm),
+			       "read ranges overlap: 0x%lx:%d, 0x%llx:%u\n",
+			       gva, bytes, ivcpu->ctx_addr, ivcpu->ctx_size);
+		return 0;
+	}
+
+	if (gva + bytes > ivcpu->ctx_addr + ivcpu->ctx_size) {
+		kvmi_warn_once(IKVM(vcpu->kvm),
+			       "read ranges overlap: 0x%lx:%d, 0x%llx:%u\n",
+			       gva, bytes, ivcpu->ctx_addr, ivcpu->ctx_size);
+		return 0;
+	}
+
+	offset = gva - ivcpu->ctx_addr;
+
+	memcpy(new, ivcpu->ctx_data + offset, bytes);
+
+	return bytes;
+}
+
 static bool __kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	u8 *new, int bytes, struct kvm_page_track_notifier_node *node,
 	bool *data_ready)
@@ -396,9 +442,24 @@ static bool __kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	if (!is_pf_of_interest(vcpu, gpa, KVMI_PAGE_ACCESS_R))
 		return true;
 
+	if (use_custom_input(vcpu, gva, new, bytes))
+		goto out_custom;
+
 	ret = kvmi_arch_pf_event(vcpu, gpa, gva, KVMI_PAGE_ACCESS_R);
 
+	if (ret && use_custom_input(vcpu, gva, new, bytes))
+		goto out_custom;
+
 	return ret;
+
+out_custom:
+	if (*data_ready)
+		kvmi_err(IKVM(vcpu->kvm),
+			"Override custom data from another tracker\n");
+
+	*data_ready = true;
+
+	return true;
 }
 
 static bool kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
@@ -854,6 +915,48 @@ void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action,
 			 action, str);
 	}
 }
+
+void kvmi_init_emulate(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+	struct kvmi_vcpu *ivcpu;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return;
+
+	ivcpu = IVCPU(vcpu);
+
+	ivcpu->rep_complete = false;
+	ivcpu->effective_rep_complete = false;
+
+	ivcpu->ctx_size = 0;
+	ivcpu->ctx_addr = 0;
+
+	kvmi_put(vcpu->kvm);
+}
+EXPORT_SYMBOL(kvmi_init_emulate);
+
+/*
+ * If the user has requested that events triggered by repetitive
+ * instructions be suppressed after the first cycle, then this
+ * function will effectively activate it. This ensures that we don't
+ * prematurely suppress potential events (second or later) triggerd
+ * by an instruction during a single pass.
+ */
+void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return;
+
+	IVCPU(vcpu)->effective_rep_complete = IVCPU(vcpu)->rep_complete;
+
+	kvmi_put(vcpu->kvm);
+}
+EXPORT_SYMBOL(kvmi_activate_rep_complete);
 
 static bool __kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 {

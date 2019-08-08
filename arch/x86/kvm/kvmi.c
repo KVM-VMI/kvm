@@ -94,7 +94,43 @@ void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev)
 bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			u8 access)
 {
-	return KVMI_EVENT_ACTION_CONTINUE; /* TODO */
+	struct kvmi_vcpu *ivcpu;
+	u32 ctx_size;
+	u64 ctx_addr;
+	u32 action;
+	bool singlestep_ignored;
+	bool ret = false;
+
+	if (!kvm_spt_fault(vcpu))
+		/* We are only interested in EPT/NPT violations */
+		return true;
+
+	ivcpu = IVCPU(vcpu);
+	ctx_size = sizeof(ivcpu->ctx_data);
+
+	if (ivcpu->effective_rep_complete)
+		return true;
+
+	action = kvmi_msg_send_pf(vcpu, gpa, gva, access, &singlestep_ignored,
+				  &ivcpu->rep_complete, &ctx_addr,
+				  ivcpu->ctx_data, &ctx_size);
+
+	ivcpu->ctx_size = 0;
+	ivcpu->ctx_addr = 0;
+
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ivcpu->ctx_size = ctx_size;
+		ivcpu->ctx_addr = ctx_addr;
+		ret = true;
+		break;
+	case KVMI_EVENT_ACTION_RETRY:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "PF");
+	}
+
+	return ret;
 }
 
 int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,

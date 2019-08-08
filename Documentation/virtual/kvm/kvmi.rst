@@ -618,3 +618,66 @@ The introspection tool has a chance to unhook and close the KVMI channel
 This event is sent when a new vCPU is created and the introspection has
 been enabled for this event (see *KVMI_CONTROL_VM_EVENTS*).
 
+3. KVMI_EVENT_PF
+----------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH, RETRY
+:Parameters:
+
+::
+
+	struct kvmi_event;
+	struct kvmi_event_pf {
+		__u64 gva;
+		__u64 gpa;
+		__u8 access;
+		__u8 padding1;
+		__u16 view;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+	struct kvmi_event_pf_reply {
+		__u64 ctx_addr;
+		__u32 ctx_size;
+		__u8 singlestep;
+		__u8 rep_complete;
+		__u16 padding;
+		__u8 ctx_data[256];
+	};
+
+This event is sent when a hypervisor page fault occurs due to a failed
+permission check in the shadow page tables, the introspection has
+been enabled for this event (see *KVMI_CONTROL_EVENTS*) and the event was
+generated for a page in which the introspector has shown interest
+(ie. has previously touched it by adjusting the spte permissions).
+
+The shadow page tables can be used by the introspection tool to guarantee
+the purpose of code areas inside the guest (code, rodata, stack, heap
+etc.) Each attempt at an operation unfitting for a certain memory
+range (eg. execute code in heap) triggers a page fault and gives the
+introspection tool the chance to audit the code attempting the operation.
+
+``kvmi_event``, guest virtual address (or 0xffffffff/UNMAPPED_GVA),
+guest physical address, access flags (eg. KVMI_PAGE_ACCESS_R) and the
+EPT view are sent to the introspector.
+
+The *CONTINUE* action will continue the page fault handling via emulation
+(with custom input if ``ctx_size`` > 0). The use of custom input is
+to trick the guest software into believing it has read certain data,
+in order to hide the content of certain memory areas (eg. hide injected
+code from integrity checkers). If ``rep_complete`` is not zero, the REP
+prefixed instruction should be emulated just once (or at least no other
+*KVMI_EVENT_PF* event should be sent for the current instruction).
+
+The *RETRY* action is used by the introspector to retry the execution of
+the current instruction. Either using single-step (if ``singlestep`` is
+not zero) or return to guest (if the introspector changed the instruction
+pointer or the page restrictions).

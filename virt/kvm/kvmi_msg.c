@@ -764,6 +764,61 @@ int kvmi_msg_send_unhook(struct kvmi *ikvm)
 	return kvmi_sock_write(ikvm, vec, n, msg_size);
 }
 
+u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
+		     bool *singlestep, bool *rep_complete, u64 *ctx_addr,
+		     u8 *ctx_data, u32 *ctx_size)
+{
+	u32 max_ctx_size = *ctx_size;
+	struct kvmi_event_pf e;
+	struct kvmi_event_pf_reply r;
+	int err, action;
+
+	memset(&e, 0, sizeof(e));
+	e.gpa = gpa;
+	e.gva = gva;
+	e.access = access;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_PF, &e, sizeof(e),
+			      &r, sizeof(r), &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	if (e.padding1 || e.padding2) {
+		struct kvmi *ikvm = IKVM(vcpu->kvm);
+
+		kvmi_err(ikvm, "%s: non zero padding %u,%u\n",
+			__func__, e.padding1, e.padding2);
+		kvmi_sock_shutdown(ikvm);
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	*ctx_size = 0;
+
+	if (r.ctx_size > max_ctx_size) {
+		struct kvmi *ikvm = IKVM(vcpu->kvm);
+
+		kvmi_err(ikvm, "%s: ctx_size (recv:%u max:%u)\n",
+				__func__, r.ctx_size, max_ctx_size);
+
+		kvmi_sock_shutdown(ikvm);
+
+		*singlestep = false;
+		*rep_complete = 0;
+
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	*singlestep = r.singlestep;
+	*rep_complete = r.rep_complete;
+
+	*ctx_size = min_t(u32, r.ctx_size, sizeof(r.ctx_data));
+	*ctx_addr = r.ctx_addr;
+	if (*ctx_size)
+		memcpy(ctx_data, r.ctx_data, *ctx_size);
+
+	return action;
+}
+
 u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu)
 {
 	int err, action;
