@@ -9,6 +9,8 @@
 #include "kvmi_int.h"
 
 static const char *const msg_IDs[] = {
+	[KVMI_CHECK_COMMAND]         = "KVMI_CHECK_COMMAND",
+	[KVMI_CHECK_EVENT]           = "KVMI_CHECK_EVENT",
 	[KVMI_CONTROL_CMD_RESPONSE]  = "KVMI_CONTROL_CMD_RESPONSE",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
 };
@@ -177,6 +179,40 @@ static bool is_command_allowed(struct kvmi *ikvm, int id)
 	return test_bit(id, ikvm->cmd_allow_mask);
 }
 
+static int handle_check_command(struct kvmi *ikvm,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_check_command *req = _req;
+	int ec = 0;
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (!is_command_allowed(ikvm, req->id))
+		ec = -KVM_EPERM;
+
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
+}
+
+static bool is_event_allowed(struct kvmi *ikvm, int id)
+{
+	return test_bit(id, ikvm->event_allow_mask);
+}
+
+static int handle_check_event(struct kvmi *ikvm,
+			      const struct kvmi_msg_hdr *msg, const void *_req)
+{
+	const struct kvmi_check_event *req = _req;
+	int ec = 0;
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (!is_event_allowed(ikvm, req->id))
+		ec = -KVM_EPERM;
+
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
+}
+
 static int handle_control_cmd_response(struct kvmi *ikvm,
 					const struct kvmi_msg_hdr *msg,
 					const void *_req)
@@ -207,6 +243,8 @@ static int handle_control_cmd_response(struct kvmi *ikvm,
  */
 static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 			    const void *) = {
+	[KVMI_CHECK_COMMAND]         = handle_check_command,
+	[KVMI_CHECK_EVENT]           = handle_check_event,
 	[KVMI_CONTROL_CMD_RESPONSE]  = handle_control_cmd_response,
 	[KVMI_GET_VERSION]           = handle_get_version,
 };

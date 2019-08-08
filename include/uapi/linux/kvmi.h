@@ -90,4 +90,16 @@ struct kvmi_control_cmd_response {
 	__u32 padding2;
 };
 
+struct kvmi_check_command {
+	__u16 id;
+	__u16 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_check_event {
+	__u16 id;
+	__u16 padding1;
+	__u32 padding2;
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */

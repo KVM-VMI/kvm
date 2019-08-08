@@ -302,3 +302,63 @@ While the command reply is disabled:
 * the reply status is ignored for any unsupported/unknown or disallowed
   commands (and ``struct kvmi_error_code`` will be sent with -KVM_EOPNOTSUPP
   or -KVM_PERM).
+
+3. KVMI_CHECK_COMMAND
+---------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_check_command {
+		__u16 id;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Checks if the command specified by ``id`` is allowed.
+
+This command is always allowed.
+
+:Errors:
+
+* -KVM_PERM - the command specified by ``id`` is disallowed
+* -KVM_EINVAL - padding is not zero
+
+4. KVMI_CHECK_EVENT
+-------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_check_event {
+		__u16 id;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Checks if the event specified by ``id`` is allowed.
+
+This command is always allowed.
+
+:Errors:
+
+* -KVM_PERM - the event specified by ``id`` is disallowed
+* -KVM_EINVAL - padding is not zero
