@@ -5,6 +5,7 @@
  * Copyright (C) 2017-2019 Bitdefender S.R.L.
  *
  */
+#include <linux/mmu_context.h>
 #include <uapi/linux/kvmi.h>
 #include "kvmi_int.h"
 #include <linux/kthread.h>
@@ -1218,6 +1219,112 @@ int kvmi_cmd_set_page_write_bitmap(struct kvmi *ikvm, u64 gpa,
 		access &= ~KVMI_PAGE_ACCESS_W;
 
 	return kvmi_set_gfn_access(ikvm->kvm, gfn, access, write_bitmap);
+}
+
+unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn)
+{
+	unsigned long hva;
+	int srcu_idx;
+
+	srcu_idx = srcu_read_lock(&kvm->srcu);
+	hva = gfn_to_hva(kvm, gfn);
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
+
+	return hva;
+}
+
+static long get_user_pages_remote_unlocked(struct mm_struct *mm,
+	unsigned long start,
+	unsigned long nr_pages,
+	unsigned int gup_flags,
+	struct page **pages)
+{
+	long ret;
+	struct task_struct *tsk = NULL;
+	struct vm_area_struct **vmas = NULL;
+	int locked = 1;
+
+	down_read(&mm->mmap_sem);
+	ret = get_user_pages_remote(tsk, mm, start, nr_pages, gup_flags,
+		pages, vmas, &locked);
+	if (locked)
+		up_read(&mm->mmap_sem);
+	return ret;
+}
+
+static void *get_page_ptr(struct kvm *kvm, gpa_t gpa, struct page **page,
+			  bool write)
+{
+	unsigned int flags = write ? FOLL_WRITE : 0;
+	unsigned long hva;
+
+	*page = NULL;
+
+	hva = gfn_to_hva_safe(kvm, gpa_to_gfn(gpa));
+
+	if (kvm_is_error_hva(hva)) {
+		kvmi_err(IKVM(kvm), "Invalid gpa %llx\n", gpa);
+		return NULL;
+	}
+
+	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, flags, page) != 1) {
+		kvmi_err(IKVM(kvm),
+			 "Failed to get the page for hva %lx gpa %llx\n",
+			 hva, gpa);
+		return NULL;
+	}
+
+	return kmap_atomic(*page);
+}
+
+static void put_page_ptr(void *ptr, struct page *page)
+{
+	if (ptr)
+		kunmap_atomic(ptr);
+	if (page)
+		put_page(page);
+}
+
+int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size, int(*send)(
+	struct kvmi *, const struct kvmi_msg_hdr *,
+	int err, const void *buf, size_t),
+	const struct kvmi_msg_hdr *ctx)
+{
+	int err, ec = 0;
+	struct page *page = NULL;
+	void *ptr_page = NULL, *ptr = NULL;
+	size_t ptr_size = 0;
+
+	ptr_page = get_page_ptr(kvm, gpa, &page, false);
+	if (!ptr_page) {
+		ec = -KVM_EINVAL;
+		goto out;
+	}
+
+	ptr = ptr_page + (gpa & ~PAGE_MASK);
+	ptr_size = size;
+
+out:
+	err = send(IKVM(kvm), ctx, ec, ptr, ptr_size);
+
+	put_page_ptr(ptr_page, page);
+	return err;
+}
+
+int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size, const void *buf)
+{
+	struct page *page;
+	void *ptr;
+
+	ptr = get_page_ptr(kvm, gpa, &page, true);
+	if (!ptr)
+		return -KVM_EINVAL;
+
+	memcpy(ptr + (gpa & ~PAGE_MASK), buf, size);
+
+	put_page_ptr(ptr, page);
+
+	return 0;
 }
 
 int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,

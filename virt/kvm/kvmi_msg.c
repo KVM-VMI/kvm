@@ -34,8 +34,10 @@ static const char *const msg_IDs[] = {
 	[KVMI_GET_PAGE_WRITE_BITMAP] = "KVMI_GET_PAGE_WRITE_BITMAP",
 	[KVMI_GET_VCPU_INFO]         = "KVMI_GET_VCPU_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
+	[KVMI_READ_PHYSICAL]         = "KVMI_READ_PHYSICAL",
 	[KVMI_SET_PAGE_ACCESS]       = "KVMI_SET_PAGE_ACCESS",
 	[KVMI_SET_PAGE_WRITE_BITMAP] = "KVMI_SET_PAGE_WRITE_BITMAP",
+	[KVMI_WRITE_PHYSICAL]        = "KVMI_WRITE_PHYSICAL",
 };
 
 static bool is_known_message(u16 id)
@@ -303,6 +305,44 @@ static int kvmi_get_vcpu(struct kvmi *ikvm, unsigned int vcpu_idx,
 	return 0;
 }
 
+static bool invalid_page_access(u64 gpa, u64 size)
+{
+	u64 off = gpa & ~PAGE_MASK;
+
+	return (size == 0 || size > PAGE_SIZE || off + size > PAGE_SIZE);
+}
+
+static int handle_read_physical(struct kvmi *ikvm,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_read_physical *req = _req;
+
+	if (invalid_page_access(req->gpa, req->size))
+		return -EINVAL;
+
+	return kvmi_cmd_read_physical(ikvm->kvm, req->gpa, req->size,
+				      kvmi_msg_vm_maybe_reply, msg);
+}
+
+static int handle_write_physical(struct kvmi *ikvm,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *_req)
+{
+	const struct kvmi_write_physical *req = _req;
+	int ec;
+
+	if (invalid_page_access(req->gpa, req->size))
+		return -EINVAL;
+
+	if (msg->size < sizeof(*req) + req->size)
+		return -EINVAL;
+
+	ec = kvmi_cmd_write_physical(ikvm->kvm, req->gpa, req->size, req->data);
+
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
+}
+
 static bool enable_spp(struct kvmi *ikvm)
 {
 	if (!ikvm->spp.initialized) {
@@ -431,8 +471,10 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_GET_PAGE_ACCESS]       = handle_get_page_access,
 	[KVMI_GET_PAGE_WRITE_BITMAP] = handle_get_page_write_bitmap,
 	[KVMI_GET_VERSION]           = handle_get_version,
+	[KVMI_READ_PHYSICAL]         = handle_read_physical,
 	[KVMI_SET_PAGE_ACCESS]       = handle_set_page_access,
 	[KVMI_SET_PAGE_WRITE_BITMAP] = handle_set_page_write_bitmap,
+	[KVMI_WRITE_PHYSICAL]        = handle_write_physical,
 };
 
 static int handle_event_reply(struct kvm_vcpu *vcpu,

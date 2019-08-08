@@ -191,6 +191,17 @@ struct kvmi_control_vm_events {
 	__u32 padding2;
 };
 
+struct kvmi_read_physical {
+	__u64 gpa;
+	__u64 size;
+};
+
+struct kvmi_write_physical {
+	__u64 gpa;
+	__u64 size;
+	__u8  data[0];
+};
+
 struct kvmi_vcpu_hdr {
 	__u16 vcpu;
 	__u16 padding1;
