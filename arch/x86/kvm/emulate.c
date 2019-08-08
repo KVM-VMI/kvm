@@ -1592,11 +1592,15 @@ static int segmented_cmpxchg(struct x86_emulate_ctxt *ctxt,
 {
 	int rc;
 	ulong linear;
+	unsigned char buf[16];
 
 	rc = linearize(ctxt, addr, size, true, &linear);
 	if (rc != X86EMUL_CONTINUE)
 		return rc;
-	return ctxt->ops->cmpxchg_emulated(ctxt, linear, orig_data, data,
+	if (size > sizeof(buf))
+		return X86EMUL_UNHANDLEABLE;
+	memcpy(buf, orig_data, size);
+	return ctxt->ops->cmpxchg_emulated(ctxt, linear, buf, data,
 					   size, &ctxt->exception);
 }
 
@@ -1848,16 +1852,21 @@ static int __load_segment_descriptor(struct x86_emulate_ctxt *ctxt,
 		/* CS(RPL) <- CPL */
 		selector = (selector & 0xfffc) | cpl;
 		break;
-	case VCPU_SREG_TR:
+	case VCPU_SREG_TR: {
+		struct desc_struct buf;
+
 		if (seg_desc.s || (seg_desc.type != 1 && seg_desc.type != 9))
 			goto exception;
-		old_desc = seg_desc;
+		buf = old_desc = seg_desc;
 		seg_desc.type |= 2; /* busy */
-		ret = ctxt->ops->cmpxchg_emulated(ctxt, desc_addr, &old_desc, &seg_desc,
-						  sizeof(seg_desc), &ctxt->exception);
+		ret = ctxt->ops->cmpxchg_emulated(ctxt, desc_addr, &buf,
+						  &seg_desc,
+						  sizeof(seg_desc),
+						  &ctxt->exception);
 		if (ret != X86EMUL_CONTINUE)
 			return ret;
 		break;
+	}
 	case VCPU_SREG_LDTR:
 		if (seg_desc.s || seg_desc.type != 2)
 			goto exception;
@@ -2429,6 +2438,44 @@ static int em_ret_far_imm(struct x86_emulate_ctxt *ctxt)
 
 static int em_cmpxchg(struct x86_emulate_ctxt *ctxt)
 {
+	if (ctxt->lock_prefix) {
+		int rc;
+		ulong linear;
+		u64 old = reg_read(ctxt, VCPU_REGS_RAX);
+		u64 new = ctxt->src.val64;
+
+		/* disable writeback altogether */
+		ctxt->d &= ~SrcWrite;
+		ctxt->d |= NoWrite;
+
+		rc = linearize(ctxt, ctxt->dst.addr.mem, ctxt->dst.bytes, true,
+			       &linear);
+		if (rc != X86EMUL_CONTINUE)
+			return rc;
+
+		rc = ctxt->ops->cmpxchg_emulated(ctxt, linear, &old, &new,
+						 ctxt->dst.bytes,
+						 &ctxt->exception);
+
+		switch (rc) {
+		case X86EMUL_CONTINUE:
+			ctxt->eflags |= X86_EFLAGS_ZF;
+			break;
+		case X86EMUL_CMPXCHG_FAILED: {
+			u64 mask = BITMAP_LAST_WORD_MASK(ctxt->dst.bytes * 8);
+
+			*reg_write(ctxt, VCPU_REGS_RAX) = old & mask;
+
+			ctxt->eflags &= ~X86_EFLAGS_ZF;
+
+			rc = X86EMUL_CONTINUE;
+			break;
+		}
+		}
+
+		return rc;
+	}
+
 	/* Save real source value, then compare EAX against destination. */
 	ctxt->dst.orig_val = ctxt->dst.val;
 	ctxt->dst.val = reg_read(ctxt, VCPU_REGS_RAX);

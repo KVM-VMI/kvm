@@ -5854,18 +5854,18 @@ static int emulator_write_emulated(struct x86_emulate_ctxt *ctxt,
 }
 
 #define CMPXCHG_TYPE(t, ptr, old, new) \
-	(cmpxchg((t *)(ptr), *(t *)(old), *(t *)(new)) == *(t *)(old))
+	cmpxchg((t *)(ptr), *(t *)(old), *(t *)(new))
 
 #ifdef CONFIG_X86_64
 #  define CMPXCHG64(ptr, old, new) CMPXCHG_TYPE(u64, ptr, old, new)
 #else
 #  define CMPXCHG64(ptr, old, new) \
-	(cmpxchg64((u64 *)(ptr), *(u64 *)(old), *(u64 *)(new)) == *(u64 *)(old))
+	cmpxchg64((u64 *)(ptr), *(u64 *)(old), *(u64 *)(new))
 #endif
 
 static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 				     unsigned long addr,
-				     const void *old,
+				     void *old,
 				     const void *new,
 				     unsigned int bytes,
 				     struct x86_exception *exception)
@@ -5874,7 +5874,7 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
 	gpa_t gpa;
 	char *kaddr;
-	bool exchanged;
+	bool exchanged = false;
 
 	/* guests cmpxchg8b have to be emulated atomically */
 	if (bytes > 8 || (bytes & (bytes - 1)))
@@ -5898,18 +5898,42 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 	kaddr = map.hva + offset_in_page(gpa);
 
 	switch (bytes) {
-	case 1:
-		exchanged = CMPXCHG_TYPE(u8, kaddr, old, new);
+	case 1: {
+		u8 val = CMPXCHG_TYPE(u8, kaddr, old, new);
+
+		if (*((u8 *)old) == val)
+			exchanged = true;
+		else
+			*((u8 *)old) = val;
 		break;
-	case 2:
-		exchanged = CMPXCHG_TYPE(u16, kaddr, old, new);
+	}
+	case 2: {
+		u16 val = CMPXCHG_TYPE(u16, kaddr, old, new);
+
+		if (*((u16 *)old) == val)
+			exchanged = true;
+		else
+			*((u16 *)old) = val;
 		break;
-	case 4:
-		exchanged = CMPXCHG_TYPE(u32, kaddr, old, new);
+	}
+	case 4: {
+		u32 val = CMPXCHG_TYPE(u32, kaddr, old, new);
+
+		if (*((u32 *)old) == val)
+			exchanged = true;
+		else
+			*((u32 *)old) = val;
 		break;
-	case 8:
-		exchanged = CMPXCHG64(kaddr, old, new);
+	}
+	case 8: {
+		u64 val = CMPXCHG64(kaddr, old, new);
+
+		if (*((u64 *)old) == val)
+			exchanged = true;
+		else
+			*((u64 *)old) = val;
 		break;
+	}
 	default:
 		BUG();
 	}
