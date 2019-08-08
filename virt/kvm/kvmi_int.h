@@ -139,5 +139,7 @@ int kvmi_add_job(struct kvm_vcpu *vcpu,
 
 /* arch */
 void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev);
+int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,
+				struct kvmi_get_vcpu_info_reply *rpl);
 
 #endif

@@ -112,6 +112,10 @@ struct kvmi_get_guest_info_reply {
 	__u32 padding[3];
 };
 
+struct kvmi_get_vcpu_info_reply {
+	__u64 tsc_speed;
+};
+
 struct kvmi_control_vm_events {
 	__u16 event_id;
 	__u8 enable;
