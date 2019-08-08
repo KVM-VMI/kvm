@@ -493,3 +493,23 @@ Some of the events accept the KVMI_EVENT_ACTION_RETRY action, to continue
 by re-entering the guest.
 
 Specific data can follow these common structures.
+
+1. KVMI_EVENT_UNHOOK
+--------------------
+
+:Architecture: all
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns: none
+
+This event is sent when the device manager (ie. QEMU) has to
+pause/stop/migrate the guest (see **Unhooking**) and the introspection
+has been enabled for this event (see **KVMI_CONTROL_VM_EVENTS**).
+The introspection tool has a chance to unhook and close the KVMI channel
+(signaling that the operation can proceed).

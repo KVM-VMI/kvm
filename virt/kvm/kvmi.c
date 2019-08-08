@@ -644,6 +644,9 @@ int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 
 static void kvmi_job_abort(struct kvm_vcpu *vcpu, void *ctx)
 {
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	ivcpu->reply_waiting = false;
 }
 
 static void kvmi_abort_events(struct kvm *kvm)
@@ -655,6 +658,34 @@ static void kvmi_abort_events(struct kvm *kvm)
 		kvmi_add_job(vcpu, kvmi_job_abort, NULL, NULL);
 }
 
+static bool __kvmi_unhook_event(struct kvmi *ikvm)
+{
+	int err;
+
+	if (!test_bit(KVMI_EVENT_UNHOOK, ikvm->vm_ev_mask))
+		return false;
+
+	err = kvmi_msg_send_unhook(ikvm);
+
+	return !err;
+}
+
+static bool kvmi_unhook_event(struct kvm *kvm)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(kvm);
+	if (!ikvm)
+		return false;
+
+	ret = __kvmi_unhook_event(ikvm);
+
+	kvmi_put(kvm);
+
+	return ret;
+}
+
 int kvmi_ioctl_unhook(struct kvm *kvm, bool force_reset)
 {
 	struct kvmi *ikvm;
@@ -664,7 +695,8 @@ int kvmi_ioctl_unhook(struct kvm *kvm, bool force_reset)
 	if (!ikvm)
 		return -EFAULT;
 
-	kvm_info("TODO: %s force_reset %d", __func__, force_reset);
+	if (!force_reset && !kvmi_unhook_event(kvm))
+		err = -ENOENT;
 
 	kvmi_put(kvm);
 

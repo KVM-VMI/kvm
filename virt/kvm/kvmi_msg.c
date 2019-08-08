@@ -705,3 +705,23 @@ out:
 	return err;
 }
 
+int kvmi_msg_send_unhook(struct kvmi *ikvm)
+{
+	struct kvmi_msg_hdr hdr;
+	struct kvmi_event common;
+	struct kvec vec[] = {
+		{.iov_base = &hdr,	.iov_len = sizeof(hdr)	 },
+		{.iov_base = &common,	.iov_len = sizeof(common)},
+	};
+	size_t msg_size = sizeof(hdr) + sizeof(common);
+	size_t n = ARRAY_SIZE(vec);
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.id = KVMI_EVENT;
+	hdr.seq = new_seq(ikvm);
+	hdr.size = msg_size - sizeof(hdr);
+
+	kvmi_setup_event_common(&common, KVMI_EVENT_UNHOOK, 0);
+
+	return kvmi_sock_write(ikvm, vec, n, msg_size);
+}
