@@ -4248,6 +4248,12 @@ static int em_xsetbv(struct x86_emulate_ctxt *ctxt)
 	return X86EMUL_CONTINUE;
 }
 
+static int em_lfence(struct x86_emulate_ctxt *ctxt)
+{
+	asm volatile ("lfence" ::: "memory");
+	return X86EMUL_CONTINUE;
+}
+
 static bool valid_cr(int nr)
 {
 	switch (nr) {
@@ -4641,7 +4647,7 @@ static const struct group_dual group15 = { {
 	I(ModRM | Aligned16, em_fxrstor),
 	N, N, N, N, N, GP(0, &pfx_0f_ae_7),
 }, {
-	N, N, N, N, N, N, N, N,
+	N, N, N, N, N, I(ModRM | Sse, em_lfence), N, N,
 } };
 
 static const struct gprefix pfx_0f_6f_0f_7f = {
