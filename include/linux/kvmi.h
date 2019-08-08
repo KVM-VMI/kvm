@@ -24,6 +24,9 @@ bool kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor, u8 write);
 bool kvmi_tracked_gfn(struct kvm_vcpu *vcpu, gfn_t gfn);
 bool kvmi_single_step(struct kvm_vcpu *vcpu, gpa_t gpa, int *emulation_type);
 void kvmi_handle_requests(struct kvm_vcpu *vcpu);
+int kvmi_host_mem_map(struct kvm_vcpu *vcpu, gva_t tkn_gva,
+			     gpa_t req_gpa, gpa_t map_gpa);
+int kvmi_host_mem_unmap(struct kvm_vcpu *vcpu, gpa_t map_gpa);
 void kvmi_stop_ss(struct kvm_vcpu *vcpu);
 bool kvmi_vcpu_enabled_ss(struct kvm_vcpu *vcpu);
 void kvmi_init_emulate(struct kvm_vcpu *vcpu);

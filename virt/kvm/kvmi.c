@@ -10,6 +10,7 @@
 #include "kvmi_int.h"
 #include <linux/kthread.h>
 #include <linux/bitmap.h>
+#include <linux/remote_mapping.h>
 
 #define MAX_PAUSE_REQUESTS 1001
 
@@ -320,11 +321,13 @@ static int kvmi_cache_create(void)
 
 int kvmi_init(void)
 {
+	kvmi_mem_init();
 	return kvmi_cache_create();
 }
 
 void kvmi_uninit(void)
 {
+	kvmi_mem_exit();
 	kvmi_cache_destroy();
 }
 
@@ -1647,6 +1650,11 @@ int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size, const void *buf)
 	return 0;
 }
 
+int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token)
+{
+	return kvmi_mem_generate_token(kvm, token);
+}
+
 int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 			    bool enable)
 {
@@ -2015,7 +2023,9 @@ int kvmi_ioctl_unhook(struct kvm *kvm, bool force_reset)
 	if (!ikvm)
 		return -EFAULT;
 
-	if (!force_reset && !kvmi_unhook_event(kvm))
+	if (force_reset)
+		mm_remote_reset();
+	else if (!kvmi_unhook_event(kvm))
 		err = -ENOENT;
 
 	kvmi_put(kvm);

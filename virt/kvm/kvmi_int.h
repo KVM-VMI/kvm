@@ -148,6 +148,8 @@ struct kvmi {
 	struct task_struct *recv;
 	atomic_t ev_seq;
 
+	atomic_t num_tokens;
+
 	uuid_t uuid;
 
 	DECLARE_BITMAP(cmd_allow_mask, KVMI_NUM_COMMANDS);
@@ -229,7 +231,9 @@ int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 			    bool enable);
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 			       bool enable);
+int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token);
 int kvmi_cmd_pause_vcpu(struct kvm_vcpu *vcpu, bool wait);
+unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn);
 struct kvmi * __must_check kvmi_get(struct kvm *kvm);
 void kvmi_put(struct kvm *kvm);
 int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu);
@@ -297,5 +301,11 @@ u8 kvmi_arch_relax_page_access(u8 old, u8 new);
 int kvmi_arch_cmd_control_msr(struct kvm_vcpu *vcpu,
 			      const struct kvmi_control_msr *req);
 int kvmi_arch_cmd_get_mtrr_type(struct kvm_vcpu *vcpu, u64 gpa, u8 *type);
+
+/* kvmi_mem.c */
+void kvmi_mem_init(void);
+void kvmi_mem_exit(void);
+int kvmi_mem_generate_token(struct kvm *kvm, struct kvmi_map_mem_token *token);
+void kvmi_clear_vm_tokens(struct kvm *kvm);
 
 #endif

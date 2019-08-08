@@ -33,6 +33,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_EVENT_REPLY]           = "KVMI_EVENT_REPLY",
 	[KVMI_GET_CPUID]             = "KVMI_GET_CPUID",
 	[KVMI_GET_GUEST_INFO]        = "KVMI_GET_GUEST_INFO",
+	[KVMI_GET_MAP_TOKEN]         = "KVMI_GET_MAP_TOKEN",
 	[KVMI_GET_MTRR_TYPE]         = "KVMI_GET_MTRR_TYPE",
 	[KVMI_GET_PAGE_ACCESS]       = "KVMI_GET_PAGE_ACCESS",
 	[KVMI_GET_PAGE_WRITE_BITMAP] = "KVMI_GET_PAGE_WRITE_BITMAP",
@@ -352,6 +353,19 @@ static int handle_write_physical(struct kvmi *ikvm,
 	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
 }
 
+static int handle_get_map_token(struct kvmi *ikvm,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	struct kvmi_get_map_token_reply rpl;
+	int ec;
+
+	memset(&rpl, 0, sizeof(rpl));
+	ec = kvmi_cmd_alloc_token(ikvm->kvm, &rpl.token);
+
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, &rpl, sizeof(rpl));
+}
+
 static bool enable_spp(struct kvmi *ikvm)
 {
 	if (!ikvm->spp.initialized) {
@@ -524,6 +538,7 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_CONTROL_SPP]           = handle_control_spp,
 	[KVMI_CONTROL_VM_EVENTS]     = handle_control_vm_events,
 	[KVMI_GET_GUEST_INFO]        = handle_get_guest_info,
+	[KVMI_GET_MAP_TOKEN]         = handle_get_map_token,
 	[KVMI_GET_PAGE_ACCESS]       = handle_get_page_access,
 	[KVMI_GET_PAGE_WRITE_BITMAP] = handle_get_page_write_bitmap,
 	[KVMI_GET_VERSION]           = handle_get_version,

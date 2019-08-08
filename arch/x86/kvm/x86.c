@@ -7337,6 +7337,12 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		ret = kvm_pv_send_ipi(vcpu->kvm, a0, a1, a2, a3, op_64_bit);
 		break;
 #ifdef CONFIG_KVM_INTROSPECTION
+	case KVM_HC_MEM_MAP:
+		ret = kvmi_host_mem_map(vcpu, (gva_t)a0, (gpa_t)a1, (gpa_t)a2);
+		break;
+	case KVM_HC_MEM_UNMAP:
+		ret = kvmi_host_mem_unmap(vcpu, (gpa_t)a0);
+		break;
 	case KVM_HC_XEN_HVM_OP:
 		ret = 0;
 		if (!kvmi_hypercall_event(vcpu))
