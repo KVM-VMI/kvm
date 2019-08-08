@@ -12,6 +12,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_CHECK_COMMAND]         = "KVMI_CHECK_COMMAND",
 	[KVMI_CHECK_EVENT]           = "KVMI_CHECK_EVENT",
 	[KVMI_CONTROL_CMD_RESPONSE]  = "KVMI_CONTROL_CMD_RESPONSE",
+	[KVMI_CONTROL_VM_EVENTS]     = "KVMI_CONTROL_VM_EVENTS",
 	[KVMI_GET_GUEST_INFO]        = "KVMI_GET_GUEST_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
 };
@@ -226,6 +227,27 @@ static int handle_get_guest_info(struct kvmi *ikvm,
 	return kvmi_msg_vm_maybe_reply(ikvm, msg, 0, &rpl, sizeof(rpl));
 }
 
+static int handle_control_vm_events(struct kvmi *ikvm,
+				    const struct kvmi_msg_hdr *msg,
+				    const void *_req)
+{
+	const unsigned long known_events = KVMI_KNOWN_VM_EVENTS;
+	const struct kvmi_control_vm_events *req = _req;
+	int ec;
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (!test_bit(req->event_id, &known_events))
+		ec = -KVM_EINVAL;
+	else if (!is_event_allowed(ikvm, req->event_id))
+		ec = -KVM_EPERM;
+	else
+		ec = kvmi_cmd_control_vm_events(ikvm, req->event_id,
+						req->enable);
+
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
+}
+
 static int handle_control_cmd_response(struct kvmi *ikvm,
 					const struct kvmi_msg_hdr *msg,
 					const void *_req)
@@ -259,6 +281,7 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_CHECK_COMMAND]         = handle_check_command,
 	[KVMI_CHECK_EVENT]           = handle_check_event,
 	[KVMI_CONTROL_CMD_RESPONSE]  = handle_control_cmd_response,
+	[KVMI_CONTROL_VM_EVENTS]     = handle_control_vm_events,
 	[KVMI_GET_GUEST_INFO]        = handle_get_guest_info,
 	[KVMI_GET_VERSION]           = handle_get_version,
 };

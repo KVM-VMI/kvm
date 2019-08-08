@@ -85,6 +85,7 @@ struct kvmi {
 
 	DECLARE_BITMAP(cmd_allow_mask, KVMI_NUM_COMMANDS);
 	DECLARE_BITMAP(event_allow_mask, KVMI_NUM_EVENTS);
+	DECLARE_BITMAP(vm_ev_mask, KVMI_NUM_EVENTS);
 
 	bool cmd_reply_disabled;
 };
@@ -99,5 +100,7 @@ bool kvmi_msg_process(struct kvmi *ikvm);
 void *kvmi_msg_alloc(void);
 void *kvmi_msg_alloc_check(size_t size);
 void kvmi_msg_free(void *addr);
+int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
+			       bool enable);
 
 #endif

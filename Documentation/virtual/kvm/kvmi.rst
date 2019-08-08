@@ -380,3 +380,42 @@ This command is always allowed.
 	};
 
 Returns the number of online vCPUs.
+
+6. KVMI_CONTROL_VM_EVENTS
+-------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_control_vm_events {
+		__u16 event_id;
+		__u8 enable;
+		__u8 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables/disables VM introspection events. This command can be used with
+the following events::
+
+	KVMI_EVENT_CREATE_VCPU
+	KVMI_EVENT_UNHOOK
+
+When an event is enabled, the introspection tool is notified and,
+in almost all cases, it must reply with: continue, retry, crash, etc.
+(see **Events** below).
+
+:Errors:
+
+* -KVM_EINVAL - the event ID is invalid
+* -KVM_EINVAL - padding is not zero
+* -KVM_EPERM - the access is restricted by the host
+

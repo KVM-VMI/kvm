@@ -338,6 +338,17 @@ void kvmi_destroy_vm(struct kvm *kvm)
 	wait_for_completion_killable(&kvm->kvmi_completed);
 }
 
+int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
+			       bool enable)
+{
+	if (enable)
+		set_bit(event_id, ikvm->vm_ev_mask);
+	else
+		clear_bit(event_id, ikvm->vm_ev_mask);
+
+	return 0;
+}
+
 int kvmi_ioctl_unhook(struct kvm *kvm, bool force_reset)
 {
 	struct kvmi *ikvm;
