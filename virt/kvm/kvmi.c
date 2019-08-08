@@ -12,6 +12,9 @@
 #include <linux/bitmap.h>
 #include <linux/remote_mapping.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/kvmi.h>
+
 #define MAX_PAUSE_REQUESTS 1001
 
 static struct kmem_cache *msg_cache;
@@ -1284,6 +1287,8 @@ static void __kvmi_singlestep_event(struct kvm_vcpu *vcpu)
 {
 	u32 action;
 
+	trace_kvmi_event_singlestep_send(vcpu->vcpu_id);
+
 	action = kvmi_send_singlestep(vcpu);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -1291,6 +1296,8 @@ static void __kvmi_singlestep_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "SINGLESTEP");
 	}
+
+	trace_kvmi_event_singlestep_recv(vcpu->vcpu_id, action);
 }
 
 static void kvmi_singlestep_event(struct kvm_vcpu *vcpu)
@@ -1311,6 +1318,8 @@ static bool __kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 	u32 action;
 	bool ret = false;
 
+	trace_kvmi_event_create_vcpu_send(vcpu->vcpu_id);
+
 	action = kvmi_msg_send_create_vcpu(vcpu);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -1319,6 +1328,8 @@ static bool __kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "CREATE");
 	}
+
+	trace_kvmi_event_create_vcpu_recv(vcpu->vcpu_id, action);
 
 	return ret;
 }
@@ -1345,6 +1356,8 @@ static bool __kvmi_pause_vcpu_event(struct kvm_vcpu *vcpu)
 	u32 action;
 	bool ret = false;
 
+	trace_kvmi_event_pause_vcpu_send(vcpu->vcpu_id);
+
 	action = kvmi_msg_send_pause_vcpu(vcpu);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -1353,6 +1366,8 @@ static bool __kvmi_pause_vcpu_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "PAUSE");
 	}
+
+	trace_kvmi_event_pause_vcpu_recv(vcpu->vcpu_id, action);
 
 	return ret;
 }
@@ -1857,6 +1872,8 @@ void kvmi_stop_ss(struct kvm_vcpu *vcpu)
 
 	ivcpu->ss_owner = false;
 
+	trace_kvmi_stop_singlestep(vcpu->vcpu_id);
+
 	kvmi_singlestep_event(vcpu);
 
 out:
@@ -1891,6 +1908,9 @@ static bool kvmi_run_ss(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
 	u32 old_write_bitmap;
 	gfn_t gfn = gpa_to_gfn(gpa);
 	int err;
+
+	trace_kvmi_run_singlestep(vcpu, gpa, access, ikvm->ss_level,
+				  IVCPU(vcpu)->ctx_size);
 
 	kvmi_arch_start_single_step(vcpu);
 

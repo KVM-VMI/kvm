@@ -8,6 +8,8 @@
 #include <linux/net.h>
 #include "kvmi_int.h"
 
+#include <trace/events/kvmi.h>
+
 typedef int (*vcpu_reply_fct)(struct kvm_vcpu *vcpu,
 			      const struct kvmi_msg_hdr *msg, int err,
 			      const void *rpl, size_t rpl_size);
@@ -165,6 +167,8 @@ static int kvmi_msg_vm_reply(struct kvmi *ikvm,
 			     const struct kvmi_msg_hdr *msg, int err,
 			     const void *rpl, size_t rpl_size)
 {
+	trace_kvmi_vm_reply(msg->id, msg->seq, err);
+
 	return kvmi_msg_reply(ikvm, msg, err, rpl, rpl_size);
 }
 
@@ -202,6 +206,8 @@ int kvmi_msg_vcpu_reply(struct kvm_vcpu *vcpu,
 			const struct kvmi_msg_hdr *msg, int err,
 			const void *rpl, size_t rpl_size)
 {
+	trace_kvmi_vcpu_reply(vcpu->vcpu_id, msg->id, msg->seq, err);
+
 	return kvmi_msg_reply(IKVM(vcpu->kvm), msg, err, rpl, rpl_size);
 }
 
@@ -559,6 +565,8 @@ static int handle_event_reply(struct kvm_vcpu *vcpu,
 	struct kvmi_vcpu_reply *expected = &ivcpu->reply;
 	size_t useful, received, common;
 
+	trace_kvmi_event_reply(reply->event, msg->seq);
+
 	if (unlikely(msg->seq != expected->seq))
 		goto out;
 
@@ -883,6 +891,8 @@ out_err:
 static int kvmi_msg_dispatch_vm_cmd(struct kvmi *ikvm,
 				    const struct kvmi_msg_hdr *msg)
 {
+	trace_kvmi_vm_command(msg->id, msg->seq);
+
 	return msg_vm[msg->id](ikvm, msg, msg + 1);
 }
 
@@ -894,6 +904,8 @@ static int kvmi_msg_dispatch_vcpu_job(struct kvmi *ikvm,
 	struct kvmi_vcpu_hdr *cmd = &job->msg->cmd;
 	struct kvm_vcpu *vcpu = NULL;
 	int err;
+
+	trace_kvmi_vcpu_command(cmd->vcpu, hdr->id, hdr->seq);
 
 	if (invalid_vcpu_hdr(cmd))
 		return -KVM_EINVAL;
@@ -1051,6 +1063,8 @@ int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
 	ivcpu->reply.size = rpl_size;
 	ivcpu->reply.error = -EINTR;
 
+	trace_kvmi_event(vcpu->vcpu_id, common.event, hdr.seq);
+
 	err = kvmi_sock_write(ikvm, vec, n, msg_size);
 	if (err)
 		goto out;
@@ -1090,6 +1104,8 @@ int kvmi_msg_send_unhook(struct kvmi *ikvm)
 	hdr.size = msg_size - sizeof(hdr);
 
 	kvmi_setup_event_common(&common, KVMI_EVENT_UNHOOK, 0);
+
+	trace_kvmi_event(0, common.event, hdr.seq);
 
 	return kvmi_sock_write(ikvm, vec, n, msg_size);
 }

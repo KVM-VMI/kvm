@@ -9,6 +9,8 @@
 #include <asm/vmx.h>
 #include "../../../virt/kvm/kvmi_int.h"
 
+#include <trace/events/kvmi.h>
+
 static unsigned long *msr_mask(struct kvm_vcpu *vcpu, unsigned int *msr)
 {
 	switch (*msr) {
@@ -102,6 +104,9 @@ static bool __kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	if (old_msr.data == msr->data)
 		return true;
 
+	trace_kvmi_event_msr_send(vcpu->vcpu_id, msr->index, old_msr.data,
+				  msr->data);
+
 	action = kvmi_send_msr(vcpu, msr->index, old_msr.data, msr->data,
 			       &ret_value);
 	switch (action) {
@@ -112,6 +117,8 @@ static bool __kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "MSR");
 	}
+
+	trace_kvmi_event_msr_recv(vcpu->vcpu_id, action, ret_value);
 
 	return ret;
 }
@@ -387,6 +394,8 @@ static bool __kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
 	if (!test_bit(cr, IVCPU(vcpu)->cr_mask))
 		return true;
 
+	trace_kvmi_event_cr_send(vcpu->vcpu_id, cr, old_value, *new_value);
+
 	action = kvmi_send_cr(vcpu, cr, old_value, *new_value, &ret_value);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -396,6 +405,8 @@ static bool __kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "CR");
 	}
+
+	trace_kvmi_event_cr_recv(vcpu->vcpu_id, action, ret_value);
 
 	return ret;
 }
@@ -437,6 +448,8 @@ static void __kvmi_xsetbv_event(struct kvm_vcpu *vcpu)
 {
 	u32 action;
 
+	trace_kvmi_event_xsetbv_send(vcpu->vcpu_id);
+
 	action = kvmi_send_xsetbv(vcpu);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -444,6 +457,8 @@ static void __kvmi_xsetbv_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "XSETBV");
 	}
+
+	trace_kvmi_event_xsetbv_recv(vcpu->vcpu_id, action);
 }
 
 void kvmi_xsetbv_event(struct kvm_vcpu *vcpu)
@@ -460,12 +475,26 @@ void kvmi_xsetbv_event(struct kvm_vcpu *vcpu)
 	kvmi_put(vcpu->kvm);
 }
 
+static u64 get_next_rip(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	if (ivcpu->have_delayed_regs)
+		return ivcpu->delayed_regs.rip;
+	else
+		return kvm_rip_read(vcpu);
+}
+
 void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 {
 	u32 action;
 	u64 gpa;
+	u64 old_rip;
 
 	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
+	old_rip = kvm_rip_read(vcpu);
+
+	trace_kvmi_event_bp_send(vcpu->vcpu_id, gpa, old_rip);
 
 	action = kvmi_msg_send_bp(vcpu, gpa, insn_len);
 	switch (action) {
@@ -478,6 +507,8 @@ void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "BP");
 	}
+
+	trace_kvmi_event_bp_recv(vcpu->vcpu_id, action, get_next_rip(vcpu));
 }
 
 #define KVM_HC_XEN_HVM_OP_GUEST_REQUEST_VM_EVENT 24
@@ -504,6 +535,8 @@ void kvmi_arch_hypercall_event(struct kvm_vcpu *vcpu)
 {
 	u32 action;
 
+	trace_kvmi_event_hc_send(vcpu->vcpu_id);
+
 	action = kvmi_msg_send_hypercall(vcpu);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -511,6 +544,8 @@ void kvmi_arch_hypercall_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "HYPERCALL");
 	}
+
+	trace_kvmi_event_hc_recv(vcpu->vcpu_id, action);
 }
 
 bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
@@ -532,6 +567,9 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	if (ivcpu->effective_rep_complete)
 		return true;
 
+	trace_kvmi_event_pf_send(vcpu->vcpu_id, gpa, gva, access,
+				 kvm_rip_read(vcpu));
+
 	action = kvmi_msg_send_pf(vcpu, gpa, gva, access, &ivcpu->ss_requested,
 				  &ivcpu->rep_complete, &ctx_addr,
 				  ivcpu->ctx_data, &ctx_size);
@@ -552,6 +590,9 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "PF");
 	}
+
+	trace_kvmi_event_pf_recv(vcpu->vcpu_id, action, get_next_rip(vcpu),
+				 ctx_size, ivcpu->ss_requested, ret);
 
 	return ret;
 }
@@ -628,6 +669,11 @@ void kvmi_arch_trap_event(struct kvm_vcpu *vcpu)
 		err = 0;
 	}
 
+	trace_kvmi_event_trap_send(vcpu->vcpu_id, vector,
+				   IVCPU(vcpu)->exception.nr,
+				   err, IVCPU(vcpu)->exception.error_code,
+				   vcpu->arch.cr2);
+
 	action = kvmi_send_trap(vcpu, vector, type, err, vcpu->arch.cr2);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -635,6 +681,8 @@ void kvmi_arch_trap_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "TRAP");
 	}
+
+	trace_kvmi_event_trap_recv(vcpu->vcpu_id, action);
 }
 
 static bool __kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor,
@@ -642,6 +690,8 @@ static bool __kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor,
 {
 	u32 action;
 	bool ret = false;
+
+	trace_kvmi_event_desc_send(vcpu->vcpu_id, descriptor, write);
 
 	action = kvmi_msg_send_descriptor(vcpu, descriptor, write);
 	switch (action) {
@@ -653,6 +703,8 @@ static bool __kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor,
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "DESC");
 	}
+
+	trace_kvmi_event_desc_recv(vcpu->vcpu_id, action);
 
 	return ret;
 }
@@ -718,6 +770,15 @@ int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 				   bool error_code_valid,
 				   u32 error_code, u64 address)
 {
+	struct x86_exception e = {
+		.error_code_valid = error_code_valid,
+		.error_code = error_code,
+		.address = address,
+		.vector = vector,
+	};
+
+	trace_kvmi_cmd_inject_exception(vcpu, &e);
+
 	if (!(is_vector_valid(vector) && is_gva_valid(vcpu, address)))
 		return -KVM_EINVAL;
 
@@ -875,6 +936,8 @@ void kvmi_arch_update_page_tracking(struct kvm *kvm,
 		if (!slot)
 			return;
 	}
+
+	trace_kvmi_set_gfn_access(m->gfn, m->access, m->write_bitmap, slot->id);
 
 	for (i = 0; i < ARRAY_SIZE(track_modes); i++) {
 		unsigned int allow_bit = track_modes[i].allow_bit;
