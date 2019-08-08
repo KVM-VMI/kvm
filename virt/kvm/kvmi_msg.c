@@ -24,6 +24,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_CHECK_COMMAND]         = "KVMI_CHECK_COMMAND",
 	[KVMI_CHECK_EVENT]           = "KVMI_CHECK_EVENT",
 	[KVMI_CONTROL_CMD_RESPONSE]  = "KVMI_CONTROL_CMD_RESPONSE",
+	[KVMI_CONTROL_EVENTS]        = "KVMI_CONTROL_EVENTS",
 	[KVMI_CONTROL_VM_EVENTS]     = "KVMI_CONTROL_VM_EVENTS",
 	[KVMI_EVENT]                 = "KVMI_EVENT",
 	[KVMI_EVENT_REPLY]           = "KVMI_EVENT_REPLY",
@@ -403,6 +404,28 @@ static int handle_get_vcpu_info(struct kvm_vcpu *vcpu,
 	return reply_cb(vcpu, msg, 0, &rpl, sizeof(rpl));
 }
 
+static int handle_control_events(struct kvm_vcpu *vcpu,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *_req,
+				 vcpu_reply_fct reply_cb)
+{
+	unsigned long known_events = KVMI_KNOWN_VCPU_EVENTS;
+	const struct kvmi_control_events *req = _req;
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+	int ec;
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (!test_bit(req->event_id, &known_events))
+		ec = -KVM_EINVAL;
+	else if (!is_event_allowed(ikvm, req->event_id))
+		ec = -KVM_EPERM;
+	else
+		ec = kvmi_cmd_control_events(vcpu, req->event_id, req->enable);
+
+	return reply_cb(vcpu, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd'
@@ -412,6 +435,7 @@ static int handle_get_vcpu_info(struct kvm_vcpu *vcpu,
 static int(*const msg_vcpu[])(struct kvm_vcpu *,
 			      const struct kvmi_msg_hdr *, const void *,
 			      vcpu_reply_fct) = {
+	[KVMI_CONTROL_EVENTS]   = handle_control_events,
 	[KVMI_EVENT_REPLY]      = handle_event_reply,
 	[KVMI_GET_VCPU_INFO]    = handle_get_vcpu_info,
 };

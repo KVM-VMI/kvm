@@ -120,6 +120,13 @@ struct kvmi_get_vcpu_info_reply {
 	__u64 tsc_speed;
 };
 
+struct kvmi_control_events {
+	__u16 event_id;
+	__u8 enable;
+	__u8 padding1;
+	__u32 padding2;
+};
+
 struct kvmi_control_vm_events {
 	__u16 event_id;
 	__u8 enable;

@@ -95,6 +95,8 @@ struct kvmi_vcpu {
 	bool reply_waiting;
 	struct kvmi_vcpu_reply reply;
 
+	DECLARE_BITMAP(ev_mask, KVMI_NUM_EVENTS);
+
 	struct list_head job_list;
 	spinlock_t job_lock;
 
@@ -131,7 +133,7 @@ struct kvmi_mem_access {
 
 static inline bool is_event_enabled(struct kvm_vcpu *vcpu, int event)
 {
-	return false; /* TODO */
+	return test_bit(event, IVCPU(vcpu)->ev_mask);
 }
 
 /* kvmi_msg.c */
@@ -146,6 +148,8 @@ int kvmi_msg_send_unhook(struct kvmi *ikvm);
 void *kvmi_msg_alloc(void);
 void *kvmi_msg_alloc_check(size_t size);
 void kvmi_msg_free(void *addr);
+int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
+			    bool enable);
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 			       bool enable);
 int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu);

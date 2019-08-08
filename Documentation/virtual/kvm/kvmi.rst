@@ -456,6 +456,59 @@ Returns the TSC frequency (in HZ) for the specified vCPU if available
 * -KVM_EINVAL - padding is not zero
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 
+8. KVMI_CONTROL_EVENTS
+----------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_control_events {
+		__u16 event_id;
+		__u8 enable;
+		__u8 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables/disables vCPU introspection events. This command can be used with
+the following events::
+
+	KVMI_EVENT_CR
+	KVMI_EVENT_MSR
+	KVMI_EVENT_XSETBV
+	KVMI_EVENT_BREAKPOINT
+	KVMI_EVENT_HYPERCALL
+	KVMI_EVENT_PF
+	KVMI_EVENT_TRAP
+	KVMI_EVENT_DESCRIPTOR
+	KVMI_EVENT_SINGLESTEP
+
+When an event is enabled, the introspection tool is notified and it
+must reply with: continue, retry, crash, etc. (see **Events** below).
+
+The *KVMI_EVENT_PAUSE_VCPU* event is always allowed,
+because it is triggered by the *KVMI_PAUSE_VCPU* command.
+The *KVMI_EVENT_CREATE_VCPU* and *KVMI_EVENT_UNHOOK* events are controlled
+by the *KVMI_CONTROL_VM_EVENTS* command.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the event ID is invalid
+* -KVM_EINVAL - padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EPERM - the access is restricted by the host
+* -KVM_EOPNOTSUPP - one the events can't be intercepted in the current setup
+
 Events
 ======
 

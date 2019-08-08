@@ -969,6 +969,19 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 	kvmi_put(vcpu->kvm);
 }
 
+int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
+			    bool enable)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	if (enable)
+		set_bit(event_id, ivcpu->ev_mask);
+	else
+		clear_bit(event_id, ivcpu->ev_mask);
+
+	return 0;
+}
+
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 			       bool enable)
 {
