@@ -135,6 +135,19 @@ static void kvmi_free_job(struct kvmi_job *job)
 	kmem_cache_free(job_cache, job);
 }
 
+static struct kvmi_job *kvmi_pull_job(struct kvmi_vcpu *ivcpu)
+{
+	struct kvmi_job *job = NULL;
+
+	spin_lock(&ivcpu->job_lock);
+	job = list_first_entry_or_null(&ivcpu->job_list, typeof(*job), link);
+	if (job)
+		list_del(&job->link);
+	spin_unlock(&ivcpu->job_lock);
+
+	return job;
+}
+
 static bool alloc_ivcpu(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_vcpu *ivcpu;
@@ -494,6 +507,73 @@ void kvmi_destroy_vm(struct kvm *kvm)
 
 	/* wait for introspection resources to be released */
 	wait_for_completion_killable(&kvm->kvmi_completed);
+}
+
+void kvmi_run_jobs(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvmi_job *job;
+
+	while ((job = kvmi_pull_job(ivcpu))) {
+		job->fct(vcpu, job->ctx);
+		kvmi_free_job(job);
+	}
+}
+
+static bool done_waiting(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	return !list_empty(&ivcpu->job_list);
+}
+
+static void kvmi_job_wait(struct kvm_vcpu *vcpu, void *ctx)
+{
+	struct swait_queue_head *wq = kvm_arch_vcpu_wq(vcpu);
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	int err;
+
+	err = swait_event_killable(*wq, done_waiting(vcpu));
+
+	if (err)
+		ivcpu->killed = true;
+}
+
+int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	int err = 0;
+
+	for (;;) {
+		kvmi_run_jobs(vcpu);
+
+		if (ivcpu->killed) {
+			err = -1;
+			break;
+		}
+
+		kvmi_add_job(vcpu, kvmi_job_wait, NULL, NULL);
+	}
+
+	return err;
+}
+
+void kvmi_handle_requests(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return;
+
+	for (;;) {
+		int err = kvmi_run_jobs_and_wait(vcpu);
+
+		if (err)
+			break;
+	}
+
+	kvmi_put(vcpu->kvm);
 }
 
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,

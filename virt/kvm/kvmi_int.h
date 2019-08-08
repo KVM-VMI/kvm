@@ -85,6 +85,8 @@ struct kvmi_job {
 struct kvmi_vcpu {
 	struct list_head job_list;
 	spinlock_t job_lock;
+
+	bool killed;
 };
 
 #define IKVM(kvm) ((struct kvmi *)((kvm)->kvmi))
