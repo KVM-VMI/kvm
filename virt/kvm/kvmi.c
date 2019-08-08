@@ -1120,6 +1120,28 @@ bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 }
 EXPORT_SYMBOL(kvmi_breakpoint_event);
 
+bool kvmi_hypercall_event(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+	bool ret = false;
+
+	if (!kvmi_arch_is_agent_hypercall(vcpu))
+		return ret;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return ret;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_HYPERCALL)) {
+		kvmi_arch_hypercall_event(vcpu);
+		ret = true;
+	}
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 /*
  * This function returns false if there is an exception or interrupt pending.
  * It returns true in all other cases including KVMI not being initialized.
