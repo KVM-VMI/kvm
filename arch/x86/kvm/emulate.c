@@ -1223,6 +1223,26 @@ static int em_fnstsw(struct x86_emulate_ctxt *ctxt)
 	return X86EMUL_CONTINUE;
 }
 
+static int em_fstp(struct x86_emulate_ctxt *ctxt)
+{
+	if (ctxt->ops->get_cr(ctxt, 0) & (X86_CR0_TS | X86_CR0_EM))
+		return emulate_nm(ctxt);
+
+	asm volatile("fstpl %0" : "=m"(ctxt->dst.val));
+
+	return X86EMUL_CONTINUE;
+}
+
+static int em_fst(struct x86_emulate_ctxt *ctxt)
+{
+	if (ctxt->ops->get_cr(ctxt, 0) & (X86_CR0_TS | X86_CR0_EM))
+		return emulate_nm(ctxt);
+
+	asm volatile("fstl %0" : "=m"(ctxt->dst.val));
+
+	return X86EMUL_CONTINUE;
+}
+
 static int em_xorps(struct x86_emulate_ctxt *ctxt)
 {
 	const sse128_t *src = &ctxt->src.vec_val;
@@ -4765,7 +4785,8 @@ static const struct escape escape_db = { {
 } };
 
 static const struct escape escape_dd = { {
-	N, N, N, N, N, N, N, I(DstMem16 | Mov, em_fnstsw),
+	N, N, I(DstMem64 | Mov, em_fst), I(DstMem64 | Mov, em_fstp),
+	N, N, N, I(DstMem16 | Mov, em_fnstsw),
 }, {
 	/* 0xC0 - 0xC7 */
 	N, N, N, N, N, N, N, N,
