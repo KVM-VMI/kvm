@@ -171,6 +171,72 @@ void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev)
 	kvmi_get_msrs(vcpu, event);
 }
 
+static u32 kvmi_send_cr(struct kvm_vcpu *vcpu, u32 cr, u64 old_value,
+			u64 new_value, u64 *ret_value)
+{
+	struct kvmi_event_cr e = {
+		.cr = cr,
+		.old_value = old_value,
+		.new_value = new_value
+	};
+	struct kvmi_event_cr_reply r;
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_CR, &e, sizeof(e),
+			      &r, sizeof(r), &action);
+	if (err) {
+		*ret_value = new_value;
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	*ret_value = r.new_val;
+	return action;
+}
+
+static bool __kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
+			    unsigned long old_value, unsigned long *new_value)
+{
+	u64 ret_value;
+	u32 action;
+	bool ret = false;
+
+	if (!test_bit(cr, IVCPU(vcpu)->cr_mask))
+		return true;
+
+	action = kvmi_send_cr(vcpu, cr, old_value, *new_value, &ret_value);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		*new_value = ret_value;
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "CR");
+	}
+
+	return ret;
+}
+
+bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
+		   unsigned long old_value, unsigned long *new_value)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	if (old_value == *new_value)
+		return true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_CR))
+		ret = __kvmi_cr_event(vcpu, cr, old_value, new_value);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			u8 access)
 {
@@ -345,6 +411,35 @@ int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 	IVCPU(vcpu)->exception.error_code = error_code_valid ? error_code : 0;
 	IVCPU(vcpu)->exception.error_code_valid = error_code_valid;
 	IVCPU(vcpu)->exception.address = address;
+
+	return 0;
+}
+
+int kvmi_arch_cmd_control_cr(struct kvm_vcpu *vcpu,
+			     const struct kvmi_control_cr *req)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	u32 cr = req->cr;
+
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	switch (cr) {
+	case 0:
+		break;
+	case 3:
+		kvm_control_cr3_write_exiting(vcpu, req->enable);
+		break;
+	case 4:
+		break;
+	default:
+		return -KVM_EINVAL;
+	}
+
+	if (req->enable)
+		set_bit(cr, ivcpu->cr_mask);
+	else
+		clear_bit(cr, ivcpu->cr_mask);
 
 	return 0;
 }

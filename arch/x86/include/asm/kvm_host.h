@@ -1013,6 +1013,7 @@ struct kvm_x86_ops {
 	bool (*has_emulated_msr)(int index);
 	void (*cpuid_update)(struct kvm_vcpu *vcpu);
 
+	void (*cr3_write_exiting)(struct kvm_vcpu *vcpu, bool enable);
 	bool (*nested_pagefault)(struct kvm_vcpu *vcpu);
 	bool (*spt_fault)(struct kvm_vcpu *vcpu);
 
@@ -1622,5 +1623,6 @@ static inline int kvm_cpu_get_apicid(int mps_cpu)
 
 bool kvm_mmu_nested_pagefault(struct kvm_vcpu *vcpu);
 bool kvm_spt_fault(struct kvm_vcpu *vcpu);
+void kvm_control_cr3_write_exiting(struct kvm_vcpu *vcpu, bool enable);
 
 #endif /* _ASM_X86_KVM_HOST_H */

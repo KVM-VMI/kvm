@@ -26,6 +26,8 @@
 
 #define IVCPU(vcpu) ((struct kvmi_vcpu *)((vcpu)->kvmi))
 
+#define KVMI_NUM_CR 9
+
 #define KVMI_CTX_DATA_SIZE FIELD_SIZEOF(struct kvmi_event_pf_reply, ctx_data)
 
 #define KVMI_MSG_SIZE_ALLOC (sizeof(struct kvmi_msg_hdr) + KVMI_MSG_SIZE)
@@ -117,6 +119,7 @@ struct kvmi_vcpu {
 	struct kvm_regs delayed_regs;
 
 	DECLARE_BITMAP(ev_mask, KVMI_NUM_EVENTS);
+	DECLARE_BITMAP(cr_mask, KVMI_NUM_CR);
 
 	struct list_head job_list;
 	spinlock_t job_lock;
@@ -204,6 +207,8 @@ int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 			       bool enable);
 int kvmi_cmd_pause_vcpu(struct kvm_vcpu *vcpu, bool wait);
+struct kvmi * __must_check kvmi_get(struct kvm *kvm);
+void kvmi_put(struct kvm *kvm);
 int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu);
 void kvmi_post_reply(struct kvm_vcpu *vcpu);
 int kvmi_add_job(struct kvm_vcpu *vcpu,
@@ -251,5 +256,7 @@ int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,
 int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 				   bool error_code_valid, u32 error_code,
 				   u64 address);
+int kvmi_arch_cmd_control_cr(struct kvm_vcpu *vcpu,
+			     const struct kvmi_control_cr *req);
 
 #endif

@@ -7784,6 +7784,19 @@ static __exit void hardware_unsetup(void)
 	free_kvm_area();
 }
 
+static void vmx_cr3_write_exiting(struct kvm_vcpu *vcpu,
+					 bool enable)
+{
+	if (enable)
+		vmcs_set_bits(CPU_BASED_VM_EXEC_CONTROL,
+				CPU_BASED_CR3_LOAD_EXITING);
+	else
+		vmcs_clear_bits(CPU_BASED_VM_EXEC_CONTROL,
+				CPU_BASED_CR3_LOAD_EXITING);
+
+	/* TODO: nested ? vmcs12->cpu_based_vm_exec_control */
+}
+
 static bool vmx_nested_pagefault(struct kvm_vcpu *vcpu)
 {
 	if (vcpu->arch.exit_qualification & EPT_VIOLATION_GVA_TRANSLATED)
@@ -7831,6 +7844,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_accelerated_tpr = report_flexpriority,
 	.has_emulated_msr = vmx_has_emulated_msr,
 
+	.cr3_write_exiting = vmx_cr3_write_exiting,
 	.nested_pagefault = vmx_nested_pagefault,
 	.spt_fault = vmx_spt_fault,
 
