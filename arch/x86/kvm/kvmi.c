@@ -5,6 +5,7 @@
  * Copyright (C) 2019 Bitdefender S.R.L.
  */
 #include "x86.h"
+#include "cpuid.h"
 #include "../../../virt/kvm/kvmi_int.h"
 
 static void *alloc_get_registers_reply(const struct kvmi_msg_hdr *msg,
@@ -209,6 +210,24 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	}
 
 	return ret;
+}
+
+int kvmi_arch_cmd_get_cpuid(struct kvm_vcpu *vcpu,
+			    const struct kvmi_get_cpuid *req,
+			    struct kvmi_get_cpuid_reply *rpl)
+{
+	struct kvm_cpuid_entry2 *e;
+
+	e = kvm_find_cpuid_entry(vcpu, req->function, req->index);
+	if (!e)
+		return -KVM_ENOENT;
+
+	rpl->eax = e->eax;
+	rpl->ebx = e->ebx;
+	rpl->ecx = e->ecx;
+	rpl->edx = e->edx;
+
+	return 0;
 }
 
 int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,

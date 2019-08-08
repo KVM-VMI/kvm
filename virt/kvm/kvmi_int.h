@@ -230,6 +230,9 @@ int kvmi_arch_cmd_set_page_write_bitmap(struct kvmi *ikvm,
 void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev);
 bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			u8 access);
+int kvmi_arch_cmd_get_cpuid(struct kvm_vcpu *vcpu,
+			    const struct kvmi_get_cpuid *req,
+			    struct kvmi_get_cpuid_reply *rpl);
 int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,
 				struct kvmi_get_vcpu_info_reply *rpl);
 
