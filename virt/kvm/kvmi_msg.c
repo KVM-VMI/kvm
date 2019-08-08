@@ -38,6 +38,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_GET_REGISTERS]         = "KVMI_GET_REGISTERS",
 	[KVMI_GET_VCPU_INFO]         = "KVMI_GET_VCPU_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
+	[KVMI_GET_XSAVE]             = "KVMI_GET_XSAVE",
 	[KVMI_INJECT_EXCEPTION]      = "KVMI_INJECT_EXCEPTION",
 	[KVMI_PAUSE_VCPU]            = "KVMI_PAUSE_VCPU",
 	[KVMI_READ_PHYSICAL]         = "KVMI_READ_PHYSICAL",
@@ -700,6 +701,21 @@ static int handle_get_cpuid(struct kvm_vcpu *vcpu,
 	return reply_cb(vcpu, msg, ec, &rpl, sizeof(rpl));
 }
 
+static int handle_get_xsave(struct kvm_vcpu *vcpu,
+			    const struct kvmi_msg_hdr *msg, const void *req,
+			    vcpu_reply_fct reply_cb)
+{
+	struct kvmi_get_xsave_reply *rpl = NULL;
+	size_t rpl_size = 0;
+	int err, ec;
+
+	ec = kvmi_arch_cmd_get_xsave(vcpu, &rpl, &rpl_size);
+
+	err = reply_cb(vcpu, msg, ec, rpl, rpl_size);
+	kvmi_msg_free(rpl);
+	return err;
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd'
@@ -716,6 +732,7 @@ static int(*const msg_vcpu[])(struct kvm_vcpu *,
 	[KVMI_GET_CPUID]        = handle_get_cpuid,
 	[KVMI_GET_REGISTERS]    = handle_get_registers,
 	[KVMI_GET_VCPU_INFO]    = handle_get_vcpu_info,
+	[KVMI_GET_XSAVE]        = handle_get_xsave,
 	[KVMI_INJECT_EXCEPTION] = handle_inject_exception,
 	[KVMI_SET_REGISTERS]    = handle_set_registers,
 };

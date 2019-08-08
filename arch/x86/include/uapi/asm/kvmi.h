@@ -97,4 +97,8 @@ struct kvmi_event_msr_reply {
 	__u64 new_val;
 };
 
+struct kvmi_get_xsave_reply {
+	__u32 region[0];
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

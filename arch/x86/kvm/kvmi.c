@@ -790,3 +790,24 @@ int kvmi_arch_cmd_control_spp(struct kvmi *ikvm)
 {
 	return kvm_arch_init_spp(ikvm->kvm);
 }
+
+int kvmi_arch_cmd_get_xsave(struct kvm_vcpu *vcpu,
+			    struct kvmi_get_xsave_reply **dest,
+			    size_t *dest_size)
+{
+	struct kvmi_get_xsave_reply *rpl = NULL;
+	size_t rpl_size = sizeof(*rpl) + sizeof(struct kvm_xsave);
+	struct kvm_xsave *area;
+
+	rpl = kvmi_msg_alloc_check(rpl_size);
+	if (!rpl)
+		return -KVM_ENOMEM;
+
+	area = (struct kvm_xsave *) &rpl->region[0];
+	kvm_vcpu_ioctl_x86_get_xsave(vcpu, area);
+
+	*dest = rpl;
+	*dest_size = rpl_size;
+
+	return 0;
+}

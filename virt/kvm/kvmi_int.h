@@ -255,6 +255,9 @@ void kvmi_arch_trap_event(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_get_cpuid(struct kvm_vcpu *vcpu,
 			    const struct kvmi_get_cpuid *req,
 			    struct kvmi_get_cpuid_reply *rpl);
+int kvmi_arch_cmd_get_xsave(struct kvm_vcpu *vcpu,
+			    struct kvmi_get_xsave_reply **dest,
+			    size_t *dest_size);
 int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,
 				struct kvmi_get_vcpu_info_reply *rpl);
 int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
