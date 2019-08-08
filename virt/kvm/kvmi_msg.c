@@ -9,6 +9,7 @@
 #include "kvmi_int.h"
 
 static const char *const msg_IDs[] = {
+	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
 };
 
 static bool is_known_message(u16 id)
@@ -129,6 +130,17 @@ static int kvmi_msg_vm_reply(struct kvmi *ikvm,
 	return kvmi_msg_reply(ikvm, msg, err, rpl, rpl_size);
 }
 
+static int handle_get_version(struct kvmi *ikvm,
+			      const struct kvmi_msg_hdr *msg, const void *req)
+{
+	struct kvmi_get_version_reply rpl;
+
+	memset(&rpl, 0, sizeof(rpl));
+	rpl.version = KVMI_VERSION;
+
+	return kvmi_msg_vm_reply(ikvm, msg, 0, &rpl, sizeof(rpl));
+}
+
 static bool is_command_allowed(struct kvmi *ikvm, int id)
 {
 	return test_bit(id, ikvm->cmd_allow_mask);
@@ -139,6 +151,7 @@ static bool is_command_allowed(struct kvmi *ikvm, int id)
  */
 static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 			    const void *) = {
+	[KVMI_GET_VERSION]           = handle_get_version,
 };
 
 static bool is_vm_message(u16 id)

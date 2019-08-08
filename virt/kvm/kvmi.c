@@ -68,6 +68,8 @@ static bool alloc_kvmi(struct kvm *kvm, const struct kvm_introspection *qemu)
 	if (!ikvm)
 		return false;
 
+	set_bit(KVMI_GET_VERSION, ikvm->cmd_allow_mask);
+
 	memcpy(&ikvm->uuid, &qemu->uuid, sizeof(ikvm->uuid));
 
 	ikvm->kvm = kvm;
@@ -289,6 +291,18 @@ int kvmi_ioctl_command(struct kvm *kvm, void __user *argp)
 
 	bitmap_from_u64(known, KVMI_KNOWN_COMMANDS);
 	bitmap_and(requested, requested, known, KVMI_NUM_COMMANDS);
+
+	if (!allow) {
+		DECLARE_BITMAP(always_allowed, KVMI_NUM_COMMANDS);
+
+		if (id == KVMI_GET_VERSION)
+			return -EPERM;
+
+		set_bit(KVMI_GET_VERSION, always_allowed);
+
+		bitmap_andnot(requested, requested, always_allowed,
+			      KVMI_NUM_COMMANDS);
+	}
 
 	return kvmi_ioctl_feature(kvm, allow, requested,
 				  offsetof(struct kvmi, cmd_allow_mask),
