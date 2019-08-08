@@ -23,6 +23,8 @@
 #define kvmi_err(ikvm, fmt, ...) \
 	kvm_info("%pU ERROR: " fmt, &ikvm->uuid, ## __VA_ARGS__)
 
+#define KVMI_MSG_SIZE_ALLOC (sizeof(struct kvmi_msg_hdr) + KVMI_MSG_SIZE)
+
 #define KVMI_KNOWN_VCPU_EVENTS ( \
 		BIT(KVMI_EVENT_CR) | \
 		BIT(KVMI_EVENT_MSR) | \
@@ -90,5 +92,10 @@ bool kvmi_sock_get(struct kvmi *ikvm, int fd);
 void kvmi_sock_shutdown(struct kvmi *ikvm);
 void kvmi_sock_put(struct kvmi *ikvm);
 bool kvmi_msg_process(struct kvmi *ikvm);
+
+/* kvmi.c */
+void *kvmi_msg_alloc(void);
+void *kvmi_msg_alloc_check(size_t size);
+void kvmi_msg_free(void *addr);
 
 #endif
