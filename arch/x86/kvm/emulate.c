@@ -2365,7 +2365,47 @@ static int em_call_near_abs(struct x86_emulate_ctxt *ctxt)
 
 static int em_cmpxchg8b(struct x86_emulate_ctxt *ctxt)
 {
-	u64 old = ctxt->dst.orig_val64;
+	u64 old;
+
+	if (ctxt->lock_prefix) {
+		int rc;
+		ulong linear;
+		u64 new = (reg_read(ctxt, VCPU_REGS_RBX) & (u32)-1) |
+			((reg_read(ctxt, VCPU_REGS_RCX) & (u32)-1) << 32);
+
+		old = (reg_read(ctxt, VCPU_REGS_RAX) & (u32)-1) |
+			((reg_read(ctxt, VCPU_REGS_RDX) & (u32)-1) << 32);
+
+		/* disable writeback altogether */
+		ctxt->d &= ~SrcWrite;
+		ctxt->d |= NoWrite;
+
+		rc = linearize(ctxt, ctxt->dst.addr.mem, 8, true, &linear);
+		if (rc != X86EMUL_CONTINUE)
+			return rc;
+
+		rc = ctxt->ops->cmpxchg_emulated(ctxt, linear, &old, &new,
+						 ctxt->dst.bytes,
+						 &ctxt->exception);
+
+		switch (rc) {
+		case X86EMUL_CONTINUE:
+			ctxt->eflags |= X86_EFLAGS_ZF;
+			break;
+		case X86EMUL_CMPXCHG_FAILED:
+			*reg_write(ctxt, VCPU_REGS_RAX) = old & (u32)-1;
+			*reg_write(ctxt, VCPU_REGS_RDX) = (old >> 32) & (u32)-1;
+
+			ctxt->eflags &= ~X86_EFLAGS_ZF;
+
+			rc = X86EMUL_CONTINUE;
+			break;
+		}
+
+		return rc;
+	}
+
+	old = ctxt->dst.orig_val64;
 
 	if (ctxt->dst.bytes == 16)
 		return X86EMUL_UNHANDLEABLE;
