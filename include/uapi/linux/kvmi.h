@@ -70,6 +70,10 @@ enum {
 #define KVMI_EVENT_ACTION_RETRY         1
 #define KVMI_EVENT_ACTION_CRASH         2
 
+#define KVMI_PAGE_ACCESS_R (1 << 0)
+#define KVMI_PAGE_ACCESS_W (1 << 1)
+#define KVMI_PAGE_ACCESS_X (1 << 2)
+
 #define KVMI_MSG_SIZE (4096 - sizeof(struct kvmi_msg_hdr))
 
 struct kvmi_msg_hdr {

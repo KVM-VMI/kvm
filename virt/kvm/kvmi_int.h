@@ -6,6 +6,7 @@
 #include <linux/kvm_host.h>
 
 #include <uapi/linux/kvmi.h>
+#include <asm/kvmi_host.h>
 
 #define kvmi_debug(ikvm, fmt, ...) \
 	kvm_debug("%pU " fmt, &ikvm->uuid, ## __VA_ARGS__)
@@ -104,6 +105,10 @@ struct kvmi_vcpu {
 
 struct kvmi {
 	struct kvm *kvm;
+	struct kvm_page_track_notifier_node kptn_node;
+
+	struct radix_tree_root access_tree;
+	rwlock_t access_tree_lock;
 
 	struct socket *sock;
 	struct task_struct *recv;
@@ -117,6 +122,17 @@ struct kvmi {
 
 	bool cmd_reply_disabled;
 };
+
+struct kvmi_mem_access {
+	gfn_t gfn;
+	u8 access;
+	struct kvmi_arch_mem_access arch;
+};
+
+static inline bool is_event_enabled(struct kvm_vcpu *vcpu, int event)
+{
+	return false; /* TODO */
+}
 
 /* kvmi_msg.c */
 bool kvmi_sock_get(struct kvmi *ikvm, int fd);
@@ -138,7 +154,12 @@ int kvmi_add_job(struct kvm_vcpu *vcpu,
 		 void *ctx, void (*free_fct)(void *ctx));
 
 /* arch */
+void kvmi_arch_update_page_tracking(struct kvm *kvm,
+				    struct kvm_memory_slot *slot,
+				    struct kvmi_mem_access *m);
 void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev);
+bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+			u8 access);
 int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,
 				struct kvmi_get_vcpu_info_reply *rpl);
 

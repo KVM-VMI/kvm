@@ -11,10 +11,27 @@
 #include <linux/bitmap.h>
 
 static struct kmem_cache *msg_cache;
+static struct kmem_cache *radix_cache;
 static struct kmem_cache *job_cache;
 
 static bool kvmi_create_vcpu_event(struct kvm_vcpu *vcpu);
 static void kvmi_abort_events(struct kvm *kvm);
+static bool kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	u8 *new, int bytes, struct kvm_page_track_notifier_node *node,
+	bool *data_ready);
+static bool kvmi_track_prewrite(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	const u8 *new, int bytes, struct kvm_page_track_notifier_node *node);
+static bool kvmi_track_preexec(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	struct kvm_page_track_notifier_node *node);
+static void kvmi_track_create_slot(struct kvm *kvm,
+	struct kvm_memory_slot *slot, unsigned long npages,
+	struct kvm_page_track_notifier_node *node);
+static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
+	struct kvm_page_track_notifier_node *node);
+
+static const u8 full_access  =	KVMI_PAGE_ACCESS_R |
+				KVMI_PAGE_ACCESS_W |
+				KVMI_PAGE_ACCESS_X;
 
 void *kvmi_msg_alloc(void)
 {
@@ -34,23 +51,96 @@ void kvmi_msg_free(void *addr)
 		kmem_cache_free(msg_cache, addr);
 }
 
+static struct kvmi_mem_access *__kvmi_get_gfn_access(struct kvmi *ikvm,
+						     const gfn_t gfn)
+{
+	return radix_tree_lookup(&ikvm->access_tree, gfn);
+}
+
+static int kvmi_get_gfn_access(struct kvmi *ikvm, const gfn_t gfn,
+			       u8 *access)
+{
+	struct kvmi_mem_access *m;
+
+	*access = full_access;
+
+	read_lock(&ikvm->access_tree_lock);
+	m = __kvmi_get_gfn_access(ikvm, gfn);
+	if (m)
+		*access = m->access;
+	read_unlock(&ikvm->access_tree_lock);
+
+	return m ? 0 : -1;
+}
+
+static bool kvmi_restricted_access(struct kvmi *ikvm, gpa_t gpa, u8 access)
+{
+	u8 allowed_access;
+	int err;
+
+	err = kvmi_get_gfn_access(ikvm, gpa_to_gfn(gpa), &allowed_access);
+
+	if (err)
+		return false;
+
+	/*
+	 * We want to be notified only for violations involving access
+	 * bits that we've specifically cleared
+	 */
+	if ((~allowed_access) & access)
+		return true;
+
+	return false;
+}
+
+static void kvmi_clear_mem_access(struct kvm *kvm)
+{
+	void **slot;
+	struct radix_tree_iter iter;
+	struct kvmi *ikvm = IKVM(kvm);
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+	write_lock(&ikvm->access_tree_lock);
+
+	radix_tree_for_each_slot(slot, &ikvm->access_tree, &iter, 0) {
+		struct kvmi_mem_access *m = *slot;
+
+		m->access = full_access;
+		kvmi_arch_update_page_tracking(kvm, NULL, m);
+
+		radix_tree_iter_delete(&ikvm->access_tree, &iter, slot);
+		kmem_cache_free(radix_cache, m);
+	}
+
+	write_unlock(&ikvm->access_tree_lock);
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+}
+
 static void kvmi_cache_destroy(void)
 {
 	kmem_cache_destroy(msg_cache);
 	msg_cache = NULL;
+	kmem_cache_destroy(radix_cache);
+	radix_cache = NULL;
 	kmem_cache_destroy(job_cache);
 	job_cache = NULL;
 }
 
 static int kvmi_cache_create(void)
 {
+	radix_cache = kmem_cache_create("kvmi_radix_tree",
+					sizeof(struct kvmi_mem_access),
+					0, SLAB_ACCOUNT, NULL);
 	job_cache = kmem_cache_create("kvmi_job",
 				      sizeof(struct kvmi_job),
 				      0, SLAB_ACCOUNT, NULL);
 	msg_cache = kmem_cache_create("kvmi_msg", KVMI_MSG_SIZE_ALLOC,
 				      4096, SLAB_ACCOUNT, NULL);
 
-	if (!msg_cache || !job_cache) {
+	if (!msg_cache || !radix_cache || !job_cache) {
 		kvmi_cache_destroy();
 
 		return -1;
@@ -77,6 +167,10 @@ static bool alloc_kvmi(struct kvm *kvm, const struct kvm_introspection *qemu)
 	if (!ikvm)
 		return false;
 
+	/* see comments of radix_tree_preload() - no direct reclaim */
+	INIT_RADIX_TREE(&ikvm->access_tree, GFP_KERNEL & ~__GFP_DIRECT_RECLAIM);
+	rwlock_init(&ikvm->access_tree_lock);
+
 	atomic_set(&ikvm->ev_seq, 0);
 
 	set_bit(KVMI_GET_VERSION, ikvm->cmd_allow_mask);
@@ -84,6 +178,12 @@ static bool alloc_kvmi(struct kvm *kvm, const struct kvm_introspection *qemu)
 	set_bit(KVMI_CHECK_EVENT, ikvm->cmd_allow_mask);
 
 	memcpy(&ikvm->uuid, &qemu->uuid, sizeof(ikvm->uuid));
+
+	ikvm->kptn_node.track_preread = kvmi_track_preread;
+	ikvm->kptn_node.track_prewrite = kvmi_track_prewrite;
+	ikvm->kptn_node.track_preexec = kvmi_track_preexec;
+	ikvm->kptn_node.track_create_slot = kvmi_track_create_slot;
+	ikvm->kptn_node.track_flush_slot = kvmi_track_flush_slot;
 
 	ikvm->kvm = kvm;
 	kvm->kvmi = ikvm;
@@ -276,6 +376,179 @@ void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu)
 	vcpu->kvmi = NULL;
 }
 
+static bool is_pf_of_interest(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
+{
+	struct kvm *kvm = vcpu->kvm;
+
+	if (kvm_mmu_nested_pagefault(vcpu))
+		return false;
+
+	/* Have we shown interest in this page? */
+	return kvmi_restricted_access(IKVM(kvm), gpa, access);
+}
+
+static bool __kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	u8 *new, int bytes, struct kvm_page_track_notifier_node *node,
+	bool *data_ready)
+{
+	bool ret;
+
+	if (!is_pf_of_interest(vcpu, gpa, KVMI_PAGE_ACCESS_R))
+		return true;
+
+	ret = kvmi_arch_pf_event(vcpu, gpa, gva, KVMI_PAGE_ACCESS_R);
+
+	return ret;
+}
+
+static bool kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	u8 *new, int bytes, struct kvm_page_track_notifier_node *node,
+	bool *data_ready)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_PF))
+		ret = __kvmi_track_preread(vcpu, gpa, gva, new, bytes, node,
+					   data_ready);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
+static bool __kvmi_track_prewrite(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	const u8 *new, int bytes,
+	struct kvm_page_track_notifier_node *node)
+{
+	if (!is_pf_of_interest(vcpu, gpa, KVMI_PAGE_ACCESS_W))
+		return true;
+
+	return kvmi_arch_pf_event(vcpu, gpa, gva, KVMI_PAGE_ACCESS_W);
+}
+
+static bool kvmi_track_prewrite(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	const u8 *new, int bytes,
+	struct kvm_page_track_notifier_node *node)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_PF))
+		ret = __kvmi_track_prewrite(vcpu, gpa, gva, new, bytes, node);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
+static bool __kvmi_track_preexec(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	struct kvm_page_track_notifier_node *node)
+{
+	if (!is_pf_of_interest(vcpu, gpa, KVMI_PAGE_ACCESS_X))
+		return true;
+
+	return kvmi_arch_pf_event(vcpu, gpa, gva, KVMI_PAGE_ACCESS_X);
+}
+
+static bool kvmi_track_preexec(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+	struct kvm_page_track_notifier_node *node)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_PF))
+		ret = __kvmi_track_preexec(vcpu, gpa, gva, node);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
+static void kvmi_track_create_slot(struct kvm *kvm,
+	struct kvm_memory_slot *slot,
+	unsigned long npages,
+	struct kvm_page_track_notifier_node *node)
+{
+	struct kvmi *ikvm;
+	gfn_t start = slot->base_gfn;
+	const gfn_t end = start + npages;
+	int idx;
+
+	ikvm = kvmi_get(kvm);
+	if (!ikvm)
+		return;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+	read_lock(&ikvm->access_tree_lock);
+
+	while (start < end) {
+		struct kvmi_mem_access *m;
+
+		m = __kvmi_get_gfn_access(ikvm, start);
+		if (m)
+			kvmi_arch_update_page_tracking(kvm, slot, m);
+		start++;
+	}
+
+	read_unlock(&ikvm->access_tree_lock);
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	kvmi_put(kvm);
+}
+
+static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
+	struct kvm_page_track_notifier_node *node)
+{
+	struct kvmi *ikvm;
+	gfn_t start = slot->base_gfn;
+	const gfn_t end = start + slot->npages;
+	int idx;
+
+	ikvm = kvmi_get(kvm);
+	if (!ikvm)
+		return;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+	write_lock(&ikvm->access_tree_lock);
+
+	while (start < end) {
+		struct kvmi_mem_access *m;
+
+		m = __kvmi_get_gfn_access(ikvm, start);
+		if (m) {
+			u8 prev_access = m->access;
+
+			m->access = full_access;
+			kvmi_arch_update_page_tracking(kvm, slot, m);
+			m->access = prev_access;
+		}
+
+		start++;
+	}
+
+	write_unlock(&ikvm->access_tree_lock);
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	kvmi_put(kvm);
+}
+
 static void kvmi_end_introspection(struct kvmi *ikvm)
 {
 	struct kvm *kvm = ikvm->kvm;
@@ -289,6 +562,22 @@ static void kvmi_end_introspection(struct kvmi *ikvm)
 	 * fail because the socket is shut down. Waiting will not be possible.
 	 */
 	kvmi_abort_events(kvm);
+
+	/*
+	 * This may sleep on synchronize_srcu() so it's not allowed to be
+	 * called under kvmi_put().
+	 * Also synchronize_srcu() may deadlock on (page tracking) read-side
+	 * regions that are waiting for reply to events, so must be called
+	 * after kvmi_abort_events().
+	 */
+	kvm_page_track_unregister_notifier(kvm, &ikvm->kptn_node);
+
+	/*
+	 * This function uses kvm->mmu_lock so it's not allowed to be
+	 * called under kvmi_put(). It can reach a deadlock if called
+	 * from kvm_mmu_load -> kvmi_tracked_gfn -> kvmi_put.
+	 */
+	kvmi_clear_mem_access(kvm);
 
 	/*
 	 * At this moment the socket is shut down, no more commands will come
@@ -350,6 +639,8 @@ int kvmi_hook(struct kvm *kvm, const struct kvm_introspection *qemu)
 		err = -EINVAL;
 		goto err_alloc;
 	}
+
+	kvm_page_track_register_notifier(kvm, &ikvm->kptn_node);
 
 	/*
 	 * Make sure all the KVM/KVMI structures are linked and no pointer
