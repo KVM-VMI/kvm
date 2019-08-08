@@ -118,6 +118,7 @@ struct kvmi_vcpu {
 	bool have_delayed_regs;
 	struct kvm_regs delayed_regs;
 
+	bool bp_intercepted;
 	DECLARE_BITMAP(ev_mask, KVMI_NUM_EVENTS);
 	DECLARE_BITMAP(cr_mask, KVMI_NUM_CR);
 	struct {
@@ -183,6 +184,7 @@ bool kvmi_msg_process(struct kvmi *ikvm);
 int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
 		    void *ev, size_t ev_size,
 		    void *rpl, size_t rpl_size, int *action);
+u32 kvmi_msg_send_bp(struct kvm_vcpu *vcpu, u64 gpa, u8 insn_len);
 u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
 		     bool *singlestep, bool *rep_complete,
 		     u64 *ctx_addr, u8 *ctx, u32 *ctx_size);
@@ -252,6 +254,7 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			u8 access);
 bool kvmi_arch_queue_exception(struct kvm_vcpu *vcpu);
 void kvmi_arch_trap_event(struct kvm_vcpu *vcpu);
+void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len);
 int kvmi_arch_cmd_get_cpuid(struct kvm_vcpu *vcpu,
 			    const struct kvmi_get_cpuid *req,
 			    struct kvmi_get_cpuid_reply *rpl);

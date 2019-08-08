@@ -219,6 +219,48 @@ static void kvmi_clear_mem_access(struct kvm *kvm)
 	srcu_read_unlock(&kvm->srcu, idx);
 }
 
+static int kvmi_control_event_breakpoint(struct kvm_vcpu *vcpu, bool enable)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvm_guest_debug dbg = {};
+	int err = 0;
+
+	if (enable) {
+		if (!is_event_enabled(vcpu, KVMI_EVENT_BREAKPOINT)) {
+			dbg.control = KVM_GUESTDBG_ENABLE |
+				      KVM_GUESTDBG_USE_SW_BP;
+			ivcpu->bp_intercepted = true;
+			err = kvm_arch_vcpu_set_guest_debug(vcpu, &dbg);
+		}
+	} else if (is_event_enabled(vcpu, KVMI_EVENT_BREAKPOINT)) {
+		ivcpu->bp_intercepted = false;
+		err = kvm_arch_vcpu_set_guest_debug(vcpu, &dbg);
+	}
+
+	return err;
+}
+
+bool kvmi_bp_intercepted(struct kvm_vcpu *vcpu, u32 dbg)
+{
+	struct kvmi *ikvm;
+	bool ret = false;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return false;
+
+	if (IVCPU(vcpu)->bp_intercepted &&
+		!(dbg & (KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP))) {
+		kvmi_warn_once(ikvm, "Trying to disable SW BP interception\n");
+		ret = true;
+	}
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_bp_intercepted);
+
 static void kvmi_cache_destroy(void)
 {
 	kmem_cache_destroy(msg_cache);
@@ -1058,6 +1100,26 @@ void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL(kvmi_activate_rep_complete);
 
+bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
+{
+	struct kvmi *ikvm;
+	bool ret = false;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_BREAKPOINT))
+		kvmi_arch_breakpoint_event(vcpu, gva, insn_len);
+	else
+		ret = true;
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_breakpoint_event);
+
 /*
  * This function returns false if there is an exception or interrupt pending.
  * It returns true in all other cases including KVMI not being initialized.
@@ -1438,13 +1500,25 @@ int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 			    bool enable)
 {
 	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	int err;
 
-	if (enable)
-		set_bit(event_id, ivcpu->ev_mask);
-	else
-		clear_bit(event_id, ivcpu->ev_mask);
+	switch (event_id) {
+	case KVMI_EVENT_BREAKPOINT:
+		err = kvmi_control_event_breakpoint(vcpu, enable);
+		break;
+	default:
+		err = 0;
+		break;
+	}
 
-	return 0;
+	if (!err) {
+		if (enable)
+			set_bit(event_id, ivcpu->ev_mask);
+		else
+			clear_bit(event_id, ivcpu->ev_mask);
+	}
+
+	return err;
 }
 
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,

@@ -1330,4 +1330,6 @@ static inline int kvm_arch_vcpu_run_pid_change(struct kvm_vcpu *vcpu)
 }
 #endif /* CONFIG_HAVE_KVM_VCPU_RUN_PID_CHANGE */
 
+void kvm_arch_queue_bp(struct kvm_vcpu *vcpu);
+
 #endif

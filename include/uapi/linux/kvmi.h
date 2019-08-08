@@ -256,4 +256,10 @@ struct kvmi_event_pf_reply {
 	__u8 ctx_data[256];
 };
 
+struct kvmi_event_breakpoint {
+	__u64 gpa;
+	__u8 insn_len;
+	__u8 padding[7];
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */

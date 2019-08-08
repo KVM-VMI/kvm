@@ -1469,3 +1469,39 @@ to be changed and the introspection has been enabled for this event
 (see *KVMI_CONTROL_EVENTS*).
 
 ``kvmi_event`` is sent to the introspector.
+
+9. KVMI_EVENT_BREAKPOINT
+------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH, RETRY
+:Parameters:
+
+::
+
+	struct kvmi_event;
+	struct kvmi_event_breakpoint {
+		__u64 gpa;
+		__u8 insn_len;
+		__u8 padding[7];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent when a breakpoint was reached and the introspection has
+been enabled for this event (see *KVMI_CONTROL_EVENTS*).
+
+Some of these breakpoints could have been injected by the introspector,
+placed in the slack space of various functions and used as notification
+for when the OS or an application has reached a certain state or is
+trying to perform a certain operation (like creating a process).
+
+``kvmi_event`` and the guest physical address are sent to the introspector.
+
+The *RETRY* action is used by the introspector for its own breakpoints.

@@ -8763,6 +8763,13 @@ int kvm_arch_vcpu_set_guest_debug(struct kvm_vcpu *vcpu,
 			kvm_queue_exception(vcpu, BP_VECTOR);
 	}
 
+#ifdef CONFIG_KVM_INTROSPECTION
+	if (kvmi_bp_intercepted(vcpu, dbg->control)) {
+		r = -EBUSY;
+		goto out;
+	}
+#endif
+
 	/*
 	 * Read rflags as long as potentially injected trace flags are still
 	 * filtered out.
@@ -10105,6 +10112,11 @@ void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 	kvm_x86_ops->msr_intercept(vcpu, msr, enable);
 }
 EXPORT_SYMBOL_GPL(kvm_arch_msr_intercept);
+
+void kvm_arch_queue_bp(struct kvm_vcpu *vcpu)
+{
+	kvm_queue_exception(vcpu, BP_VECTOR);
+}
 
 void kvm_control_cr3_write_exiting(struct kvm_vcpu *vcpu, bool enable)
 {

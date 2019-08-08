@@ -18,6 +18,7 @@
 #define pr_fmt(fmt) "SVM: " fmt
 
 #include <linux/kvm_host.h>
+#include <linux/kvmi.h>
 #include <asm/kvmi_host.h>
 
 #include "irq.h"
@@ -2721,6 +2722,11 @@ static int db_interception(struct vcpu_svm *svm)
 static int bp_interception(struct vcpu_svm *svm)
 {
 	struct kvm_run *kvm_run = svm->vcpu.run;
+
+	if (!kvmi_breakpoint_event(&svm->vcpu,
+		svm->vmcb->save.cs.base + svm->vmcb->save.rip,
+		svm->vmcb->control.insn_len))
+		return 1;
 
 	kvm_run->exit_reason = KVM_EXIT_DEBUG;
 	kvm_run->debug.arch.pc = svm->vmcb->save.cs.base + svm->vmcb->save.rip;
