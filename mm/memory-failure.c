@@ -9,16 +9,16 @@
  * High level machine check handler. Handles pages reported by the
  * hardware as being corrupted usually due to a multi-bit ECC memory or cache
  * failure.
- * 
+ *
  * In addition there is a "soft offline" entry point that allows stop using
  * not-yet-corrupted-by-suspicious pages without killing anything.
  *
  * Handles page cache pages in various states.	The tricky part
- * here is that we can access any page asynchronously in respect to 
- * other VM users, because memory failures could happen anytime and 
- * anywhere. This could violate some of their assumptions. This is why 
- * this code has to be extremely careful. Generally it tries to use 
- * normal locking rules, as in get the standard locks, even if that means 
+ * here is that we can access any page asynchronously in respect to
+ * other VM users, because memory failures could happen anytime and
+ * anywhere. This could violate some of their assumptions. This is why
+ * this code has to be extremely careful. Generally it tries to use
+ * normal locking rules, as in get the standard locks, even if that means
  * the error handling takes potentially a long time.
  *
  * It can be very tempting to add handling for obscure cases here.
@@ -28,12 +28,12 @@
  *   https://git.kernel.org/cgit/utils/cpu/mce/mce-test.git/
  * - The case actually shows up as a frequent (top 10) page state in
  *   tools/vm/page-types when running a real workload.
- * 
+ *
  * There are several operations here with exponential complexity because
- * of unsuitable VM data structures. For example the operation to map back 
- * from RMAP chains to processes has to walk the complete process list and 
+ * of unsuitable VM data structures. For example the operation to map back
+ * from RMAP chains to processes has to walk the complete process list and
  * has non linear complexity with the number. But since memory corruptions
- * are rare we hope to get away with this. This avoids impacting the core 
+ * are rare we hope to get away with this. This avoids impacting the core
  * VM.
  */
 #include <linux/kernel.h>
@@ -59,6 +59,7 @@
 #include <linux/kfifo.h>
 #include <linux/ratelimit.h>
 #include <linux/page-isolation.h>
+#include <linux/remote_mapping.h>
 #include "internal.h"
 #include "ras/ras_event.h"
 
@@ -468,6 +469,45 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 }
 
 /*
+ * Collect processes when the error hit a remote mapped page.
+ */
+static void collect_procs_remote(struct page *page, struct list_head *to_kill,
+				struct to_kill **tkc, int force_early)
+{
+	struct page_db *pdb;
+	struct vm_area_struct *vma;
+	struct task_struct *tsk;
+	struct anon_vma *av;
+	pgoff_t pgoff;
+
+	pdb = RemoteMapping(page);
+	av = pdb->req_anon_vma;
+	if (av == NULL)			/* Target has left */
+		return;
+
+	pgoff = page_to_pgoff(page);	/* Offset in target */
+	anon_vma_lock_read(av);
+	read_lock(&tasklist_lock);
+	for_each_process(tsk) {
+		struct anon_vma_chain *vmac;
+		struct task_struct *t = task_early_kill(tsk, force_early);
+
+		if (!t)
+			continue;
+		anon_vma_interval_tree_foreach(vmac, &av->rb_root,
+			pgoff, pgoff) {
+			vma = vmac->vma;
+			if (!page_mapped_in_vma(page, vma))
+				continue;
+			if (vma->vm_mm == t->mm)
+				add_to_kill(t, page, vma, to_kill, tkc);
+		}
+	}
+	read_unlock(&tasklist_lock);
+	anon_vma_unlock_read(av);
+}
+
+/*
  * Collect processes when the error hit a file mapped page.
  */
 static void collect_procs_file(struct page *page, struct list_head *to_kill,
@@ -519,9 +559,12 @@ static void collect_procs(struct page *page, struct list_head *tokill,
 	tk = kmalloc(sizeof(struct to_kill), GFP_NOIO);
 	if (!tk)
 		return;
-	if (PageAnon(page))
-		collect_procs_anon(page, tokill, &tk, force_early);
-	else
+	if (PageAnon(page)) {
+		if (PageRemote(page))
+			collect_procs_remote(page, tokill, &tk, force_early);
+		else
+			collect_procs_anon(page, tokill, &tk, force_early);
+	} else
 		collect_procs_file(page, tokill, &tk, force_early);
 	kfree(tk);
 }
