@@ -1248,6 +1248,11 @@ static u8 simd_prefix_to_bytes(const struct x86_emulate_ctxt *ctxt,
 		if (simd_prefix == 0x66)
 			bytes = 8;
 		break;
+	case 0x7e:
+		/* movd xmm, m32 */
+		if (simd_prefix == 0x66)
+			bytes = 4;
+		break;
 	default:
 		break;
 	}
@@ -4651,6 +4656,10 @@ static const struct gprefix pfx_0f_d6 = {
 	N, I(0, em_mov), N, N,
 };
 
+static const struct gprefix pfx_0f_7e = {
+	N, I(0, em_mov), N, N,
+};
+
 static const struct gprefix pfx_0f_2b = {
 	ID(0, &instr_dual_0f_2b), ID(0, &instr_dual_0f_2b), N, N,
 };
@@ -4910,7 +4919,8 @@ static const struct opcode twobyte_table[256] = {
 	N, N, N, N,
 	N, N, N, N,
 	N, N, N, N,
-	N, N, N, GP(SrcReg | DstMem | ModRM | Mov, &pfx_0f_6f_0f_7f),
+	N, N, GP(ModRM | SrcReg | DstMem | GPRModRM | Mov | Sse, &pfx_0f_7e),
+	GP(SrcReg | DstMem | ModRM | Mov, &pfx_0f_6f_0f_7f),
 	/* 0x80 - 0x8F */
 	X16(D(SrcImm | NearBranch)),
 	/* 0x90 - 0x9F */
