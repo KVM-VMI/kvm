@@ -759,6 +759,27 @@ int kvmi_arch_cmd_control_cr(struct kvm_vcpu *vcpu,
 	return 0;
 }
 
+bool is_ud2_instruction(struct kvm_vcpu *vcpu, int *emulation_type)
+{
+	u8 ud2[] = {0x0F, 0x0B};
+	u8 insn_len = vcpu->arch.emulate_ctxt.fetch.ptr -
+		      vcpu->arch.emulate_ctxt.fetch.data;
+
+	if (insn_len != sizeof(ud2))
+		return false;
+
+	if (memcmp(vcpu->arch.emulate_ctxt.fetch.data, ud2, insn_len))
+		return false;
+
+	/* Do not reexecute the UD2 instruction, else we might enter to an
+	 * endless emulation loop. Let the emulator fall down through the
+	 * handle_emulation_failure() which shall inject the #UD exception.
+	 */
+	*emulation_type &= ~EMULTYPE_ALLOW_RETRY;
+
+	return true;
+}
+
 void kvmi_arch_start_single_step(struct kvm_vcpu *vcpu)
 {
 	kvm_set_mtf(vcpu, true);

@@ -5171,10 +5171,11 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 			EPT_VIOLATION_EXECUTABLE))
 		      ? PFERR_PRESENT_MASK : 0;
 
-	error_code |= (exit_qualification & 0x100) != 0 ?
-	       PFERR_GUEST_FINAL_MASK : PFERR_GUEST_PAGE_MASK;
+	error_code |= (exit_qualification & EPT_VIOLATION_GVA_TRANSLATED)
+		      ? PFERR_GUEST_FINAL_MASK : PFERR_GUEST_PAGE_MASK;
 
 	vcpu->arch.exit_qualification = exit_qualification;
+	vcpu->arch.error_code = error_code;
 	return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
 }
 
@@ -7880,6 +7881,13 @@ static void vmx_cr3_write_exiting(struct kvm_vcpu *vcpu,
 	/* TODO: nested ? vmcs12->cpu_based_vm_exec_control */
 }
 
+static u64 vmx_fault_gla(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->arch.exit_qualification & EPT_VIOLATION_GLA_VALID)
+		return vmcs_readl(GUEST_LINEAR_ADDRESS);
+	return ~0ull;
+}
+
 static bool vmx_nested_pagefault(struct kvm_vcpu *vcpu)
 {
 	if (vcpu->arch.exit_qualification & EPT_VIOLATION_GVA_TRANSLATED)
@@ -7947,6 +7955,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.msr_intercept = vmx_msr_intercept,
 	.cr3_write_exiting = vmx_cr3_write_exiting,
 	.desc_intercept = vmx_desc_intercept,
+	.fault_gla = vmx_fault_gla,
 	.nested_pagefault = vmx_nested_pagefault,
 	.spt_fault = vmx_spt_fault,
 

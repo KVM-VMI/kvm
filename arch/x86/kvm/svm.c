@@ -2675,6 +2675,8 @@ static int pf_interception(struct vcpu_svm *svm)
 	u64 fault_address = __sme_clr(svm->vmcb->control.exit_info_2);
 	u64 error_code = svm->vmcb->control.exit_info_1;
 
+	svm->vcpu.arch.error_code = error_code;
+
 	return kvm_handle_page_fault(&svm->vcpu, error_code, fault_address,
 			static_cpu_has(X86_FEATURE_DECODEASSISTS) ?
 			svm->vmcb->control.insn_bytes : NULL,
@@ -7171,6 +7173,11 @@ static void svm_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 	set_msr_interception(svm, msrpm, msr, enable, enable);
 }
 
+static u64 svm_fault_gla(struct kvm_vcpu *vcpu)
+{
+	return ~0ull;
+}
+
 static bool svm_nested_pagefault(struct kvm_vcpu *vcpu)
 {
 	return false;
@@ -7233,6 +7240,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cr3_write_exiting = svm_cr3_write_exiting,
 	.msr_intercept = svm_msr_intercept,
 	.desc_intercept = svm_desc_intercept,
+	.fault_gla = svm_fault_gla,
 	.nested_pagefault = svm_nested_pagefault,
 	.spt_fault = svm_spt_fault,
 

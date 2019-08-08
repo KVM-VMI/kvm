@@ -770,6 +770,9 @@ struct kvm_vcpu_arch {
 	/* set at EPT violation at this point */
 	unsigned long exit_qualification;
 
+	/* #PF translated error code from EPT/NPT exit reason */
+	u64 error_code;
+
 	/* pv related host specific info */
 	struct {
 		bool pv_unhalted;
@@ -1016,6 +1019,7 @@ struct kvm_x86_ops {
 	void (*msr_intercept)(struct kvm_vcpu *vcpu, unsigned int msr,
 				bool enable);
 	bool (*desc_intercept)(struct kvm_vcpu *vcpu, bool enable);
+	u64 (*fault_gla)(struct kvm_vcpu *vcpu);
 	void (*set_mtf)(struct kvm_vcpu *vcpu, bool enable);
 	void (*cr3_write_exiting)(struct kvm_vcpu *vcpu, bool enable);
 	bool (*nested_pagefault)(struct kvm_vcpu *vcpu);
@@ -1627,6 +1631,7 @@ static inline int kvm_cpu_get_apicid(int mps_cpu)
 
 void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 				bool enable);
+u64 kvm_mmu_fault_gla(struct kvm_vcpu *vcpu);
 bool kvm_mmu_nested_pagefault(struct kvm_vcpu *vcpu);
 bool kvm_spt_fault(struct kvm_vcpu *vcpu);
 void kvm_set_mtf(struct kvm_vcpu *vcpu, bool enable);

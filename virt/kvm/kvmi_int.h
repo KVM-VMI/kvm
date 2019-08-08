@@ -290,6 +290,7 @@ int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 				   u64 address);
 int kvmi_arch_cmd_control_cr(struct kvm_vcpu *vcpu,
 			     const struct kvmi_control_cr *req);
+bool is_ud2_instruction(struct kvm_vcpu *vcpu, int *emulation_type);
 void kvmi_arch_start_single_step(struct kvm_vcpu *vcpu);
 void kvmi_arch_stop_single_step(struct kvm_vcpu *vcpu);
 u8 kvmi_arch_relax_page_access(u8 old, u8 new);

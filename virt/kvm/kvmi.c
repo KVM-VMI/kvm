@@ -1018,6 +1018,62 @@ void kvmi_destroy_vm(struct kvm *kvm)
 	wait_for_completion_killable(&kvm->kvmi_completed);
 }
 
+static u8 kvmi_translate_pf_error_code(u64 error_code)
+{
+	u8 access = 0;
+
+	if (error_code & PFERR_USER_MASK)
+		access |= KVMI_PAGE_ACCESS_R;
+	if (error_code & PFERR_WRITE_MASK)
+		access |= KVMI_PAGE_ACCESS_W;
+	if (error_code & PFERR_FETCH_MASK)
+		access |= KVMI_PAGE_ACCESS_X;
+
+	return access;
+}
+
+static bool __kvmi_single_step(struct kvm_vcpu *vcpu, gpa_t gpa,
+			       int *emulation_type)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct kvmi *ikvm = IKVM(kvm);
+	u8 allowed_access, pf_access;
+	u32 ignored_write_bitmap;
+	gfn_t gfn = gpa_to_gfn(gpa);
+	int err;
+
+	if (is_ud2_instruction(vcpu, emulation_type))
+		return false;
+
+	err = kvmi_get_gfn_access(ikvm, gfn, &allowed_access,
+				  &ignored_write_bitmap);
+	if (err) {
+		kvmi_warn(ikvm, "%s: gfn 0x%llx not found in the radix tree\n",
+			  __func__, gpa_to_gfn(gpa));
+		return false;
+	}
+
+	pf_access = kvmi_translate_pf_error_code(vcpu->arch.error_code);
+
+	return kvmi_start_ss(vcpu, gpa, pf_access);
+}
+
+bool kvmi_single_step(struct kvm_vcpu *vcpu, gpa_t gpa, int *emulation_type)
+{
+	struct kvmi *ikvm;
+	bool ret = false;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return false;
+
+	ret = __kvmi_single_step(vcpu, gpa, emulation_type);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 static int kvmi_vcpu_kill(int sig, struct kvm_vcpu *vcpu)
 {
 	int err = -ESRCH;
