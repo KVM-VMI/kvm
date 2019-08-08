@@ -316,6 +316,13 @@ int kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	r = kvm_arch_vcpu_init(vcpu);
 	if (r < 0)
 		goto fail_free_run;
+
+	r = kvmi_vcpu_init(vcpu);
+	if (r < 0) {
+		kvm_arch_vcpu_uninit(vcpu);
+		goto fail_free_run;
+	}
+
 	return 0;
 
 fail_free_run:
@@ -333,6 +340,7 @@ void kvm_vcpu_uninit(struct kvm_vcpu *vcpu)
 	 * descriptors are already gone.
 	 */
 	put_pid(rcu_dereference_protected(vcpu->pid, 1));
+	kvmi_vcpu_uninit(vcpu);
 	kvm_arch_vcpu_uninit(vcpu);
 	free_page((unsigned long)vcpu->run);
 }

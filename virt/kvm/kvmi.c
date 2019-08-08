@@ -80,6 +80,19 @@ static bool alloc_kvmi(struct kvm *kvm, const struct kvm_introspection *qemu)
 	return true;
 }
 
+static bool alloc_ivcpu(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu;
+
+	ivcpu = kzalloc(sizeof(*ivcpu), GFP_KERNEL);
+	if (!ivcpu)
+		return false;
+
+	vcpu->kvmi = ivcpu;
+
+	return true;
+}
+
 struct kvmi * __must_check kvmi_get(struct kvm *kvm)
 {
 	if (refcount_inc_not_zero(&kvm->kvmi_ref))
@@ -90,8 +103,16 @@ struct kvmi * __must_check kvmi_get(struct kvm *kvm)
 
 static void kvmi_destroy(struct kvm *kvm)
 {
+	struct kvm_vcpu *vcpu;
+	int i;
+
 	kfree(kvm->kvmi);
 	kvm->kvmi = NULL;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		kfree(vcpu->kvmi);
+		vcpu->kvmi = NULL;
+	}
 }
 
 static void kvmi_release(struct kvm *kvm)
@@ -107,6 +128,48 @@ void kvmi_put(struct kvm *kvm)
 {
 	if (refcount_dec_and_test(&kvm->kvmi_ref))
 		kvmi_release(kvm);
+}
+
+/*
+ * VCPU hotplug - this function will likely be called before VCPU will start
+ * executing code
+ */
+int kvmi_vcpu_init(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+	int ret = 0;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return 0;
+
+	if (!alloc_ivcpu(vcpu)) {
+		kvmi_err(ikvm, "Unable to alloc ivcpu for vcpu_id %u\n",
+			 vcpu->vcpu_id);
+		ret = -ENOMEM;
+		goto out;
+	}
+
+out:
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
+/*
+ * VCPU hotplug - this function will likely be called after VCPU will stop
+ * executing code
+ */
+void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * Under certain circumstances (errors in creating the VCPU, hotplug?)
+	 * this function may be reached with the KVMI member still allocated.
+	 * This VCPU won't be reachable by the introspection engine, so no
+	 * protection is necessary when de-allocating.
+	 */
+	kfree(vcpu->kvmi);
+	vcpu->kvmi = NULL;
 }
 
 static void kvmi_end_introspection(struct kvmi *ikvm)
@@ -142,8 +205,9 @@ static int kvmi_recv(void *arg)
 
 int kvmi_hook(struct kvm *kvm, const struct kvm_introspection *qemu)
 {
+	struct kvm_vcpu *vcpu;
 	struct kvmi *ikvm;
-	int err = 0;
+	int i, err = 0;
 
 	/* wait for the previous introspection to finish */
 	err = wait_for_completion_killable(&kvm->kvmi_completed);
@@ -158,6 +222,13 @@ int kvmi_hook(struct kvm *kvm, const struct kvm_introspection *qemu)
 		return -ENOMEM;
 	}
 	ikvm = IKVM(kvm);
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (!alloc_ivcpu(vcpu)) {
+			err = -ENOMEM;
+			goto err_alloc;
+		}
+	}
 
 	/* interact with other kernel components after structure allocation */
 	if (!kvmi_sock_get(ikvm, qemu->fd)) {

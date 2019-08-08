@@ -23,6 +23,8 @@
 #define kvmi_err(ikvm, fmt, ...) \
 	kvm_info("%pU ERROR: " fmt, &ikvm->uuid, ## __VA_ARGS__)
 
+#define IVCPU(vcpu) ((struct kvmi_vcpu *)((vcpu)->kvmi))
+
 #define KVMI_MSG_SIZE_ALLOC (sizeof(struct kvmi_msg_hdr) + KVMI_MSG_SIZE)
 
 #define KVMI_KNOWN_VCPU_EVENTS ( \
@@ -72,6 +74,9 @@
 		BIT(KVMI_GET_VCPU_INFO))
 
 #define KVMI_NUM_COMMANDS KVMI_NEXT_AVAILABLE_COMMAND
+
+struct kvmi_vcpu {
+};
 
 #define IKVM(kvm) ((struct kvmi *)((kvm)->kvmi))
 
