@@ -262,4 +262,25 @@ struct kvmi_event_breakpoint {
 	__u8 padding[7];
 };
 
+struct kvmi_map_mem_token {
+	__u64 token[4];
+};
+
+struct kvmi_get_map_token_reply {
+	struct kvmi_map_mem_token token;
+};
+
+/* Map other guest's gpa to local gva */
+struct kvmi_mem_map {
+	struct kvmi_map_mem_token token;
+	__u64 gpa;
+	__u64 gva;
+};
+
+/*
+ * ioctls for /dev/kvmmem
+ */
+#define KVM_INTRO_MEM_MAP       _IOW('i', 0x01, struct kvmi_mem_map)
+#define KVM_INTRO_MEM_UNMAP     _IOW('i', 0x02, unsigned long)
+
 #endif /* _UAPI__LINUX_KVMI_H */
