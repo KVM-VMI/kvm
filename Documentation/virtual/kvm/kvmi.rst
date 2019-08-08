@@ -252,3 +252,53 @@ Returns the introspection API version.
 
 This command is always allowed and successful (if the introspection is
 built in kernel).
+
+2. KVMI_CONTROL_CMD_RESPONSE
+----------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_control_cmd_response {
+		__u8 enable;
+		__u8 now;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+	struct kvmi_error_code
+
+Enables or disables the command replies. By default, all commands need
+a reply.
+
+If `now` is 1, the command reply is enabled/disabled (according to
+`enable`) starting with the current command. For example, `enable=0`
+and `now=1` means that the reply is disabled for this command too,
+while `enable=0` and `now=0` means that a reply will be send for this
+command, but not for the next ones (until enabled back with another
+*KVMI_CONTROL_CMD_RESPONSE*).
+
+This command is used by the introspection tool to disable the replies
+for commands returning an error code only (eg. *KVMI_SET_REGISTERS*)
+when an error is less likely to happen. For example, the following
+commands can be used to reply to an event with a single `write()` call:
+
+	KVMI_CONTROL_CMD_RESPONSE enable=0 now=1
+	KVMI_SET_REGISTERS vcpu=N
+	KVMI_EVENT_REPLY   vcpu=N
+	KVMI_CONTROL_CMD_RESPONSE enable=1 now=0
+
+While the command reply is disabled:
+
+* the socket will be closed on any command for which the reply should
+  contain more than just an error code (eg. *KVMI_GET_REGISTERS*)
+
+* the reply status is ignored for any unsupported/unknown or disallowed
+  commands (and ``struct kvmi_error_code`` will be sent with -KVM_EOPNOTSUPP
+  or -KVM_PERM).

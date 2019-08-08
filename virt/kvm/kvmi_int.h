@@ -85,6 +85,8 @@ struct kvmi {
 
 	DECLARE_BITMAP(cmd_allow_mask, KVMI_NUM_COMMANDS);
 	DECLARE_BITMAP(event_allow_mask, KVMI_NUM_EVENTS);
+
+	bool cmd_reply_disabled;
 };
 
 /* kvmi_msg.c */

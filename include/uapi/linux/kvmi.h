@@ -83,4 +83,11 @@ struct kvmi_get_version_reply {
 	__u32 padding;
 };
 
+struct kvmi_control_cmd_response {
+	__u8 enable;
+	__u8 now;
+	__u16 padding1;
+	__u32 padding2;
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */

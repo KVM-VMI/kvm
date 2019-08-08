@@ -9,6 +9,7 @@
 #include "kvmi_int.h"
 
 static const char *const msg_IDs[] = {
+	[KVMI_CONTROL_CMD_RESPONSE]  = "KVMI_CONTROL_CMD_RESPONSE",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
 };
 
@@ -130,6 +131,36 @@ static int kvmi_msg_vm_reply(struct kvmi *ikvm,
 	return kvmi_msg_reply(ikvm, msg, err, rpl, rpl_size);
 }
 
+static bool kvmi_validate_no_reply(struct kvmi *ikvm,
+				   const struct kvmi_msg_hdr *msg,
+				   size_t rpl_size, int err)
+{
+	if (rpl_size) {
+		kvmi_err(ikvm, "Reply disabled for command %d", msg->id);
+		return false;
+	}
+
+	if (err)
+		kvmi_warn(ikvm, "Error code %d discarded for message id %d\n",
+			  err, msg->id);
+
+	return true;
+}
+
+static int kvmi_msg_vm_maybe_reply(struct kvmi *ikvm,
+				   const struct kvmi_msg_hdr *msg,
+				   int err, const void *rpl,
+				   size_t rpl_size)
+{
+	if (ikvm->cmd_reply_disabled) {
+		if (!kvmi_validate_no_reply(ikvm, msg, rpl_size, err))
+			return -KVM_EINVAL;
+		return 0;
+	}
+
+	return kvmi_msg_vm_reply(ikvm, msg, err, rpl, rpl_size);
+}
+
 static int handle_get_version(struct kvmi *ikvm,
 			      const struct kvmi_msg_hdr *msg, const void *req)
 {
@@ -146,11 +177,37 @@ static bool is_command_allowed(struct kvmi *ikvm, int id)
 	return test_bit(id, ikvm->cmd_allow_mask);
 }
 
+static int handle_control_cmd_response(struct kvmi *ikvm,
+					const struct kvmi_msg_hdr *msg,
+					const void *_req)
+{
+	const struct kvmi_control_cmd_response *req = _req;
+	bool disabled, now;
+	int err;
+
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	disabled = !req->enable;
+	now = (req->now == 1);
+
+	if (now)
+		ikvm->cmd_reply_disabled = disabled;
+
+	err = kvmi_msg_vm_maybe_reply(ikvm, msg, 0, NULL, 0);
+
+	if (!now)
+		ikvm->cmd_reply_disabled = disabled;
+
+	return err;
+}
+
 /*
  * These commands are executed on the receiving thread/worker.
  */
 static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 			    const void *) = {
+	[KVMI_CONTROL_CMD_RESPONSE]  = handle_control_cmd_response,
 	[KVMI_GET_VERSION]           = handle_get_version,
 };
 
