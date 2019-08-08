@@ -160,6 +160,9 @@ struct kvmi {
 		u8 old_access;
 		u32 old_write_bitmap;
 	} ss_context[SINGLE_STEP_MAX_DEPTH];
+	u8 ss_custom_data[KVMI_CTX_DATA_SIZE];
+	size_t ss_custom_size;
+	gpa_t ss_custom_addr;
 	u8 ss_level;
 	atomic_t ss_active;
 

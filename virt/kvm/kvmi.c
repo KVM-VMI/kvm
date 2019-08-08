@@ -1618,6 +1618,116 @@ int kvmi_cmd_pause_vcpu(struct kvm_vcpu *vcpu, bool wait)
 	return 0;
 }
 
+static int write_custom_data_to_page(struct kvm_vcpu *vcpu, gva_t gva,
+					u8 *backup, size_t bytes)
+{
+	u8 *ptr_page, *ptr;
+	struct page *page;
+	gpa_t gpa;
+
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, NULL);
+	if (gpa == UNMAPPED_GVA)
+		return -KVM_EINVAL;
+
+	ptr_page = get_page_ptr(vcpu->kvm, gpa, &page, true);
+	if (!ptr_page)
+		return -KVM_EINVAL;
+
+	ptr = ptr_page + (gpa & ~PAGE_MASK);
+
+	memcpy(backup, ptr, bytes);
+	use_custom_input(vcpu, gva, ptr, bytes);
+
+	put_page_ptr(ptr_page, page);
+
+	return 0;
+}
+
+static int write_custom_data(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	size_t bytes = ivcpu->ctx_size;
+	gva_t gva = ivcpu->ctx_addr;
+	u8 *backup;
+
+	if (ikvm->ss_custom_size)
+		return 0;
+
+	if (!bytes)
+		return 0;
+
+	backup = ikvm->ss_custom_data;
+
+	while (bytes) {
+		size_t offset = gva & ~PAGE_MASK;
+		size_t chunk = min(bytes, PAGE_SIZE - offset);
+
+		if (write_custom_data_to_page(vcpu, gva, backup, chunk))
+			return -KVM_EINVAL;
+
+		bytes -= chunk;
+		backup += chunk;
+		gva += chunk;
+		ikvm->ss_custom_size += chunk;
+	}
+
+	return 0;
+}
+
+static int restore_backup_data_to_page(struct kvm_vcpu *vcpu, gva_t gva,
+					u8 *src, size_t bytes)
+{
+	u8 *ptr_page, *ptr;
+	struct page *page;
+	gpa_t gpa;
+
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, NULL);
+	if (gpa == UNMAPPED_GVA)
+		return -KVM_EINVAL;
+
+	ptr_page = get_page_ptr(vcpu->kvm, gpa, &page, true);
+	if (!ptr_page)
+		return -KVM_EINVAL;
+
+	ptr = ptr_page + (gpa & ~PAGE_MASK);
+
+	memcpy(ptr, src, bytes);
+
+	put_page_ptr(ptr_page, page);
+
+	return 0;
+}
+
+static void restore_backup_data(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	size_t bytes = ikvm->ss_custom_size;
+	gva_t gva = ivcpu->ctx_addr;
+	u8 *backup;
+
+	if (!bytes)
+		return;
+
+	backup = ikvm->ss_custom_data;
+
+	while (bytes) {
+		size_t offset = gva & ~PAGE_MASK;
+		size_t chunk = min(bytes, PAGE_SIZE - offset);
+
+		if (restore_backup_data_to_page(vcpu, gva, backup, chunk))
+			goto out;
+
+		bytes -= chunk;
+		backup += chunk;
+		gva += chunk;
+	}
+
+out:
+	ikvm->ss_custom_size = 0;
+}
+
 void kvmi_stop_ss(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
@@ -1641,6 +1751,8 @@ void kvmi_stop_ss(struct kvm_vcpu *vcpu)
 				    ikvm->ss_context[i].old_write_bitmap);
 
 	ikvm->ss_level = 0;
+
+	restore_backup_data(vcpu);
 
 	kvmi_arch_stop_single_step(vcpu);
 
@@ -1676,6 +1788,7 @@ static bool kvmi_acquire_ss(struct kvm_vcpu *vcpu)
 						KVM_REQUEST_WAIT);
 
 	ivcpu->ss_owner = true;
+	ikvm->ss_custom_size = 0;
 
 	return true;
 }
@@ -1689,6 +1802,12 @@ static bool kvmi_run_ss(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
 	int err;
 
 	kvmi_arch_start_single_step(vcpu);
+
+	err = write_custom_data(vcpu);
+	if (err) {
+		kvmi_err(ikvm, "writing custom data failed, err %d\n", err);
+		return false;
+	}
 
 	err = kvmi_get_gfn_access(ikvm, gfn, &old_access, &old_write_bitmap);
 	/* likely was removed from radix tree due to rwx */
