@@ -73,6 +73,57 @@ static int kvmi_get_gfn_access(struct kvmi *ikvm, const gfn_t gfn,
 	return m ? 0 : -1;
 }
 
+static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access)
+{
+	struct kvmi_mem_access *m;
+	struct kvmi_mem_access *__m;
+	struct kvmi *ikvm = IKVM(kvm);
+	int err = 0;
+	int idx;
+
+	m = kmem_cache_zalloc(radix_cache, GFP_KERNEL);
+	if (!m)
+		return -KVM_ENOMEM;
+
+	m->gfn = gfn;
+	m->access = access;
+
+	if (radix_tree_preload(GFP_KERNEL)) {
+		err = -KVM_ENOMEM;
+		goto exit;
+	}
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+	write_lock(&ikvm->access_tree_lock);
+
+	__m = __kvmi_get_gfn_access(ikvm, gfn);
+	if (__m) {
+		__m->access = access;
+		kvmi_arch_update_page_tracking(kvm, NULL, __m);
+		if (access == full_access) {
+			radix_tree_delete(&ikvm->access_tree, gfn);
+			kmem_cache_free(radix_cache, __m);
+		}
+	} else {
+		radix_tree_insert(&ikvm->access_tree, gfn, m);
+		kvmi_arch_update_page_tracking(kvm, NULL, m);
+		m = NULL;
+	}
+
+	write_unlock(&ikvm->access_tree_lock);
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	radix_tree_preload_end();
+
+exit:
+	if (m)
+		kmem_cache_free(radix_cache, m);
+
+	return err;
+}
+
 static bool kvmi_restricted_access(struct kvmi *ikvm, gpa_t gpa, u8 access)
 {
 	u8 allowed_access;
@@ -1079,6 +1130,16 @@ int kvmi_cmd_get_page_access(struct kvmi *ikvm, u64 gpa, u8 *access)
 	kvmi_get_gfn_access(ikvm, gfn, access);
 
 	return 0;
+}
+
+int kvmi_cmd_set_page_access(struct kvmi *ikvm, u64 gpa, u8 access)
+{
+	gfn_t gfn = gpa_to_gfn(gpa);
+	u8 ignored_access;
+
+	kvmi_get_gfn_access(ikvm, gfn, &ignored_access);
+
+	return kvmi_set_gfn_access(ikvm->kvm, gfn, access);
 }
 
 int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,

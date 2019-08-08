@@ -127,6 +127,21 @@ struct kvmi_get_page_access_reply {
 	__u8 access[0];
 };
 
+struct kvmi_page_access_entry {
+	__u64 gpa;
+	__u8 access;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
+};
+
+struct kvmi_set_page_access {
+	__u16 view;
+	__u16 count;
+	__u32 padding;
+	struct kvmi_page_access_entry entries[0];
+};
+
 struct kvmi_get_vcpu_info_reply {
 	__u64 tsc_speed;
 };

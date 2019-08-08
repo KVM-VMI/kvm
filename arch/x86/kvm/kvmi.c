@@ -224,3 +224,39 @@ int kvmi_arch_cmd_get_page_access(struct kvmi *ikvm,
 	return 0;
 }
 
+int kvmi_arch_cmd_set_page_access(struct kvmi *ikvm,
+				  const struct kvmi_msg_hdr *msg,
+				  const struct kvmi_set_page_access *req)
+{
+	const struct kvmi_page_access_entry *entry = req->entries;
+	const struct kvmi_page_access_entry *end = req->entries + req->count;
+	u8 unknown_bits = ~(KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_W
+			    | KVMI_PAGE_ACCESS_X);
+	int ec = 0;
+
+	if (req->padding)
+		return -KVM_EINVAL;
+
+	if (msg->size < sizeof(*req) + (end - entry) * sizeof(*entry))
+		return -KVM_EINVAL;
+
+	if (req->view != 0)	/* TODO */
+		return -KVM_EOPNOTSUPP;
+
+	for (; entry < end; entry++) {
+		if ((entry->access & unknown_bits) || entry->padding1
+				|| entry->padding2 || entry->padding3)
+			ec = -KVM_EINVAL;
+		else
+			ec = kvmi_cmd_set_page_access(ikvm, entry->gpa,
+						      entry->access);
+		if (ec)
+			kvmi_warn(ikvm, "%s: %llx %x padding %x,%x,%x",
+				  __func__, entry->gpa, entry->access,
+				  entry->padding1, entry->padding2,
+				  entry->padding3);
+	}
+
+	return ec;
+}
+
