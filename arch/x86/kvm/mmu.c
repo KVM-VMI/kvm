@@ -2660,6 +2660,9 @@ static void clear_sp_write_flooding_count(u64 *spte)
 static unsigned int kvm_mmu_page_track_acc(struct kvm_vcpu *vcpu, gfn_t gfn,
 					   unsigned int acc)
 {
+	if (!kvmi_tracked_gfn(vcpu, gfn))
+		return acc;
+
 	if (kvm_page_track_is_active(vcpu, gfn, KVM_PAGE_TRACK_PREREAD))
 		acc &= ~ACC_USER_MASK;
 	if (kvm_page_track_is_active(vcpu, gfn, KVM_PAGE_TRACK_PREWRITE) ||
