@@ -482,4 +482,14 @@ with two common structures::
 		__u32 padding2;
 	};
 
+All events accept the KVMI_EVENT_ACTION_CRASH action, which stops the
+guest ungracefully but as soon as possible.
+
+Most of the events accept the KVMI_EVENT_ACTION_CONTINUE action, which
+lets the instruction that caused the event to continue (unless specified
+otherwise).
+
+Some of the events accept the KVMI_EVENT_ACTION_RETRY action, to continue
+by re-entering the guest.
+
 Specific data can follow these common structures.

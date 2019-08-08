@@ -66,6 +66,10 @@ enum {
 	KVMI_NUM_EVENTS
 };
 
+#define KVMI_EVENT_ACTION_CONTINUE      0
+#define KVMI_EVENT_ACTION_RETRY         1
+#define KVMI_EVENT_ACTION_CRASH         2
+
 #define KVMI_MSG_SIZE (4096 - sizeof(struct kvmi_msg_hdr))
 
 struct kvmi_msg_hdr {
