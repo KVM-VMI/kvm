@@ -1161,6 +1161,17 @@ int kvmi_cmd_get_page_access(struct kvmi *ikvm, u64 gpa, u8 *access)
 	return 0;
 }
 
+int kvmi_cmd_get_page_write_bitmap(struct kvmi *ikvm, u64 gpa,
+				   u32 *write_bitmap)
+{
+	gfn_t gfn = gpa_to_gfn(gpa);
+	u8 ignored_access;
+
+	kvmi_get_gfn_access(ikvm, gfn, &ignored_access, write_bitmap);
+
+	return 0;
+}
+
 int kvmi_cmd_set_page_access(struct kvmi *ikvm, u64 gpa, u8 access)
 {
 	gfn_t gfn = gpa_to_gfn(gpa);

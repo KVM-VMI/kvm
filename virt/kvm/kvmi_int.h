@@ -150,6 +150,11 @@ static inline bool is_event_enabled(struct kvm_vcpu *vcpu, int event)
 	return test_bit(event, IVCPU(vcpu)->ev_mask);
 }
 
+static inline bool kvmi_spp_enabled(struct kvmi *ikvm)
+{
+	return atomic_read(&ikvm->spp.enabled);
+}
+
 /* kvmi_msg.c */
 bool kvmi_sock_get(struct kvmi *ikvm, int fd);
 void kvmi_sock_shutdown(struct kvmi *ikvm);
@@ -167,6 +172,7 @@ void *kvmi_msg_alloc_check(size_t size);
 void kvmi_msg_free(void *addr);
 int kvmi_cmd_get_page_access(struct kvmi *ikvm, u64 gpa, u8 *access);
 int kvmi_cmd_set_page_access(struct kvmi *ikvm, u64 gpa, u8 access);
+int kvmi_cmd_get_page_write_bitmap(struct kvmi *ikvm, u64 gpa, u32 *bitmap);
 int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 			    bool enable);
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
@@ -191,6 +197,11 @@ int kvmi_arch_cmd_set_page_access(struct kvmi *ikvm,
 				  const struct kvmi_msg_hdr *msg,
 				  const struct kvmi_set_page_access *req);
 int kvmi_arch_cmd_control_spp(struct kvmi *ikvm);
+int kvmi_arch_cmd_get_page_write_bitmap(struct kvmi *ikvm,
+					const struct kvmi_msg_hdr *msg,
+					const struct kvmi_get_page_write_bitmap *req,
+					struct kvmi_get_page_write_bitmap_reply **dest,
+					size_t *dest_size);
 void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev);
 bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			u8 access);

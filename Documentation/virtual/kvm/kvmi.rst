@@ -650,6 +650,50 @@ If SPP is not enabled, *KVMI_GET_PAGE_WRITE_BITMAP* and
 * -KVM_EOPNOTSUPP - the hardware doesn't support SPP
 * -KVM_EOPNOTSUPP - the current implementation can't disable SPP
 
+12. KVMI_GET_PAGE_WRITE_BITMAP
+------------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_get_page_write_bitmap {
+		__u16 view;
+		__u16 count;
+		__u32 padding;
+		__u64 gpa[0];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_get_page_write_bitmap_reply {
+		__u32 bitmap[0];
+	};
+
+Returns subpage protection (SPP) write bitmaps for an array of ``count``
+guest physical addresses of 4KB size.
+
+By default, for any guest physical address, the returned bits will be zero
+(no write access for any subpage if the *KVMI_PAGE_ACCESS_W* flag has been
+cleared for the whole 4KB page - see *KVMI_SET_PAGE_ACCESS*).
+
+On Intel hardware with multiple EPT views, the ``view`` argument selects the
+EPT view (0 is primary). On all other hardware it must be zero.
+
+:Errors:
+
+* -KVM_EINVAL - the selected SPT view is invalid
+* -KVM_EINVAL - padding is not zero
+* -KVM_EOPNOTSUPP - a SPT view was selected but the hardware doesn't support it
+* -KVM_EOPNOTSUPP - the hardware doesn't support SPP or hasn't been enabled
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_ENOMEM - not enough memory to allocate the reply
+
 Events
 ======
 

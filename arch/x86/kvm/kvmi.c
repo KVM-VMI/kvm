@@ -224,6 +224,50 @@ int kvmi_arch_cmd_get_page_access(struct kvmi *ikvm,
 	return 0;
 }
 
+int kvmi_arch_cmd_get_page_write_bitmap(struct kvmi *ikvm,
+					const struct kvmi_msg_hdr *msg,
+					const struct kvmi_get_page_write_bitmap
+					*req,
+					struct kvmi_get_page_write_bitmap_reply
+					**dest, size_t *dest_size)
+{
+	struct kvmi_get_page_write_bitmap_reply *rpl = NULL;
+	size_t rpl_size = 0;
+	u16 k, n = req->count;
+	int ec = 0;
+
+	if (req->padding)
+		return -KVM_EINVAL;
+
+	if (msg->size < sizeof(*req) + req->count * sizeof(req->gpa[0]))
+		return -KVM_EINVAL;
+
+	if (!kvmi_spp_enabled(ikvm))
+		return -KVM_EOPNOTSUPP;
+
+	if (req->view != 0)	/* TODO */
+		return -KVM_EOPNOTSUPP;
+
+	rpl_size = sizeof(*rpl) + sizeof(rpl->bitmap[0]) * n;
+	rpl = kvmi_msg_alloc_check(rpl_size);
+	if (!rpl)
+		return -KVM_ENOMEM;
+
+	for (k = 0; k < n && ec == 0; k++)
+		ec = kvmi_cmd_get_page_write_bitmap(ikvm, req->gpa[k],
+						    &rpl->bitmap[k]);
+
+	if (ec) {
+		kvmi_msg_free(rpl);
+		return ec;
+	}
+
+	*dest = rpl;
+	*dest_size = rpl_size;
+
+	return 0;
+}
+
 int kvmi_arch_cmd_set_page_access(struct kvmi *ikvm,
 				  const struct kvmi_msg_hdr *msg,
 				  const struct kvmi_set_page_access *req)
