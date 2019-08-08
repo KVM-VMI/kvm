@@ -1222,6 +1222,27 @@ static int em_fnstsw(struct x86_emulate_ctxt *ctxt)
 	return X86EMUL_CONTINUE;
 }
 
+static u8 simd_prefix_to_bytes(const struct x86_emulate_ctxt *ctxt,
+			       int simd_prefix)
+{
+	u8 bytes;
+
+	switch (ctxt->b) {
+	case 0x11:
+		/* movsd xmm, m64 */
+		/* movups xmm, m128 */
+		if (simd_prefix == 0xf2) {
+			bytes = 8;
+			break;
+		}
+		/* fallthrough */
+	default:
+		bytes = 16;
+		break;
+	}
+	return bytes;
+}
+
 static void decode_register_operand(struct x86_emulate_ctxt *ctxt,
 				    struct operand *op)
 {
@@ -1232,7 +1253,7 @@ static void decode_register_operand(struct x86_emulate_ctxt *ctxt,
 
 	if (ctxt->d & Sse) {
 		op->type = OP_XMM;
-		op->bytes = 16;
+		op->bytes = ctxt->op_bytes;
 		op->addr.xmm = reg;
 		read_sse_reg(ctxt, &op->vec_val, reg);
 		return;
@@ -1283,7 +1304,7 @@ static int decode_modrm(struct x86_emulate_ctxt *ctxt,
 				ctxt->d & ByteOp);
 		if (ctxt->d & Sse) {
 			op->type = OP_XMM;
-			op->bytes = 16;
+			op->bytes = ctxt->op_bytes;
 			op->addr.xmm = ctxt->modrm_rm;
 			read_sse_reg(ctxt, &op->vec_val, ctxt->modrm_rm);
 			return rc;
@@ -4616,7 +4637,7 @@ static const struct gprefix pfx_0f_2b = {
 };
 
 static const struct gprefix pfx_0f_10_0f_11 = {
-	I(Unaligned, em_mov), I(Unaligned, em_mov), N, N,
+	I(Unaligned, em_mov), I(Unaligned, em_mov), I(Unaligned, em_mov), N,
 };
 
 static const struct gprefix pfx_0f_28_0f_29 = {
@@ -5184,7 +5205,7 @@ int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len)
 {
 	int rc = X86EMUL_CONTINUE;
 	int mode = ctxt->mode;
-	int def_op_bytes, def_ad_bytes, goffset, simd_prefix;
+	int def_op_bytes, def_ad_bytes, goffset, simd_prefix = 0;
 	bool op_prefix = false;
 	bool has_seg_override = false;
 	struct opcode opcode;
@@ -5424,7 +5445,8 @@ done_prefixes:
 			ctxt->op_bytes = 4;
 
 		if (ctxt->d & Sse)
-			ctxt->op_bytes = 16;
+			ctxt->op_bytes = simd_prefix_to_bytes(ctxt,
+							      simd_prefix);
 		else if (ctxt->d & Mmx)
 			ctxt->op_bytes = 8;
 	}
