@@ -33,6 +33,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_EVENT_REPLY]           = "KVMI_EVENT_REPLY",
 	[KVMI_GET_CPUID]             = "KVMI_GET_CPUID",
 	[KVMI_GET_GUEST_INFO]        = "KVMI_GET_GUEST_INFO",
+	[KVMI_GET_MTRR_TYPE]         = "KVMI_GET_MTRR_TYPE",
 	[KVMI_GET_PAGE_ACCESS]       = "KVMI_GET_PAGE_ACCESS",
 	[KVMI_GET_PAGE_WRITE_BITMAP] = "KVMI_GET_PAGE_WRITE_BITMAP",
 	[KVMI_GET_REGISTERS]         = "KVMI_GET_REGISTERS",
@@ -701,6 +702,21 @@ static int handle_get_cpuid(struct kvm_vcpu *vcpu,
 	return reply_cb(vcpu, msg, ec, &rpl, sizeof(rpl));
 }
 
+static int handle_get_mtrr_type(struct kvm_vcpu *vcpu,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req, vcpu_reply_fct reply_cb)
+{
+	const struct kvmi_get_mtrr_type *req = _req;
+	struct kvmi_get_mtrr_type_reply rpl;
+	int ec;
+
+	memset(&rpl, 0, sizeof(rpl));
+
+	ec = kvmi_arch_cmd_get_mtrr_type(vcpu, req->gpa, &rpl.type);
+
+	return reply_cb(vcpu, msg, ec, &rpl, sizeof(rpl));
+}
+
 static int handle_get_xsave(struct kvm_vcpu *vcpu,
 			    const struct kvmi_msg_hdr *msg, const void *req,
 			    vcpu_reply_fct reply_cb)
@@ -730,6 +746,7 @@ static int(*const msg_vcpu[])(struct kvm_vcpu *,
 	[KVMI_CONTROL_MSR]      = handle_control_msr,
 	[KVMI_EVENT_REPLY]      = handle_event_reply,
 	[KVMI_GET_CPUID]        = handle_get_cpuid,
+	[KVMI_GET_MTRR_TYPE]    = handle_get_mtrr_type,
 	[KVMI_GET_REGISTERS]    = handle_get_registers,
 	[KVMI_GET_VCPU_INFO]    = handle_get_vcpu_info,
 	[KVMI_GET_XSAVE]        = handle_get_xsave,
