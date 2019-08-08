@@ -102,4 +102,9 @@ struct kvmi_check_event {
 	__u32 padding2;
 };
 
+struct kvmi_get_guest_info_reply {
+	__u32 vcpu_count;
+	__u32 padding[3];
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */

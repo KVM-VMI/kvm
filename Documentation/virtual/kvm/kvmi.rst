@@ -362,3 +362,21 @@ This command is always allowed.
 
 * -KVM_PERM - the event specified by ``id`` is disallowed
 * -KVM_EINVAL - padding is not zero
+
+5. KVMI_GET_GUEST_INFO
+----------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:: none
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_get_guest_info_reply {
+		__u32 vcpu_count;
+		__u32 padding[3];
+	};
+
+Returns the number of online vCPUs.
