@@ -1223,6 +1223,22 @@ static int em_fnstsw(struct x86_emulate_ctxt *ctxt)
 	return X86EMUL_CONTINUE;
 }
 
+static int em_xorpd(struct x86_emulate_ctxt *ctxt)
+{
+	const sse128_t *src = &ctxt->src.vec_val;
+	sse128_t *dst = &ctxt->dst.vec_val;
+	sse128_t xmm0;
+
+	asm volatile("movdqu %%xmm0, %0\n"
+		     "movdqu %1, %%xmm0\n"
+		     "xorpd %2, %%xmm0\n"
+		     "movdqu %%xmm0, %1\n"
+		     "movdqu %0, %%xmm0"
+		     : "+m"(xmm0), "+m"(*dst) : "m"(*src));
+
+	return X86EMUL_CONTINUE;
+}
+
 static u8 simd_prefix_to_bytes(const struct x86_emulate_ctxt *ctxt,
 			       int simd_prefix)
 {
@@ -4918,7 +4934,8 @@ static const struct opcode twobyte_table[256] = {
 	/* 0x40 - 0x4F */
 	X16(D(DstReg | SrcMem | ModRM)),
 	/* 0x50 - 0x5F */
-	N, N, N, N, N, N, N, N, N, N, N, N, N, N, N, N,
+	N, N, N, N, N, N, N, I(SrcMem | DstReg | ModRM | Unaligned | Sse, em_xorpd),
+	N, N, N, N, N, N, N, N,
 	/* 0x60 - 0x6F */
 	N, N, N, N,
 	N, N, N, N,
