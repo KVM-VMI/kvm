@@ -427,3 +427,59 @@ in almost all cases, it must reply with: continue, retry, crash, etc.
 * -KVM_EINVAL - padding is not zero
 * -KVM_EPERM - the access is restricted by the host
 
+Events
+======
+
+All vCPU events are sent using the *KVMI_EVENT* message id. No event
+will be sent unless explicitly enabled with a *KVMI_CONTROL_EVENTS*
+or a *KVMI_CONTROL_VM_EVENTS* command or requested, as it is the case
+with the *KVMI_EVENT_PAUSE_VCPU* event (see **KVMI_PAUSE_VCPU**).
+
+There is one VM event, *KVMI_EVENT_UNHOOK*, which doesn't have a reply,
+but shares the kvmi_event structure, for consistency with the vCPU events.
+
+The message data begins with a common structure, having the size of the
+structure, the vCPU index and the event id::
+
+	struct kvmi_event {
+		__u16 size;
+		__u16 vcpu;
+		__u8 event;
+		__u8 padding[3];
+		struct kvmi_event_arch arch;
+	}
+
+On x86 the structure looks like this::
+
+	struct kvmi_event_arch {
+		__u8 mode;
+		__u8 padding[7];
+		struct kvm_regs regs;
+		struct kvm_sregs sregs;
+		struct {
+			__u64 sysenter_cs;
+			__u64 sysenter_esp;
+			__u64 sysenter_eip;
+			__u64 efer;
+			__u64 star;
+			__u64 lstar;
+			__u64 cstar;
+			__u64 pat;
+			__u64 shadow_gs;
+		} msrs;
+	};
+
+It contains information about the vCPU state at the time of the event.
+
+The reply to events have the *KVMI_EVENT_REPLY* message id and begins
+with two common structures::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply {
+		__u8 action;
+		__u8 event;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+Specific data can follow these common structures.

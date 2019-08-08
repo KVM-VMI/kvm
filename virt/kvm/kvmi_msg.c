@@ -25,6 +25,8 @@ static const char *const msg_IDs[] = {
 	[KVMI_CHECK_EVENT]           = "KVMI_CHECK_EVENT",
 	[KVMI_CONTROL_CMD_RESPONSE]  = "KVMI_CONTROL_CMD_RESPONSE",
 	[KVMI_CONTROL_VM_EVENTS]     = "KVMI_CONTROL_VM_EVENTS",
+	[KVMI_EVENT]                 = "KVMI_EVENT",
+	[KVMI_EVENT_REPLY]           = "KVMI_EVENT_REPLY",
 	[KVMI_GET_GUEST_INFO]        = "KVMI_GET_GUEST_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
 };
@@ -337,6 +339,57 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 	[KVMI_GET_VERSION]           = handle_get_version,
 };
 
+static int handle_event_reply(struct kvm_vcpu *vcpu,
+			      const struct kvmi_msg_hdr *msg, const void *rpl,
+			      vcpu_reply_fct reply_cb)
+{
+	const struct kvmi_event_reply *reply = rpl;
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+	struct kvmi_vcpu_reply *expected = &ivcpu->reply;
+	size_t useful, received, common;
+
+	if (unlikely(msg->seq != expected->seq))
+		goto out;
+
+	common = sizeof(struct kvmi_vcpu_hdr) + sizeof(*reply);
+	if (unlikely(msg->size < common))
+		goto out;
+
+	if (unlikely(reply->padding1 || reply->padding2))
+		goto out;
+
+	received = msg->size - common;
+	/* Don't accept newer/bigger structures */
+	if (unlikely(received > expected->size))
+		goto out;
+
+	useful = min(received, expected->size);
+	if (useful)
+		memcpy(expected->data, reply + 1, useful);
+
+	if (useful < expected->size)
+		memset((char *)expected->data + useful, 0,
+			expected->size - useful);
+
+	expected->action = reply->action;
+	expected->error = 0;
+
+out:
+
+	if (unlikely(expected->error))
+		kvmi_err(ikvm, "Invalid event %d/%d reply seq %x/%x size %u min %zu expected %zu padding %u,%u\n",
+			 reply->event, reply->action,
+			 msg->seq, expected->seq,
+			 msg->size, common,
+			 common + expected->size,
+			 reply->padding1,
+			 reply->padding2);
+
+	ivcpu->reply_waiting = false;
+	return expected->error;
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd'
@@ -346,6 +399,7 @@ static int(*const msg_vm[])(struct kvmi *, const struct kvmi_msg_hdr *,
 static int(*const msg_vcpu[])(struct kvm_vcpu *,
 			      const struct kvmi_msg_hdr *, const void *,
 			      vcpu_reply_fct) = {
+	[KVMI_EVENT_REPLY]      = handle_event_reply,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *_ctx)
@@ -576,3 +630,78 @@ out:
 
 	return err == 0;
 }
+
+static void kvmi_setup_event_common(struct kvmi_event *ev, u32 ev_id,
+				    unsigned short vcpu_idx)
+{
+	memset(ev, 0, sizeof(*ev));
+
+	ev->vcpu = vcpu_idx;
+	ev->event = ev_id;
+	ev->size = sizeof(*ev);
+}
+
+static void kvmi_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev,
+			     u32 ev_id)
+{
+	kvmi_setup_event_common(ev, ev_id, kvm_vcpu_get_idx(vcpu));
+	kvmi_arch_setup_event(vcpu, ev);
+}
+
+static inline u32 new_seq(struct kvmi *ikvm)
+{
+	return atomic_inc_return(&ikvm->ev_seq);
+}
+
+int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
+		    void *ev, size_t ev_size,
+		    void *rpl, size_t rpl_size, int *action)
+{
+	struct kvmi_msg_hdr hdr;
+	struct kvmi_event common;
+	struct kvec vec[] = {
+		{.iov_base = &hdr,	.iov_len = sizeof(hdr)	 },
+		{.iov_base = &common,	.iov_len = sizeof(common)},
+		{.iov_base = ev,	.iov_len = ev_size	 },
+	};
+	size_t msg_size = sizeof(hdr) + sizeof(common) + ev_size;
+	size_t n = ev_size ? ARRAY_SIZE(vec) : ARRAY_SIZE(vec)-1;
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+	int err;
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.id = KVMI_EVENT;
+	hdr.seq = new_seq(ikvm);
+	hdr.size = msg_size - sizeof(hdr);
+
+	kvmi_setup_event(vcpu, &common, ev_id);
+
+	memset(&ivcpu->reply, 0, sizeof(ivcpu->reply));
+
+	ivcpu->reply.seq = hdr.seq;
+	ivcpu->reply.data = rpl;
+	ivcpu->reply.size = rpl_size;
+	ivcpu->reply.error = -EINTR;
+
+	err = kvmi_sock_write(ikvm, vec, n, msg_size);
+	if (err)
+		goto out;
+
+	ivcpu->reply_waiting = true;
+	err = kvmi_run_jobs_and_wait(vcpu);
+	if (err)
+		goto out;
+
+	err = ivcpu->reply.error;
+	if (err)
+		goto out;
+
+	*action = ivcpu->reply.action;
+
+out:
+	if (err)
+		kvmi_sock_shutdown(ikvm);
+	return err;
+}
+

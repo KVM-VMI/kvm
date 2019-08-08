@@ -76,6 +76,8 @@ static bool alloc_kvmi(struct kvm *kvm, const struct kvm_introspection *qemu)
 	if (!ikvm)
 		return false;
 
+	atomic_set(&ikvm->ev_seq, 0);
+
 	set_bit(KVMI_GET_VERSION, ikvm->cmd_allow_mask);
 	set_bit(KVMI_CHECK_COMMAND, ikvm->cmd_allow_mask);
 	set_bit(KVMI_CHECK_EVENT, ikvm->cmd_allow_mask);
@@ -520,9 +522,19 @@ void kvmi_run_jobs(struct kvm_vcpu *vcpu)
 	}
 }
 
+static bool need_to_wait(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	return ivcpu->reply_waiting;
+}
+
 static bool done_waiting(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	if (!need_to_wait(vcpu))
+		return true;
 
 	return !list_empty(&ivcpu->job_list);
 }
@@ -551,6 +563,9 @@ int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu)
 			err = -1;
 			break;
 		}
+
+		if (!need_to_wait(vcpu))
+			break;
 
 		kvmi_add_job(vcpu, kvmi_job_wait, NULL, NULL);
 	}

@@ -8,6 +8,7 @@
 
 #include <linux/kernel.h>
 #include <linux/types.h>
+#include <asm/kvmi.h>
 
 #define KVMI_VERSION 0x00000001
 
@@ -116,6 +117,21 @@ struct kvmi_control_vm_events {
 
 struct kvmi_vcpu_hdr {
 	__u16 vcpu;
+	__u16 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_event {
+	__u16 size;
+	__u16 vcpu;
+	__u8 event;
+	__u8 padding[3];
+	struct kvmi_event_arch arch;
+};
+
+struct kvmi_event_reply {
+	__u8 action;
+	__u8 event;
 	__u16 padding1;
 	__u32 padding2;
 };

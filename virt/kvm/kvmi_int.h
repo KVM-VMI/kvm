@@ -82,7 +82,18 @@ struct kvmi_job {
 	void (*free_fct)(void *ctx);
 };
 
+struct kvmi_vcpu_reply {
+	int error;
+	int action;
+	u32 seq;
+	void *data;
+	size_t size;
+};
+
 struct kvmi_vcpu {
+	bool reply_waiting;
+	struct kvmi_vcpu_reply reply;
+
 	struct list_head job_list;
 	spinlock_t job_lock;
 
@@ -96,6 +107,7 @@ struct kvmi {
 
 	struct socket *sock;
 	struct task_struct *recv;
+	atomic_t ev_seq;
 
 	uuid_t uuid;
 
@@ -118,8 +130,12 @@ void *kvmi_msg_alloc_check(size_t size);
 void kvmi_msg_free(void *addr);
 int kvmi_cmd_control_vm_events(struct kvmi *ikvm, unsigned int event_id,
 			       bool enable);
+int kvmi_run_jobs_and_wait(struct kvm_vcpu *vcpu);
 int kvmi_add_job(struct kvm_vcpu *vcpu,
 		 void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
 		 void *ctx, void (*free_fct)(void *ctx));
+
+/* arch */
+void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev);
 
 #endif
