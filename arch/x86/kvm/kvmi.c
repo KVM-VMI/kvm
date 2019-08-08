@@ -7,6 +7,25 @@
 #include "x86.h"
 #include "../../../virt/kvm/kvmi_int.h"
 
+static void *alloc_get_registers_reply(const struct kvmi_msg_hdr *msg,
+				       const struct kvmi_get_registers *req,
+				       size_t *rpl_size)
+{
+	struct kvmi_get_registers_reply *rpl;
+	u16 k, n = req->nmsrs;
+
+	*rpl_size = sizeof(*rpl) + sizeof(rpl->msrs.entries[0]) * n;
+	rpl = kvmi_msg_alloc_check(*rpl_size);
+	if (rpl) {
+		rpl->msrs.nmsrs = n;
+
+		for (k = 0; k < n; k++)
+			rpl->msrs.entries[k].index = req->msrs_idx[k];
+	}
+
+	return rpl;
+}
+
 /*
  * TODO: this can be done from userspace.
  *   - all these registers are sent with struct kvmi_event_arch
@@ -36,6 +55,65 @@ static unsigned int kvmi_vcpu_mode(const struct kvm_vcpu *vcpu,
 	}
 
 	return mode;
+}
+
+static int kvmi_get_registers(struct kvm_vcpu *vcpu, u32 *mode,
+			      struct kvm_regs *regs,
+			      struct kvm_sregs *sregs,
+			      struct kvm_msrs *msrs)
+{
+	struct kvm_msr_entry *msr = msrs->entries;
+	struct kvm_msr_entry *end = msrs->entries + msrs->nmsrs;
+
+	kvm_arch_vcpu_get_regs(vcpu, regs);
+	kvm_arch_vcpu_get_sregs(vcpu, sregs);
+	*mode = kvmi_vcpu_mode(vcpu, sregs);
+
+	for (; msr < end; msr++) {
+		struct msr_data m = {
+			.index = msr->index,
+			.host_initiated = true
+		};
+		int err = kvm_get_msr(vcpu, &m);
+
+		if (err)
+			return -KVM_EINVAL;
+
+		msr->data = m.data;
+	}
+
+	return 0;
+}
+
+int kvmi_arch_cmd_get_registers(struct kvm_vcpu *vcpu,
+				const struct kvmi_msg_hdr *msg,
+				const struct kvmi_get_registers *req,
+				struct kvmi_get_registers_reply **dest,
+				size_t *dest_size)
+{
+	struct kvmi_get_registers_reply *rpl;
+	size_t rpl_size = 0;
+	int err;
+
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	if (msg->size < sizeof(struct kvmi_vcpu_hdr)
+			+ sizeof(*req) + req->nmsrs * sizeof(req->msrs_idx[0]))
+		return -KVM_EINVAL;
+
+	rpl = alloc_get_registers_reply(msg, req, &rpl_size);
+	if (!rpl)
+		return -KVM_ENOMEM;
+
+	err = kvmi_get_registers(vcpu, &rpl->mode, &rpl->regs,
+				 &rpl->sregs, &rpl->msrs);
+
+	*dest = rpl;
+	*dest_size = rpl_size;
+
+	return err;
+
 }
 
 static void kvmi_get_msrs(struct kvm_vcpu *vcpu, struct kvmi_event_arch *event)
