@@ -1574,3 +1574,28 @@ introspection has been enabled for this event (see **KVMI_CONTROL_EVENTS**).
 	KVMI_DESC_TR
 
 ``write`` is 1 if the descriptor was written, 0 otherwise.
+
+12. KVMI_EVENT_SINGLESTEP
+-------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent when the current instruction has been executed
+(as a result of a *KVMI_EVENT_PF* event to which the introspection
+tool set the ``singlestep`` field and responded with *CONTINUE*)
+and the introspection has been enabled for this event
+(see **KVMI_CONTROL_EVENTS**).

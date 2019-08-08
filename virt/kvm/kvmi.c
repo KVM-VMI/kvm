@@ -1182,6 +1182,44 @@ void kvmi_trap_event(struct kvm_vcpu *vcpu)
 	kvmi_put(vcpu->kvm);
 }
 
+static u32 kvmi_send_singlestep(struct kvm_vcpu *vcpu)
+{
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_SINGLESTEP, NULL, 0,
+			      NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}
+
+static void __kvmi_singlestep_event(struct kvm_vcpu *vcpu)
+{
+	u32 action;
+
+	action = kvmi_send_singlestep(vcpu);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "SINGLESTEP");
+	}
+}
+
+static void kvmi_singlestep_event(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+
+	if (!ivcpu->ss_requested)
+		return;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_SINGLESTEP))
+		__kvmi_singlestep_event(vcpu);
+
+	ivcpu->ss_requested = false;
+}
+
 static bool __kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 {
 	u32 action;
@@ -1615,6 +1653,8 @@ void kvmi_stop_ss(struct kvm_vcpu *vcpu)
 	kvm_make_all_cpus_request(kvm, 0);
 
 	ivcpu->ss_owner = false;
+
+	kvmi_singlestep_event(vcpu);
 
 out:
 	kvmi_put(kvm);
