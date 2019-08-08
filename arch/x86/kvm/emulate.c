@@ -171,6 +171,7 @@
 #define NoMod	    ((u64)1 << 47)  /* Mod field is ignored */
 #define Intercept   ((u64)1 << 48)  /* Has valid intercept field */
 #define CheckPerm   ((u64)1 << 49)  /* Has valid check_perm field */
+#define GPRModRM    ((u64)1 << 50)  /* The ModRM encoded register is a GP one */
 #define PrivUD      ((u64)1 << 51)  /* #UD instead of #GP on CPL > 0 */
 #define NearBranch  ((u64)1 << 52)  /* Near branches */
 #define No16	    ((u64)1 << 53)  /* No 16 bit operand */
@@ -1242,6 +1243,11 @@ static u8 simd_prefix_to_bytes(const struct x86_emulate_ctxt *ctxt,
 		if (simd_prefix == 0x66)
 			bytes = 8;
 		break;
+	case 0x6e:
+		/* movq r/m64, xmm */
+		if (simd_prefix == 0x66)
+			bytes = 8;
+		break;
 	default:
 		break;
 	}
@@ -1307,7 +1313,7 @@ static int decode_modrm(struct x86_emulate_ctxt *ctxt,
 		op->bytes = (ctxt->d & ByteOp) ? 1 : ctxt->op_bytes;
 		op->addr.reg = decode_register(ctxt, ctxt->modrm_rm,
 				ctxt->d & ByteOp);
-		if (ctxt->d & Sse) {
+		if ((ctxt->d & Sse) && !(ctxt->d & GPRModRM)) {
 			op->type = OP_XMM;
 			op->bytes = ctxt->op_bytes;
 			op->addr.xmm = ctxt->modrm_rm;
@@ -4633,6 +4639,10 @@ static const struct gprefix pfx_0f_6f_0f_7f = {
 	I(Mmx, em_mov), I(Sse | Aligned, em_mov), N, I(Sse | Unaligned, em_mov),
 };
 
+static const struct gprefix pfx_0f_6e_0f_7e = {
+	N, I(Sse, em_mov), N, N
+};
+
 static const struct instr_dual instr_dual_0f_2b = {
 	I(0, em_mov), N
 };
@@ -4894,7 +4904,8 @@ static const struct opcode twobyte_table[256] = {
 	N, N, N, N,
 	N, N, N, N,
 	N, N, N, N,
-	N, N, N, GP(SrcMem | DstReg | ModRM | Mov, &pfx_0f_6f_0f_7f),
+	N, N, GP(SrcMem | DstReg | ModRM | GPRModRM | Mov, &pfx_0f_6e_0f_7e),
+	GP(SrcMem | DstReg | ModRM | Mov, &pfx_0f_6f_0f_7f),
 	/* 0x70 - 0x7F */
 	N, N, N, N,
 	N, N, N, N,
