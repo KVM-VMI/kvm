@@ -169,6 +169,91 @@ int kvmi_ioctl_hook(struct kvm *kvm, void __user *argp)
 	return kvmi_hook(kvm, &i);
 }
 
+static int kvmi_ioctl_get_feature(void __user *argp, bool *allow, int *id,
+				  unsigned long *bitmask)
+{
+	struct kvm_introspection_feature feat;
+	int all_bits = -1;
+
+	if (copy_from_user(&feat, argp, sizeof(feat)))
+		return -EFAULT;
+
+	if (feat.id < 0 && feat.id != all_bits)
+		return -EINVAL;
+
+	*allow = !!(feat.allow & 1);
+	*id = feat.id;
+	*bitmask = *id == all_bits ? -1 : BIT(feat.id);
+
+	return 0;
+}
+
+static int kvmi_ioctl_feature(struct kvm *kvm,
+			      bool allow, unsigned long *requested,
+			      size_t off_dest, unsigned int nbits)
+{
+	unsigned long *dest;
+	struct kvmi *ikvm;
+
+	if (bitmap_empty(requested, nbits))
+		return -EINVAL;
+
+	ikvm = kvmi_get(kvm);
+	if (!ikvm)
+		return -EFAULT;
+
+	dest = (unsigned long *)((char *)ikvm + off_dest);
+
+	if (allow)
+		bitmap_or(dest, dest, requested, nbits);
+	else
+		bitmap_andnot(dest, dest, requested, nbits);
+
+	kvmi_put(kvm);
+
+	return 0;
+}
+
+int kvmi_ioctl_event(struct kvm *kvm, void __user *argp)
+{
+	DECLARE_BITMAP(requested, KVMI_NUM_EVENTS);
+	DECLARE_BITMAP(known, KVMI_NUM_EVENTS);
+	bool allow;
+	int err;
+	int id;
+
+	err = kvmi_ioctl_get_feature(argp, &allow, &id, requested);
+	if (err)
+		return err;
+
+	bitmap_from_u64(known, KVMI_KNOWN_EVENTS);
+	bitmap_and(requested, requested, known, KVMI_NUM_EVENTS);
+
+	return kvmi_ioctl_feature(kvm, allow, requested,
+				  offsetof(struct kvmi, event_allow_mask),
+				  KVMI_NUM_EVENTS);
+}
+
+int kvmi_ioctl_command(struct kvm *kvm, void __user *argp)
+{
+	DECLARE_BITMAP(requested, KVMI_NUM_COMMANDS);
+	DECLARE_BITMAP(known, KVMI_NUM_COMMANDS);
+	bool allow;
+	int err;
+	int id;
+
+	err = kvmi_ioctl_get_feature(argp, &allow, &id, requested);
+	if (err)
+		return err;
+
+	bitmap_from_u64(known, KVMI_KNOWN_COMMANDS);
+	bitmap_and(requested, requested, known, KVMI_NUM_COMMANDS);
+
+	return kvmi_ioctl_feature(kvm, allow, requested,
+				  offsetof(struct kvmi, cmd_allow_mask),
+				  KVMI_NUM_COMMANDS);
+}
+
 void kvmi_create_vm(struct kvm *kvm)
 {
 	init_completion(&kvm->kvmi_completed);

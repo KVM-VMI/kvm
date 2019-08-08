@@ -1527,9 +1527,15 @@ struct kvm_introspection {
 	__u32 padding;
 	__u8 uuid[16];
 };
+struct kvm_introspection_feature {
+	__u32 allow;
+	__s32 id;
+};
 #define KVM_INTROSPECTION_HOOK    _IOW(KVMIO, 0xff, struct kvm_introspection)
 #define KVM_INTROSPECTION_UNHOOK  _IO(KVMIO, 0xfe)
 /* write true on force-reset, false otherwise */
+#define KVM_INTROSPECTION_COMMAND _IOW(KVMIO, 0xfd, struct kvm_introspection_feature)
+#define KVM_INTROSPECTION_EVENT   _IOW(KVMIO, 0xfc, struct kvm_introspection_feature)
 
 #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
 #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)

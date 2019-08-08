@@ -3270,6 +3270,12 @@ out_free_irq_routing:
 	case KVM_INTROSPECTION_HOOK:
 		r = kvmi_ioctl_hook(kvm, argp);
 		break;
+	case KVM_INTROSPECTION_COMMAND:
+		r = kvmi_ioctl_command(kvm, argp);
+		break;
+	case KVM_INTROSPECTION_EVENT:
+		r = kvmi_ioctl_event(kvm, argp);
+		break;
 	case KVM_INTROSPECTION_UNHOOK:
 		r = kvmi_ioctl_unhook(kvm, arg);
 		break;

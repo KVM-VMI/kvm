@@ -3889,7 +3889,61 @@ It will fail with -EINVAL if padding is not zero.
 The KVMI version can be retrieved using the KVM_CAP_INTROSPECTION of
 the KVM_CHECK_EXTENSION ioctl() at run-time.
 
-4.997 KVM_INTROSPECTION_UNHOOK
+4.997 KVM_INTROSPECTION_COMMAND
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_introspection_feature (in)
+Returns: 0 on success, a negative value on error
+
+This ioctl is used to allow or disallow introspection commands
+for the current VM. By default, almost all commands are disallowed
+except for those used to query the API.
+
+struct kvm_introspection_feature {
+	__u32 allow;
+	__s32 id;
+};
+
+If allow is 1, the command specified by id is allowed. If allow is 0,
+the command is disallowed.
+
+Unless set to -1 (meaning all commands), id must be a command ID
+(e.g. KVMI_GET_VERSION, KVMI_GET_GUEST_INFO etc.)
+
+Errors:
+
+  -EINVAL if the command is unknown
+  -EPERM if the command can't be disallowed (e.g. KVMI_GET_VERSION)
+
+4.998 KVM_INTROSPECTION_EVENT
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_introspection_feature (in)
+Returns: 0 on success, a negative value on error
+
+This ioctl is used to allow or disallow introspection events
+for the current VM. By default, all events are disallowed.
+
+struct kvm_introspection_feature {
+	__u32 allow;
+	__s32 id;
+};
+
+If allow is 1, the event specified by id is allowed. If allow is 0,
+the event is disallowed.
+
+Unless set to -1 (meaning all event), id must be a event ID
+(e.g. KVMI_EVENT_UNHOOK, KVMI_EVENT_CR, etc.)
+
+Errors:
+
+  -EINVAL if the event is unknown
+
+4.999 KVM_INTROSPECTION_UNHOOK
 
 Capability: KVM_CAP_INTROSPECTION
 Architectures: x86
