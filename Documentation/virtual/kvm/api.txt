@@ -3857,6 +3857,56 @@ number of valid entries in the 'entries' array, which is then filled.
 'index' and 'flags' fields in 'struct kvm_cpuid_entry2' are currently reserved,
 userspace should not expect to get any particular value there.
 
+4.996 KVM_INTROSPECTION_HOOK
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_introspection (in)
+Returns: 0 on success, a negative value on error
+
+This ioctl is used to enable the introspection of the current VM.
+
+struct kvm_introspection {
+	__s32 fd;
+	__u32 padding;
+	__u8 uuid[16];
+};
+
+fd is the file handle of a socket connected to the introspection tool,
+
+padding must be zero (it might be used in the future),
+
+uuid is used for debug and error messages.
+
+It can fail with -EFAULT if:
+ - memory allocation failed
+ - this VM is already introspected
+ - the file handle doesn't correspond to an active socket
+
+It will fail with -EINVAL if padding is not zero.
+
+The KVMI version can be retrieved using the KVM_CAP_INTROSPECTION of
+the KVM_CHECK_EXTENSION ioctl() at run-time.
+
+4.997 KVM_INTROSPECTION_UNHOOK
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: none
+Returns: 0 on success, a negative value on error
+
+This ioctl is used to disable the introspection of the current VM.
+It is useful when the VM is paused/suspended/migrated.
+
+It can fail with -EFAULT if:
+  - the introspection is not enabled
+  - the socket (passed with KVM_INTROSPECTION_HOOK) had an error
+
+If the ioctl is successful, the userspace should give the introspection
+tool a chance to unhook the VM.
+
 5. The kvm_run structure
 ------------------------
 

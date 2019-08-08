@@ -20,6 +20,8 @@
  */
 
 #include <linux/kvm_host.h>
+#include <uapi/linux/kvmi.h>
+#include <linux/kvmi.h>
 #include "irq.h"
 #include "mmu.h"
 #include "i8254.h"
@@ -3083,6 +3085,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = kvm_x86_ops->get_nested_state ?
 			kvm_x86_ops->get_nested_state(NULL, 0, 0) : 0;
 		break;
+#ifdef CONFIG_KVM_INTROSPECTION
+	case KVM_CAP_INTROSPECTION:
+		r = KVMI_VERSION;
+		break;
+#endif
 	default:
 		break;
 	}

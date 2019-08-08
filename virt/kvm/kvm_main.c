@@ -3266,6 +3266,14 @@ out_free_irq_routing:
 	case KVM_CHECK_EXTENSION:
 		r = kvm_vm_ioctl_check_extension_generic(kvm, arg);
 		break;
+#ifdef CONFIG_KVM_INTROSPECTION
+	case KVM_INTROSPECTION_HOOK:
+		r = kvmi_ioctl_hook(kvm, argp);
+		break;
+	case KVM_INTROSPECTION_UNHOOK:
+		r = kvmi_ioctl_unhook(kvm, arg);
+		break;
+#endif /* CONFIG_KVM_INTROSPECTION */
 	default:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}

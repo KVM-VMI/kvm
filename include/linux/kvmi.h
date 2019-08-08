@@ -10,6 +10,10 @@ int kvmi_init(void);
 void kvmi_uninit(void);
 void kvmi_create_vm(struct kvm *kvm);
 void kvmi_destroy_vm(struct kvm *kvm);
+int kvmi_ioctl_hook(struct kvm *kvm, void __user *argp);
+int kvmi_ioctl_command(struct kvm *kvm, void __user *argp);
+int kvmi_ioctl_event(struct kvm *kvm, void __user *argp);
+int kvmi_ioctl_unhook(struct kvm *kvm, bool force_reset);
 
 #else
 
