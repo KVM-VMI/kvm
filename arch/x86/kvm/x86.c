@@ -6311,7 +6311,8 @@ static bool reexecute_instruction(struct kvm_vcpu *vcpu, gva_t cr2,
 		indirect_shadow_pages = vcpu->kvm->arch.indirect_shadow_pages;
 		spin_unlock(&vcpu->kvm->mmu_lock);
 
-		if (indirect_shadow_pages)
+		if (indirect_shadow_pages
+		    && !kvmi_tracked_gfn(vcpu, gpa_to_gfn(gpa)))
 			kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
 
 		return true;
@@ -6322,7 +6323,8 @@ static bool reexecute_instruction(struct kvm_vcpu *vcpu, gva_t cr2,
 	 * and it failed try to unshadow page and re-enter the
 	 * guest to let CPU execute the instruction.
 	 */
-	kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
+	if (!kvmi_tracked_gfn(vcpu, gpa_to_gfn(gpa)))
+		kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
 
 	/*
 	 * If the access faults on its page table, it can not
@@ -6373,6 +6375,9 @@ static bool retry_instruction(struct x86_emulate_ctxt *ctxt,
 
 	if (!vcpu->arch.mmu->direct_map)
 		gpa = kvm_mmu_gva_to_gpa_write(vcpu, cr2, NULL);
+
+	if (kvmi_tracked_gfn(vcpu, gpa_to_gfn(gpa)))
+		return false;
 
 	kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(gpa));
 
