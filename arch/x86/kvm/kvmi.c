@@ -465,7 +465,7 @@ void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 	u32 action;
 	u64 gpa;
 
-	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, NULL);
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
 
 	action = kvmi_msg_send_bp(vcpu, gpa, insn_len);
 	switch (action) {
@@ -818,6 +818,38 @@ u8 kvmi_arch_relax_page_access(u8 old, u8 new)
 	if ((ret & (KVMI_PAGE_ACCESS_W | KVMI_PAGE_ACCESS_X)) ==
 	    (KVMI_PAGE_ACCESS_W | KVMI_PAGE_ACCESS_X))
 		ret |= KVMI_PAGE_ACCESS_R;
+
+	return ret;
+}
+
+bool kvmi_update_ad_flags(struct kvm_vcpu *vcpu)
+{
+	struct x86_exception exception = { };
+	struct kvmi *ikvm;
+	bool ret = false;
+	gva_t gva;
+	gpa_t gpa;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return false;
+
+	gva = kvm_mmu_fault_gla(vcpu);
+
+	if (gva == ~0ull) {
+		kvmi_warn_once(ikvm, "%s: cannot perform translation\n",
+			       __func__);
+		goto out;
+	}
+
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, PFERR_WRITE_MASK, NULL);
+	if (gpa == UNMAPPED_GVA)
+		gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, &exception);
+
+	ret = (gpa != UNMAPPED_GVA);
+
+out:
+	kvmi_put(vcpu->kvm);
 
 	return ret;
 }

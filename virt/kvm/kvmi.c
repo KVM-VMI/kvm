@@ -193,6 +193,33 @@ static bool kvmi_restricted_access(struct kvmi *ikvm, gpa_t gpa, u8 access)
 	return false;
 }
 
+bool is_tracked_gfn(struct kvmi *ikvm, gfn_t gfn)
+{
+	struct kvmi_mem_access *m;
+
+	read_lock(&ikvm->access_tree_lock);
+	m = __kvmi_get_gfn_access(ikvm, gfn);
+	read_unlock(&ikvm->access_tree_lock);
+
+	return !!m;
+}
+
+bool kvmi_tracked_gfn(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	struct kvmi *ikvm;
+	bool ret;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return false;
+
+	ret = is_tracked_gfn(ikvm, gfn);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 static void kvmi_clear_mem_access(struct kvm *kvm)
 {
 	void **slot;
@@ -1681,7 +1708,7 @@ static int write_custom_data_to_page(struct kvm_vcpu *vcpu, gva_t gva,
 	struct page *page;
 	gpa_t gpa;
 
-	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, NULL);
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
 	if (gpa == UNMAPPED_GVA)
 		return -KVM_EINVAL;
 
@@ -1738,7 +1765,7 @@ static int restore_backup_data_to_page(struct kvm_vcpu *vcpu, gva_t gva,
 	struct page *page;
 	gpa_t gpa;
 
-	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, NULL);
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
 	if (gpa == UNMAPPED_GVA)
 		return -KVM_EINVAL;
 

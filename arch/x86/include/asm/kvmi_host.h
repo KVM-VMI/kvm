@@ -16,6 +16,7 @@ bool kvmi_monitored_msr(struct kvm_vcpu *vcpu, u32 msr);
 bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
 		   unsigned long old_value, unsigned long *new_value);
 void kvmi_xsetbv_event(struct kvm_vcpu *vcpu);
+bool kvmi_update_ad_flags(struct kvm_vcpu *vcpu);
 
 #else /* CONFIG_KVM_INTROSPECTION */
 
@@ -38,6 +39,11 @@ static inline bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
 
 static inline void kvmi_xsetbv_event(struct kvm_vcpu *vcpu)
 {
+}
+
+static inline bool kvmi_update_ad_flags(struct kvm_vcpu *vcpu)
+{
+	return false;
 }
 
 #endif /* CONFIG_KVM_INTROSPECTION */
