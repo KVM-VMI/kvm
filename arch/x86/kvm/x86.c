@@ -5882,17 +5882,17 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 #define CMPXCHG_MAX_BYTES 8
 #endif
 
+	gpa = kvm_mmu_gva_to_gpa_write(vcpu, addr, NULL);
+
+	if (gpa == UNMAPPED_GVA ||
+	    (gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
+		goto emul_write;
+
 	/* guests cmpxchg{8,16}b have to be emulated atomically */
 	if (bytes > CMPXCHG_MAX_BYTES || (bytes & (bytes - 1)))
 		goto emul_write;
 
 	if (bytes == 16 && !system_has_cmpxchg_double())
-		goto emul_write;
-
-	gpa = kvm_mmu_gva_to_gpa_write(vcpu, addr, NULL);
-
-	if (gpa == UNMAPPED_GVA ||
-	    (gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
 		goto emul_write;
 
 	if (((gpa + bytes - 1) & PAGE_MASK) != (gpa & PAGE_MASK))
@@ -5981,6 +5981,9 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 	return X86EMUL_CONTINUE;
 
 emul_write:
+	if (kvmi_tracked_gfn(vcpu, gpa >> PAGE_SHIFT))
+		return X86EMUL_UNHANDLEABLE;
+
 	printk_once(KERN_WARNING "kvm: emulating exchange as write\n");
 
 	return emulator_write_emulated(ctxt, addr, new, bytes, exception);
