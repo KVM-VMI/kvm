@@ -1225,23 +1225,24 @@ static int em_fnstsw(struct x86_emulate_ctxt *ctxt)
 static u8 simd_prefix_to_bytes(const struct x86_emulate_ctxt *ctxt,
 			       int simd_prefix)
 {
-	u8 bytes;
+	u8 bytes = 16;
 
 	switch (ctxt->b) {
 	case 0x11:
 		/* movss xmm, m32 */
 		/* movsd xmm, m64 */
 		/* movups xmm, m128 */
-		if (simd_prefix == 0xf3) {
+		if (simd_prefix == 0xf3)
 			bytes = 4;
-			break;
-		} else if (simd_prefix == 0xf2) {
+		else if (simd_prefix == 0xf2)
 			bytes = 8;
-			break;
-		}
-		/* fallthrough */
+		break;
+	case 0xd6:
+		/* movq xmm, m64 */
+		if (simd_prefix == 0x66)
+			bytes = 8;
+		break;
 	default:
-		bytes = 16;
 		break;
 	}
 	return bytes;
@@ -4636,6 +4637,10 @@ static const struct instr_dual instr_dual_0f_2b = {
 	I(0, em_mov), N
 };
 
+static const struct gprefix pfx_0f_d6 = {
+	N, I(0, em_mov), N, N,
+};
+
 static const struct gprefix pfx_0f_2b = {
 	ID(0, &instr_dual_0f_2b), ID(0, &instr_dual_0f_2b), N, N,
 };
@@ -4933,7 +4938,8 @@ static const struct opcode twobyte_table[256] = {
 	/* 0xC8 - 0xCF */
 	X8(I(DstReg, em_bswap)),
 	/* 0xD0 - 0xDF */
-	N, N, N, N, N, N, N, N, N, N, N, N, N, N, N, N,
+	N, N, N, N, N, N, GP(ModRM | SrcReg | DstMem | Mov | Sse, &pfx_0f_d6),
+	N, N, N, N, N, N, N, N, N,
 	/* 0xE0 - 0xEF */
 	N, N, N, N, N, N, N, GP(SrcReg | DstMem | ModRM | Mov, &pfx_0f_e7),
 	N, N, N, N, N, N, N, N,
