@@ -6,6 +6,7 @@
  */
 #include "x86.h"
 #include "cpuid.h"
+#include <asm/vmx.h>
 #include "../../../virt/kvm/kvmi_int.h"
 
 static void *alloc_get_registers_reply(const struct kvmi_msg_hdr *msg,
@@ -212,6 +213,87 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	return ret;
 }
 
+bool kvmi_arch_queue_exception(struct kvm_vcpu *vcpu)
+{
+	if (!vcpu->arch.exception.injected &&
+	    !vcpu->arch.interrupt.injected &&
+	    !vcpu->arch.nmi_injected) {
+		struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+		struct x86_exception e = {
+			.vector = ivcpu->exception.nr,
+			.error_code_valid = ivcpu->exception.error_code_valid,
+			.error_code = ivcpu->exception.error_code,
+			.address = ivcpu->exception.address,
+		};
+
+		if (e.vector == PF_VECTOR)
+			kvm_inject_page_fault(vcpu, &e);
+		else if (e.error_code_valid)
+			kvm_queue_exception_e(vcpu, e.vector, e.error_code);
+		else
+			kvm_queue_exception(vcpu, e.vector);
+
+		return true;
+	}
+
+	return false;
+}
+
+static u32 kvmi_send_trap(struct kvm_vcpu *vcpu, u32 vector, u32 type,
+			  u32 error_code, u64 cr2)
+{
+	struct kvmi_event_trap e = {
+		.error_code = error_code,
+		.vector = vector,
+		.type = type,
+		.cr2 = cr2
+	};
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_TRAP, &e, sizeof(e),
+			      NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}
+
+void kvmi_arch_trap_event(struct kvm_vcpu *vcpu)
+{
+	u32 vector, type, err;
+	u32 action;
+
+	if (vcpu->arch.exception.injected) {
+		vector = vcpu->arch.exception.nr;
+		err = vcpu->arch.exception.error_code;
+
+		if (kvm_exception_is_soft(vector))
+			type = INTR_TYPE_SOFT_EXCEPTION;
+		else
+			type = INTR_TYPE_HARD_EXCEPTION;
+	} else if (vcpu->arch.interrupt.injected) {
+		vector = vcpu->arch.interrupt.nr;
+		err = 0;
+
+		if (vcpu->arch.interrupt.soft)
+			type = INTR_TYPE_SOFT_INTR;
+		else
+			type = INTR_TYPE_EXT_INTR;
+	} else {
+		vector = 0;
+		type = 0;
+		err = 0;
+	}
+
+	action = kvmi_send_trap(vcpu, vector, type, err, vcpu->arch.cr2);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "TRAP");
+	}
+}
+
 int kvmi_arch_cmd_get_cpuid(struct kvm_vcpu *vcpu,
 			    const struct kvmi_get_cpuid *req,
 			    struct kvmi_get_cpuid_reply *rpl)
@@ -237,6 +319,32 @@ int kvmi_arch_cmd_get_vcpu_info(struct kvm_vcpu *vcpu,
 		rpl->tsc_speed = 1000ul * vcpu->arch.virtual_tsc_khz;
 	else
 		rpl->tsc_speed = 0;
+
+	return 0;
+}
+
+static bool is_vector_valid(u8 vector)
+{
+	return true;
+}
+
+static bool is_gva_valid(struct kvm_vcpu *vcpu, u64 gva)
+{
+	return true;
+}
+
+int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
+				   bool error_code_valid,
+				   u32 error_code, u64 address)
+{
+	if (!(is_vector_valid(vector) && is_gva_valid(vcpu, address)))
+		return -KVM_EINVAL;
+
+	IVCPU(vcpu)->exception.pending = true;
+	IVCPU(vcpu)->exception.nr = vector;
+	IVCPU(vcpu)->exception.error_code = error_code_valid ? error_code : 0;
+	IVCPU(vcpu)->exception.error_code_valid = error_code_valid;
+	IVCPU(vcpu)->exception.address = address;
 
 	return 0;
 }

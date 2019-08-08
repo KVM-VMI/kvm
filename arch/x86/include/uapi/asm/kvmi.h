@@ -26,6 +26,14 @@ struct kvmi_event_arch {
 	} msrs;
 };
 
+struct kvmi_event_trap {
+	__u32 vector;
+	__u32 type;
+	__u32 error_code;
+	__u32 padding;
+	__u64 cr2;
+};
+
 struct kvmi_get_registers {
 	__u16 nmsrs;
 	__u16 padding1;

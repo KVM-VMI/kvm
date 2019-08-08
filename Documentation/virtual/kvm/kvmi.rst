@@ -969,6 +969,44 @@ Returns a CPUID leaf (as seen by the guest OS).
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOENT - the selected leaf is not present or is invalid
 
+20. KVMI_INJECT_EXCEPTION
+-------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_inject_exception {
+		__u8 nr;
+		__u8 has_error;
+		__u16 padding;
+		__u32 error_code;
+		__u64 address;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Injects a vCPU exception with or without an error code. In case of page fault
+exception, the guest virtual address has to be specified.
+
+The introspection tool should enable the *KVMI_EVENT_TRAP* event in
+order to be notified if the expection was not delivered.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the specified exception number is invalid
+* -KVM_EINVAL - the specified address is invalid
+* -KVM_EINVAL - padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
 Events
 ======
 
@@ -1166,4 +1204,37 @@ cannot be disabled via *KVMI_CONTROL_EVENTS*.
 
 This event has a low priority. It will be sent after any other vCPU
 introspection event and when no vCPU introspection command is queued.
+
+5. KVMI_EVENT_TRAP
+------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+	struct kvmi_event_trap {
+		__u32 vector;
+		__u32 type;
+		__u32 error_code;
+		__u32 padding;
+		__u64 cr2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent if a previous *KVMI_INJECT_EXCEPTION* command has
+been overwritten by an interrupt picked up during guest reentry and the
+introspection has been enabled for this event (see *KVMI_CONTROL_EVENTS*).
+
+``kvmi_event``, exception/interrupt number (vector), exception/interrupt
+type, exception code (``error_code``) and CR2 are sent to the introspector.
 

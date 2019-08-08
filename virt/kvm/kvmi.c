@@ -1058,6 +1058,46 @@ void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL(kvmi_activate_rep_complete);
 
+/*
+ * This function returns false if there is an exception or interrupt pending.
+ * It returns true in all other cases including KVMI not being initialized.
+ */
+bool kvmi_queue_exception(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (!IVCPU(vcpu)->exception.pending)
+		goto out;
+
+	ret = kvmi_arch_queue_exception(vcpu);
+
+	memset(&IVCPU(vcpu)->exception, 0, sizeof(IVCPU(vcpu)->exception));
+
+out:
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
+void kvmi_trap_event(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_TRAP))
+		kvmi_arch_trap_event(vcpu);
+
+	kvmi_put(vcpu->kvm);
+}
+
 static bool __kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 {
 	u32 action;

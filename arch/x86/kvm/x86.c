@@ -7930,6 +7930,17 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		}
 	}
 
+	if (!kvmi_queue_exception(vcpu))
+		kvmi_trap_event(vcpu);
+	else if (vcpu->arch.exception.pending) {
+		kvm_x86_ops->queue_exception(vcpu);
+		if (exception_type(vcpu->arch.exception.nr) == EXCPT_FAULT)
+			__kvm_set_rflags(vcpu, kvm_get_rflags(vcpu) |
+						X86_EFLAGS_RF);
+		vcpu->arch.exception.pending = false;
+		vcpu->arch.exception.injected = true;
+	}
+
 	r = kvm_mmu_reload(vcpu);
 	if (unlikely(r)) {
 		goto cancel_injection;

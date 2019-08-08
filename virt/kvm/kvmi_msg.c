@@ -36,6 +36,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_GET_REGISTERS]         = "KVMI_GET_REGISTERS",
 	[KVMI_GET_VCPU_INFO]         = "KVMI_GET_VCPU_INFO",
 	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
+	[KVMI_INJECT_EXCEPTION]      = "KVMI_INJECT_EXCEPTION",
 	[KVMI_PAUSE_VCPU]            = "KVMI_PAUSE_VCPU",
 	[KVMI_READ_PHYSICAL]         = "KVMI_READ_PHYSICAL",
 	[KVMI_SET_PAGE_ACCESS]       = "KVMI_SET_PAGE_ACCESS",
@@ -620,6 +621,25 @@ static int handle_set_registers(struct kvm_vcpu *vcpu,
 	return reply_cb(vcpu, msg, err, NULL, 0);
 }
 
+static int handle_inject_exception(struct kvm_vcpu *vcpu,
+				   const struct kvmi_msg_hdr *msg,
+				   const void *_req,
+				   vcpu_reply_fct reply_cb)
+{
+	const struct kvmi_inject_exception *req = _req;
+	int ec;
+
+	if (req->padding)
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_arch_cmd_inject_exception(vcpu, req->nr,
+						    req->has_error,
+						    req->error_code,
+						    req->address);
+
+	return reply_cb(vcpu, msg, ec, NULL, 0);
+}
+
 static int handle_control_events(struct kvm_vcpu *vcpu,
 				 const struct kvmi_msg_hdr *msg,
 				 const void *_req,
@@ -670,6 +690,7 @@ static int(*const msg_vcpu[])(struct kvm_vcpu *,
 	[KVMI_GET_CPUID]        = handle_get_cpuid,
 	[KVMI_GET_REGISTERS]    = handle_get_registers,
 	[KVMI_GET_VCPU_INFO]    = handle_get_vcpu_info,
+	[KVMI_INJECT_EXCEPTION] = handle_inject_exception,
 	[KVMI_SET_REGISTERS]    = handle_set_registers,
 };
 

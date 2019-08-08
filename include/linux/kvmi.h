@@ -16,6 +16,8 @@ int kvmi_ioctl_event(struct kvm *kvm, void __user *argp);
 int kvmi_ioctl_unhook(struct kvm *kvm, bool force_reset);
 int kvmi_vcpu_init(struct kvm_vcpu *vcpu);
 void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu);
+bool kvmi_queue_exception(struct kvm_vcpu *vcpu);
+void kvmi_trap_event(struct kvm_vcpu *vcpu);
 void kvmi_handle_requests(struct kvm_vcpu *vcpu);
 void kvmi_init_emulate(struct kvm_vcpu *vcpu);
 void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu);
@@ -29,6 +31,8 @@ static inline void kvmi_destroy_vm(struct kvm *kvm) { }
 static inline int kvmi_vcpu_init(struct kvm_vcpu *vcpu) { return 0; }
 static inline void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu) { }
 static inline void kvmi_handle_requests(struct kvm_vcpu *vcpu) { }
+static inline bool kvmi_queue_exception(struct kvm_vcpu *vcpu) { return true; }
+static inline void kvmi_trap_event(struct kvm_vcpu *vcpu) { }
 static inline void kvmi_init_emulate(struct kvm_vcpu *vcpu) { }
 static inline void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu) { }
 

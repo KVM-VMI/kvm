@@ -215,6 +215,14 @@ struct kvmi_vcpu_hdr {
 	__u32 padding2;
 };
 
+struct kvmi_inject_exception {
+	__u8 nr;
+	__u8 has_error;
+	__u16 padding;
+	__u32 error_code;
+	__u64 address;
+};
+
 struct kvmi_event {
 	__u16 size;
 	__u16 vcpu;
