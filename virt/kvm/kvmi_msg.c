@@ -169,7 +169,7 @@ static int handle_get_version(struct kvmi *ikvm,
 	memset(&rpl, 0, sizeof(rpl));
 	rpl.version = KVMI_VERSION;
 
-	return kvmi_msg_vm_reply(ikvm, msg, 0, &rpl, sizeof(rpl));
+	return kvmi_msg_vm_maybe_reply(ikvm, msg, 0, &rpl, sizeof(rpl));
 }
 
 static bool is_command_allowed(struct kvmi *ikvm, int id)
