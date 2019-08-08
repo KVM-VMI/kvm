@@ -455,6 +455,10 @@ struct kvm {
 	struct srcu_struct srcu;
 	struct srcu_struct irq_srcu;
 	pid_t userspace_pid;
+
+	struct completion kvmi_completed;
+	refcount_t kvmi_ref;
+	void *kvmi;
 };
 
 #define kvm_err(fmt, ...) \

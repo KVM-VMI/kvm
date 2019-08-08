@@ -96,6 +96,13 @@ config KVM_MMU_AUDIT
 	 This option adds a R/W kVM module parameter 'mmu_audit', which allows
 	 auditing of KVM MMU events at runtime.
 
+config KVM_INTROSPECTION
+	bool "VM Introspection"
+	depends on KVM && (KVM_INTEL || KVM_AMD)
+	help
+	 This option enables functions to control the execution of VM-s, query
+	 the state of the vCPU-s (GPR-s, MSR-s etc.).
+
 # OK, it's a little counter-intuitive to do this, but it puts it neatly under
 # the virtualization menu.
 source "drivers/vhost/Kconfig"
