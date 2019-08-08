@@ -5876,8 +5876,17 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 	char *kaddr;
 	bool exchanged = false;
 
-	/* guests cmpxchg8b have to be emulated atomically */
-	if (bytes > 8 || (bytes & (bytes - 1)))
+#ifdef CONFIG_X86_64
+#define CMPXCHG_MAX_BYTES 16
+#else
+#define CMPXCHG_MAX_BYTES 8
+#endif
+
+	/* guests cmpxchg{8,16}b have to be emulated atomically */
+	if (bytes > CMPXCHG_MAX_BYTES || (bytes & (bytes - 1)))
+		goto emul_write;
+
+	if (bytes == 16 && !system_has_cmpxchg_double())
 		goto emul_write;
 
 	gpa = kvm_mmu_gva_to_gpa_write(vcpu, addr, NULL);
@@ -5934,6 +5943,30 @@ static int emulator_cmpxchg_emulated(struct x86_emulate_ctxt *ctxt,
 			*((u64 *)old) = val;
 		break;
 	}
+#ifdef CONFIG_X86_64
+	case 16: {
+		u64 *p1 = (u64 *)kaddr;
+		u64 *p2 = p1 + 1;
+		u64 *o1 = old;
+		u64 *o2 = o1 + 1;
+		const u64 *n1 = new;
+		const u64 *n2 = n1 + 1;
+		const u64 __o1 = *o1;
+		const u64 __o2 = *o2;
+
+		/*
+		 * We use an explicit asm statement because cmpxchg_double()
+		 * does not return the previous memory contents on failure
+		 */
+		asm volatile ("lock cmpxchg16b %2\n"
+			      : "+a"(*o1), "+d"(*o2), "+m"(*p1), "+m"(*p2)
+			      : "b"(*n1), "c"(*n2) : "memory");
+
+		if (__o1 == *o1 && __o2 == *o2)
+			exchanged = true;
+		break;
+	}
+#endif
 	default:
 		BUG();
 	}
