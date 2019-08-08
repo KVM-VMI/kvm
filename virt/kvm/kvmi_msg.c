@@ -725,3 +725,15 @@ int kvmi_msg_send_unhook(struct kvmi *ikvm)
 
 	return kvmi_sock_write(ikvm, vec, n, msg_size);
 }
+
+u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu)
+{
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_CREATE_VCPU, NULL, 0,
+			      NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}

@@ -13,6 +13,7 @@
 static struct kmem_cache *msg_cache;
 static struct kmem_cache *job_cache;
 
+static bool kvmi_create_vcpu_event(struct kvm_vcpu *vcpu);
 static void kvmi_abort_events(struct kvm *kvm);
 
 void *kvmi_msg_alloc(void)
@@ -150,6 +151,11 @@ static struct kvmi_job *kvmi_pull_job(struct kvmi_vcpu *ivcpu)
 	return job;
 }
 
+static void kvmi_job_create_vcpu(struct kvm_vcpu *vcpu, void *ctx)
+{
+	kvmi_create_vcpu_event(vcpu);
+}
+
 static bool alloc_ivcpu(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_vcpu *ivcpu;
@@ -245,6 +251,9 @@ int kvmi_vcpu_init(struct kvm_vcpu *vcpu)
 		goto out;
 	}
 
+	if (kvmi_add_job(vcpu, kvmi_job_create_vcpu, NULL, NULL))
+		ret = -ENOMEM;
+
 out:
 	kvmi_put(vcpu->kvm);
 
@@ -327,6 +336,10 @@ int kvmi_hook(struct kvm *kvm, const struct kvm_introspection *qemu)
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		if (!alloc_ivcpu(vcpu)) {
+			err = -ENOMEM;
+			goto err_alloc;
+		}
+		if (kvmi_add_job(vcpu, kvmi_job_create_vcpu, NULL, NULL)) {
 			err = -ENOMEM;
 			goto err_alloc;
 		}
@@ -549,6 +562,40 @@ void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action,
 		kvmi_err(IKVM(kvm), "Unsupported action %d for event %s\n",
 			 action, str);
 	}
+}
+
+static bool __kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
+{
+	u32 action;
+	bool ret = false;
+
+	action = kvmi_msg_send_create_vcpu(vcpu);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action, "CREATE");
+	}
+
+	return ret;
+}
+
+static bool kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
+{
+	struct kvmi *ikvm;
+	bool ret = true;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return true;
+
+	if (test_bit(KVMI_EVENT_CREATE_VCPU, ikvm->vm_ev_mask))
+		ret = __kvmi_create_vcpu_event(vcpu);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
 }
 
 void kvmi_run_jobs(struct kvm_vcpu *vcpu)

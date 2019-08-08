@@ -513,3 +513,26 @@ pause/stop/migrate the guest (see **Unhooking**) and the introspection
 has been enabled for this event (see **KVMI_CONTROL_VM_EVENTS**).
 The introspection tool has a chance to unhook and close the KVMI channel
 (signaling that the operation can proceed).
+
+2. KVMI_EVENT_CREATE_VCPU
+-------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent when a new vCPU is created and the introspection has
+been enabled for this event (see *KVMI_CONTROL_VM_EVENTS*).
+
