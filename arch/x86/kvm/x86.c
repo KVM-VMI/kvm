@@ -7363,16 +7363,33 @@ out:
 }
 EXPORT_SYMBOL_GPL(kvm_emulate_hypercall);
 
+#define KVM_HYPERCALL_INSN_LEN 3
+
 static int emulator_fix_hypercall(struct x86_emulate_ctxt *ctxt)
 {
+	int err;
 	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
-	char instruction[3];
+	char buf[KVM_HYPERCALL_INSN_LEN];
+	char instruction[KVM_HYPERCALL_INSN_LEN];
 	unsigned long rip = kvm_rip_read(vcpu);
 
-	kvm_x86_ops->patch_hypercall(vcpu, instruction);
+	err = emulator_read_emulated(ctxt, rip, buf, sizeof(buf),
+				     &ctxt->exception);
+	if (err != X86EMUL_CONTINUE)
+		return err;
 
-	return emulator_write_emulated(ctxt, rip, instruction, 3,
-		&ctxt->exception);
+	kvm_x86_ops->patch_hypercall(vcpu, instruction);
+	if (!memcmp(instruction, buf, sizeof(instruction)))
+		/*
+		 * The hypercall instruction is the correct one. Retry
+		 * its execution maybe we got here as a result of an
+		 * event other than #UD which has been resolved in the
+		 * mean time.
+		 */
+		return X86EMUL_CONTINUE;
+
+	return emulator_write_emulated(ctxt, rip, instruction,
+				       sizeof(instruction), &ctxt->exception);
 }
 
 static int dm_request_for_irq_injection(struct kvm_vcpu *vcpu)
