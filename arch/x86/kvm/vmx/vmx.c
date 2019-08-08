@@ -7682,6 +7682,13 @@ static __exit void hardware_unsetup(void)
 	free_kvm_area();
 }
 
+static bool vmx_nested_pagefault(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->arch.exit_qualification & EPT_VIOLATION_GVA_TRANSLATED)
+		return false;
+	return true;
+}
+
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -7692,6 +7699,8 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.hardware_disable = hardware_disable,
 	.cpu_has_accelerated_tpr = report_flexpriority,
 	.has_emulated_msr = vmx_has_emulated_msr,
+
+	.nested_pagefault = vmx_nested_pagefault,
 
 	.vm_init = vmx_vm_init,
 	.vm_alloc = vmx_vm_alloc,

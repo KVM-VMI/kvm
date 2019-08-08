@@ -1004,6 +1004,8 @@ struct kvm_x86_ops {
 	bool (*has_emulated_msr)(int index);
 	void (*cpuid_update)(struct kvm_vcpu *vcpu);
 
+	bool (*nested_pagefault)(struct kvm_vcpu *vcpu);
+
 	struct kvm *(*vm_alloc)(void);
 	void (*vm_free)(struct kvm *);
 	int (*vm_init)(struct kvm *kvm);
@@ -1592,5 +1594,7 @@ static inline int kvm_cpu_get_apicid(int mps_cpu)
 
 #define put_smstate(type, buf, offset, val)                      \
 	*(type *)((buf) + (offset) - 0x7e00) = val
+
+bool kvm_mmu_nested_pagefault(struct kvm_vcpu *vcpu);
 
 #endif /* _ASM_X86_KVM_HOST_H */
