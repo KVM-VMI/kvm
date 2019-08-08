@@ -126,6 +126,9 @@ struct kvmi_vcpu {
 		DECLARE_BITMAP(high, KVMI_NUM_MSR);
 	} msr_mask;
 
+	bool ss_owner;
+	bool ss_requested;
+
 	struct list_head job_list;
 	spinlock_t job_lock;
 
@@ -150,6 +153,15 @@ struct kvmi {
 	DECLARE_BITMAP(cmd_allow_mask, KVMI_NUM_COMMANDS);
 	DECLARE_BITMAP(event_allow_mask, KVMI_NUM_EVENTS);
 	DECLARE_BITMAP(vm_ev_mask, KVMI_NUM_EVENTS);
+
+#define SINGLE_STEP_MAX_DEPTH 8
+	struct {
+		gfn_t gfn;
+		u8 old_access;
+		u32 old_write_bitmap;
+	} ss_context[SINGLE_STEP_MAX_DEPTH];
+	u8 ss_level;
+	atomic_t ss_active;
 
 	struct {
 		bool initialized;
@@ -224,6 +236,7 @@ int kvmi_add_job(struct kvm_vcpu *vcpu,
 		 void *ctx, void (*free_fct)(void *ctx));
 void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action,
 				      const char *str);
+bool kvmi_start_ss(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access);
 
 /* arch */
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
@@ -274,6 +287,9 @@ int kvmi_arch_cmd_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 				   u64 address);
 int kvmi_arch_cmd_control_cr(struct kvm_vcpu *vcpu,
 			     const struct kvmi_control_cr *req);
+void kvmi_arch_start_single_step(struct kvm_vcpu *vcpu);
+void kvmi_arch_stop_single_step(struct kvm_vcpu *vcpu);
+u8 kvmi_arch_relax_page_access(u8 old, u8 new);
 int kvmi_arch_cmd_control_msr(struct kvm_vcpu *vcpu,
 			      const struct kvmi_control_msr *req);
 int kvmi_arch_cmd_get_mtrr_type(struct kvm_vcpu *vcpu, u64 gpa, u8 *type);

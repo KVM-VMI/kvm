@@ -22,6 +22,8 @@ bool kvmi_queue_exception(struct kvm_vcpu *vcpu);
 void kvmi_trap_event(struct kvm_vcpu *vcpu);
 bool kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor, u8 write);
 void kvmi_handle_requests(struct kvm_vcpu *vcpu);
+void kvmi_stop_ss(struct kvm_vcpu *vcpu);
+bool kvmi_vcpu_enabled_ss(struct kvm_vcpu *vcpu);
 void kvmi_init_emulate(struct kvm_vcpu *vcpu);
 void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu);
 bool kvmi_bp_intercepted(struct kvm_vcpu *vcpu, u32 dbg);
@@ -44,6 +46,8 @@ static inline void kvmi_handle_requests(struct kvm_vcpu *vcpu) { }
 static inline bool kvmi_hypercall_event(struct kvm_vcpu *vcpu) { return false; }
 static inline bool kvmi_queue_exception(struct kvm_vcpu *vcpu) { return true; }
 static inline void kvmi_trap_event(struct kvm_vcpu *vcpu) { }
+static inline void kvmi_stop_ss(struct kvm_vcpu *vcpu) { }
+static inline bool kvmi_vcpu_enabled_ss(struct kvm_vcpu *vcpu) { return false; }
 static inline void kvmi_init_emulate(struct kvm_vcpu *vcpu) { }
 static inline void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu) { }
 static inline bool kvmi_bp_intercepted(struct kvm_vcpu *vcpu, u32 dbg)

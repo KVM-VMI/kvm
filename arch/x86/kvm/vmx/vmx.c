@@ -5384,6 +5384,7 @@ static int handle_invalid_op(struct kvm_vcpu *vcpu)
 
 static int handle_monitor_trap(struct kvm_vcpu *vcpu)
 {
+	kvmi_stop_ss(vcpu);
 	return 1;
 }
 
@@ -5991,6 +5992,11 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu)
 			vmx->loaded_vmcs->soft_vnmi_blocked = 0;
 		}
 	}
+
+	if (kvmi_vcpu_enabled_ss(vcpu)
+			&& exit_reason != EXIT_REASON_EPT_VIOLATION
+			&& exit_reason != EXIT_REASON_MONITOR_TRAP_FLAG)
+		kvmi_stop_ss(vcpu);
 
 	if (exit_reason < kvm_vmx_max_exit_handlers
 	    && kvm_vmx_exit_handlers[exit_reason])
@@ -7842,6 +7848,16 @@ static __exit void hardware_unsetup(void)
 	free_kvm_area();
 }
 
+static void vmx_set_mtf(struct kvm_vcpu *vcpu, bool enable)
+{
+	if (enable)
+		vmcs_set_bits(CPU_BASED_VM_EXEC_CONTROL,
+			      CPU_BASED_MONITOR_TRAP_FLAG);
+	else
+		vmcs_clear_bits(CPU_BASED_VM_EXEC_CONTROL,
+				CPU_BASED_MONITOR_TRAP_FLAG);
+}
+
 static void vmx_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 			      bool enable)
 {
@@ -7927,6 +7943,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_accelerated_tpr = report_flexpriority,
 	.has_emulated_msr = vmx_has_emulated_msr,
 
+	.set_mtf = vmx_set_mtf,
 	.msr_intercept = vmx_msr_intercept,
 	.cr3_write_exiting = vmx_cr3_write_exiting,
 	.desc_intercept = vmx_desc_intercept,

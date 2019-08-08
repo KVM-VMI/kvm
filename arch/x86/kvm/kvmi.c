@@ -520,7 +520,6 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	u32 ctx_size;
 	u64 ctx_addr;
 	u32 action;
-	bool singlestep_ignored;
 	bool ret = false;
 
 	if (!kvm_spt_fault(vcpu))
@@ -533,7 +532,7 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	if (ivcpu->effective_rep_complete)
 		return true;
 
-	action = kvmi_msg_send_pf(vcpu, gpa, gva, access, &singlestep_ignored,
+	action = kvmi_msg_send_pf(vcpu, gpa, gva, access, &ivcpu->ss_requested,
 				  &ivcpu->rep_complete, &ctx_addr,
 				  ivcpu->ctx_data, &ctx_size);
 
@@ -547,6 +546,8 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 		ret = true;
 		break;
 	case KVMI_EVENT_ACTION_RETRY:
+		if (ivcpu->ss_requested && !kvmi_start_ss(vcpu, gpa, access))
+			ret = true;
 		break;
 	default:
 		kvmi_handle_common_event_actions(vcpu, action, "PF");
@@ -756,6 +757,48 @@ int kvmi_arch_cmd_control_cr(struct kvm_vcpu *vcpu,
 		clear_bit(cr, ivcpu->cr_mask);
 
 	return 0;
+}
+
+void kvmi_arch_start_single_step(struct kvm_vcpu *vcpu)
+{
+	kvm_set_mtf(vcpu, true);
+
+	/*
+	 * Set block by STI only if the RFLAGS.IF = 1.
+	 * Blocking by both STI and MOV/POP SS is not possible.
+	 */
+	if (kvm_arch_interrupt_allowed(vcpu))
+		kvm_set_interrupt_shadow(vcpu, KVM_X86_SHADOW_INT_STI);
+
+}
+
+void kvmi_arch_stop_single_step(struct kvm_vcpu *vcpu)
+{
+	kvm_set_mtf(vcpu, false);
+	/*
+	 * The blocking by STI is cleared after the guest
+	 * executes one instruction or incurs an exception.
+	 * However we migh stop the SS before entering to guest,
+	 * so be sure we are clearing the STI blocking.
+	 */
+	kvm_set_interrupt_shadow(vcpu, 0);
+}
+
+u8 kvmi_arch_relax_page_access(u8 old, u8 new)
+{
+	u8 ret = old | new;
+
+	/*
+	 * An SPTE entry with just the -wx bits set can trigger a
+	 * misconfiguration error from the hardware, as it's the case
+	 * for x86 where this access mode is used to mark I/O memory.
+	 * Thus, we make sure that -wx accesses are translated to rwx.
+	 */
+	if ((ret & (KVMI_PAGE_ACCESS_W | KVMI_PAGE_ACCESS_X)) ==
+	    (KVMI_PAGE_ACCESS_W | KVMI_PAGE_ACCESS_X))
+		ret |= KVMI_PAGE_ACCESS_R;
+
+	return ret;
 }
 
 static const struct {

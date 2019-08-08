@@ -1016,6 +1016,7 @@ struct kvm_x86_ops {
 	void (*msr_intercept)(struct kvm_vcpu *vcpu, unsigned int msr,
 				bool enable);
 	bool (*desc_intercept)(struct kvm_vcpu *vcpu, bool enable);
+	void (*set_mtf)(struct kvm_vcpu *vcpu, bool enable);
 	void (*cr3_write_exiting)(struct kvm_vcpu *vcpu, bool enable);
 	bool (*nested_pagefault)(struct kvm_vcpu *vcpu);
 	bool (*spt_fault)(struct kvm_vcpu *vcpu);
@@ -1628,6 +1629,8 @@ void kvm_arch_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 				bool enable);
 bool kvm_mmu_nested_pagefault(struct kvm_vcpu *vcpu);
 bool kvm_spt_fault(struct kvm_vcpu *vcpu);
+void kvm_set_mtf(struct kvm_vcpu *vcpu, bool enable);
+void kvm_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 void kvm_control_cr3_write_exiting(struct kvm_vcpu *vcpu, bool enable);
 
 #endif /* _ASM_X86_KVM_HOST_H */

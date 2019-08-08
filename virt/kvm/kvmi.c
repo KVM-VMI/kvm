@@ -1260,11 +1260,19 @@ void kvmi_run_jobs(struct kvm_vcpu *vcpu)
 	}
 }
 
+static bool need_to_wait_for_ss(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+
+	return atomic_read(&ikvm->ss_active) && !ivcpu->ss_owner;
+}
+
 static bool need_to_wait(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
 
-	return ivcpu->reply_waiting;
+	return ivcpu->reply_waiting || need_to_wait_for_ss(vcpu);
 }
 
 static bool done_waiting(struct kvm_vcpu *vcpu)
@@ -1571,6 +1579,141 @@ int kvmi_cmd_pause_vcpu(struct kvm_vcpu *vcpu, bool wait)
 
 	return 0;
 }
+
+void kvmi_stop_ss(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvm *kvm = vcpu->kvm;
+	struct kvmi *ikvm;
+	int i;
+
+	ikvm = kvmi_get(kvm);
+	if (!ikvm)
+		return;
+
+	if (unlikely(!ivcpu->ss_owner)) {
+		kvmi_warn(ikvm, "%s\n", __func__);
+		goto out;
+	}
+
+	for (i = ikvm->ss_level; i--;)
+		kvmi_set_gfn_access(kvm,
+				    ikvm->ss_context[i].gfn,
+				    ikvm->ss_context[i].old_access,
+				    ikvm->ss_context[i].old_write_bitmap);
+
+	ikvm->ss_level = 0;
+
+	kvmi_arch_stop_single_step(vcpu);
+
+	atomic_set(&ikvm->ss_active, false);
+	/*
+	 * Make ss_active update visible
+	 * before resuming all the other vCPUs.
+	 */
+	smp_mb__after_atomic();
+	kvm_make_all_cpus_request(kvm, 0);
+
+	ivcpu->ss_owner = false;
+
+out:
+	kvmi_put(kvm);
+}
+EXPORT_SYMBOL(kvmi_stop_ss);
+
+static bool kvmi_acquire_ss(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+
+	if (ivcpu->ss_owner)
+		return true;
+
+	if (atomic_cmpxchg(&ikvm->ss_active, false, true) != false)
+		return false;
+
+	kvm_make_all_cpus_request(vcpu->kvm, KVM_REQ_INTROSPECTION |
+						KVM_REQUEST_WAIT);
+
+	ivcpu->ss_owner = true;
+
+	return true;
+}
+
+static bool kvmi_run_ss(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
+{
+	struct kvmi *ikvm = IKVM(vcpu->kvm);
+	u8 old_access, new_access;
+	u32 old_write_bitmap;
+	gfn_t gfn = gpa_to_gfn(gpa);
+	int err;
+
+	kvmi_arch_start_single_step(vcpu);
+
+	err = kvmi_get_gfn_access(ikvm, gfn, &old_access, &old_write_bitmap);
+	/* likely was removed from radix tree due to rwx */
+	if (err) {
+		kvmi_warn(ikvm, "%s: gfn 0x%llx not found in the radix tree\n",
+			  __func__, gfn);
+		return true;
+	}
+
+	if (ikvm->ss_level == SINGLE_STEP_MAX_DEPTH - 1) {
+		kvmi_err(ikvm, "single step limit reached\n");
+		return false;
+	}
+
+	ikvm->ss_context[ikvm->ss_level].gfn = gfn;
+	ikvm->ss_context[ikvm->ss_level].old_access = old_access;
+	ikvm->ss_context[ikvm->ss_level].old_write_bitmap = old_write_bitmap;
+	ikvm->ss_level++;
+
+	new_access = kvmi_arch_relax_page_access(old_access, access);
+
+	kvmi_set_gfn_access(vcpu->kvm, gfn, new_access, old_write_bitmap);
+
+	return true;
+}
+
+bool kvmi_start_ss(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
+{
+	bool ret = false;
+
+	while (!kvmi_acquire_ss(vcpu)) {
+		int err = kvmi_run_jobs_and_wait(vcpu);
+
+		if (err) {
+			kvmi_err(IKVM(vcpu->kvm), "kvmi_acquire_ss() has failed\n");
+			goto out;
+		}
+	}
+
+	if (kvmi_run_ss(vcpu, gpa, access))
+		ret = true;
+	else
+		kvmi_stop_ss(vcpu);
+
+out:
+	return ret;
+}
+
+bool kvmi_vcpu_enabled_ss(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_vcpu *ivcpu = IVCPU(vcpu);
+	struct kvmi *ikvm;
+	bool ret;
+
+	ikvm = kvmi_get(vcpu->kvm);
+	if (!ikvm)
+		return false;
+
+	ret = ivcpu->ss_owner;
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_vcpu_enabled_ss);
 
 static void kvmi_job_abort(struct kvm_vcpu *vcpu, void *ctx)
 {

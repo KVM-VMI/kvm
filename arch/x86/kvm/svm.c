@@ -7183,6 +7183,10 @@ static bool svm_spt_fault(struct kvm_vcpu *vcpu)
 	return (svm->vmcb->control.exit_code == SVM_EXIT_NPF);
 }
 
+static void svm_set_mtf(struct kvm_vcpu *vcpu, bool enable)
+{
+}
+
 static void svm_cr3_write_exiting(struct kvm_vcpu *vcpu, bool enable)
 {
 }
@@ -7225,6 +7229,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cpu_has_accelerated_tpr = svm_cpu_has_accelerated_tpr,
 	.has_emulated_msr = svm_has_emulated_msr,
 
+	.set_mtf = svm_set_mtf,
 	.cr3_write_exiting = svm_cr3_write_exiting,
 	.msr_intercept = svm_msr_intercept,
 	.desc_intercept = svm_desc_intercept,

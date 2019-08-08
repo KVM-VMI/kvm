@@ -7358,6 +7358,13 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool req_int_win)
 {
 	int r;
 
+	if (kvmi_vcpu_enabled_ss(vcpu))
+		/*
+		 * We cannot inject events during single-stepping.
+		 * Try again later.
+		 */
+		return -1;
+
 	/* try to reinject previous events if any */
 
 	if (vcpu->arch.exception.injected)
@@ -10133,6 +10140,18 @@ void kvm_control_cr3_write_exiting(struct kvm_vcpu *vcpu, bool enable)
 	kvm_x86_ops->cr3_write_exiting(vcpu, enable);
 }
 EXPORT_SYMBOL(kvm_control_cr3_write_exiting);
+
+void kvm_set_mtf(struct kvm_vcpu *vcpu, bool enable)
+{
+	kvm_x86_ops->set_mtf(vcpu, enable);
+}
+EXPORT_SYMBOL(kvm_set_mtf);
+
+void kvm_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
+{
+	kvm_x86_ops->set_interrupt_shadow(vcpu, mask);
+}
+EXPORT_SYMBOL(kvm_set_interrupt_shadow);
 
 bool kvm_spt_fault(struct kvm_vcpu *vcpu)
 {
