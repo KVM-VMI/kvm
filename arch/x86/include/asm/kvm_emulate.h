@@ -178,7 +178,7 @@ struct x86_emulate_ops {
 	 */
 	int (*cmpxchg_emulated)(struct x86_emulate_ctxt *ctxt,
 				unsigned long addr,
-				const void *old,
+				void *old,
 				const void *new,
 				unsigned int bytes,
 				struct x86_exception *fault);
