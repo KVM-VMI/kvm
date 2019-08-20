@@ -44,12 +44,21 @@ static void die( const char *msg )
 	exit( 1 );
 }
 
-static void reply_continue( void *dom, struct kvmi_dom_event *ev, void *_rpl, size_t rpl_size )
+static void setup_vcpu_reply( struct kvmi_dom_event *ev, struct kvmi_vcpu_hdr *rpl, int action )
 {
-	struct kvmi_event_reply *rpl = _rpl;
+	struct kvmi_event_reply *common = (struct kvmi_event_reply *)( rpl + 1 );
 
-	rpl->action = KVMI_EVENT_ACTION_CONTINUE;
-	rpl->event  = ev->event.common.event;
+	memset( rpl, 0, sizeof( *rpl ) );
+	rpl->vcpu = ev->event.common.vcpu;
+
+	memset( common, 0, sizeof( *common ) );
+	common->action = action;
+	common->event  = ev->event.common.event;
+}
+
+static void reply_continue( void *dom, struct kvmi_dom_event *ev, struct kvmi_vcpu_hdr *rpl, size_t rpl_size )
+{
+	setup_vcpu_reply( ev, rpl, KVMI_EVENT_ACTION_CONTINUE );
 
 	printf( "Reply with CONTINUE (vcpu%u)\n", ev->event.common.vcpu );
 
@@ -57,12 +66,9 @@ static void reply_continue( void *dom, struct kvmi_dom_event *ev, void *_rpl, si
 		die( "kvmi_reply_event" );
 }
 
-static void reply_retry( void *dom, struct kvmi_dom_event *ev, void *_rpl, size_t rpl_size )
+static void reply_retry( void *dom, struct kvmi_dom_event *ev, struct kvmi_vcpu_hdr *rpl, size_t rpl_size )
 {
-	struct kvmi_event_reply *rpl = _rpl;
-
-	rpl->action = KVMI_EVENT_ACTION_RETRY;
-	rpl->event  = ev->event.common.event;
+	setup_vcpu_reply( ev, rpl, KVMI_EVENT_ACTION_RETRY );
 
 	printf( "Reply with RETRY (vcpu%u)\n", ev->event.common.vcpu );
 
@@ -74,49 +80,50 @@ static void handle_cr_event( void *dom, struct kvmi_dom_event *ev )
 {
 	struct kvmi_event_cr *cr = &ev->event.cr;
 	struct {
+		struct kvmi_vcpu_hdr hdr;
 		struct kvmi_event_reply common;
-		struct kvmi_event_cr_reply {
-			__u64 new_val;
-		} cr;
+		struct kvmi_event_cr_reply cr;
 	} rpl = { 0 };
 
 	printf( "CR%d 0x%llx -> 0x%llx (vcpu%u)\n", cr->cr, cr->old_value, cr->new_value, ev->event.common.vcpu );
 
 	rpl.cr.new_val = cr->new_value;
-	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
+	reply_continue( dom, ev, &rpl.hdr, sizeof( rpl ) );
 }
 
 static void handle_msr_event( void *dom, struct kvmi_dom_event *ev )
 {
 	struct kvmi_event_msr *msr = &ev->event.msr;
 	struct {
+		struct kvmi_vcpu_hdr hdr;
 		struct kvmi_event_reply common;
-		struct kvmi_event_msr_reply {
-			__u64 new_val;
-		} msr;
+		struct kvmi_event_msr_reply msr;
 	} rpl = { 0 };
 
 	printf( "MSR 0x%x 0x%llx -> 0x%llx (vcpu%u)\n", msr->msr, msr->old_value, msr->new_value,
 	        ev->event.common.vcpu );
 
 	rpl.msr.new_val = msr->new_value;
-	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
+	reply_continue( dom, ev, &rpl.hdr, sizeof( rpl ) );
 }
 
 static void enable_vcpu_events( void *dom, unsigned int vcpu )
 {
-	unsigned int events = KVMI_EVENT_CR_FLAG | KVMI_EVENT_MSR_FLAG | KVMI_EVENT_PF_FLAG;
-	bool         enable = true;
+	bool enable = true;
 
-	printf( "Enabling CR, MSR and PF events 0x%x (vcpu%u)\n", events, vcpu );
+	printf( "Enabling CR, MSR and PF events (vcpu%u)\n", vcpu );
 
-	if ( kvmi_control_events( dom, vcpu, events ) )
+	if ( kvmi_control_events( dom, vcpu, KVMI_EVENT_CR, enable )
+		|| kvmi_control_events( dom, vcpu, KVMI_EVENT_MSR, enable )
+		|| kvmi_control_events( dom, vcpu, KVMI_EVENT_PF, enable ) )
 		die( "kvmi_control_events" );
 
-	printf( "Enabling CR3 events...\n" );
+	if ( vcpu == 0 ) {
+		printf( "Enabling CR3 events...\n" );
 
-	if ( kvmi_control_cr( dom, vcpu, CR3, enable ) )
-		die( "kvmi_control_cr(3)" );
+		if ( kvmi_control_cr( dom, vcpu, CR3, enable ) )
+			die( "kvmi_control_cr(3)" );
+	}
 
 	printf( "Enabling CR4 events...\n" );
 
@@ -131,9 +138,12 @@ static void enable_vcpu_events( void *dom, unsigned int vcpu )
 
 static void handle_pause_vcpu_event( void *dom, struct kvmi_dom_event *ev )
 {
-	struct kvmi_event_reply rpl  = { 0 };
-	unsigned int            vcpu = ev->event.common.vcpu;
-	static bool             events_enabled[MAX_VCPU];
+	struct {
+		struct kvmi_vcpu_hdr hdr;
+		struct kvmi_event_reply common;
+	} rpl = { 0 };
+	unsigned int vcpu = ev->event.common.vcpu;
+	static bool  events_enabled[MAX_VCPU];
 
 	printf( "PAUSE (vcpu%u)\n", vcpu );
 
@@ -142,16 +152,16 @@ static void handle_pause_vcpu_event( void *dom, struct kvmi_dom_event *ev )
 		events_enabled[vcpu] = true;
 	}
 
-	reply_continue( dom, ev, &rpl, sizeof( rpl ) );
+	reply_continue( dom, ev, &rpl.hdr, sizeof( rpl ) );
 }
 
-static __u8 get_page_access( void *dom, __u16 vcpu, __u64 gpa )
+static __u8 get_page_access( void *dom, __u64 gpa )
 {
 	unsigned char access;
 
-	printf( "Get page access gpa 0x%llx (vcpu%u)\n", gpa, vcpu );
+	printf( "Get page access gpa 0x%llx\n", gpa );
 
-	if ( kvmi_get_page_access( dom, vcpu, gpa, &access ) )
+	if ( kvmi_get_page_access( dom, gpa, &access ) )
 		die( "kvmi_set_page_access" );
 
 	printf( "Access is %s (0x%x)\n", access_str[access & 7], access );
@@ -159,21 +169,21 @@ static __u8 get_page_access( void *dom, __u16 vcpu, __u64 gpa )
 	return access;
 }
 
-static void set_page_access( void *dom, __u16 vcpu, __u64 gpa, __u8 access )
+static void set_page_access( void *dom, __u64 gpa, __u8 access )
 {
-	printf( "Set page access gpa 0x%llx access %s [0x%x] (vcpu%u)\n", gpa, access_str[access & 7], access, vcpu );
+	printf( "Set page access gpa 0x%llx access %s [0x%x]\n", gpa, access_str[access & 7], access );
 
-	if ( kvmi_set_page_access( dom, vcpu, &gpa, &access, 1 ) )
+	if ( kvmi_set_page_access( dom, &gpa, &access, 1 ) )
 		die( "kvmi_set_page_access" );
 }
 
-static bool write_protect_page( void *dom, __u16 vcpu, __u64 gpa )
+static bool write_protect_page( void *dom, __u64 gpa )
 {
-	__u8 access = get_page_access( dom, vcpu, gpa );
+	__u8 access = get_page_access( dom, gpa );
 
 	if ( access & KVMI_PAGE_ACCESS_W ) {
 		access &= ~KVMI_PAGE_ACCESS_W;
-		set_page_access( dom, vcpu, gpa, access );
+		set_page_access( dom, gpa, access );
 
 		return true;
 	}
@@ -184,7 +194,7 @@ static bool write_protect_page( void *dom, __u16 vcpu, __u64 gpa )
 static void maybe_start_pf_test( void *dom, struct kvmi_dom_event *ev )
 {
 	static bool started;
-	__u64       cr3  = ev->event.common.sregs.cr3;
+	__u64       cr3  = ev->event.common.arch.sregs.cr3;
 	__u16       vcpu = ev->event.common.vcpu;
 	__u64       pt   = cr3 & ~0xfff;
 
@@ -194,8 +204,17 @@ static void maybe_start_pf_test( void *dom, struct kvmi_dom_event *ev )
 	printf( "Starting #PF test with CR3 0x%llx (vcpu%u)\n", cr3, vcpu );
 
 	for ( __u64 end = pt + EPT_TEST_PAGES * PAGE_SIZE; pt < end; pt += PAGE_SIZE )
-		if ( write_protect_page( dom, vcpu, pt ) )
+		if ( write_protect_page( dom, pt ) )
 			started = true;
+
+	if ( ev->event.common.event == KVMI_EVENT_CR ) {
+		bool enable = false;
+
+		printf( "Disabling CR3 events (vcpu=%d)...\n", vcpu );
+
+		if ( kvmi_control_cr( dom, vcpu, CR3, enable ) )
+			die( "kvmi_control_cr(3)" );
+	}
 }
 
 static void handle_pf_event( void *dom, struct kvmi_dom_event *ev )
@@ -203,22 +222,23 @@ static void handle_pf_event( void *dom, struct kvmi_dom_event *ev )
 	struct kvmi_event_pf *pf   = &ev->event.page_fault;
 	__u16                 vcpu = ev->event.common.vcpu;
 	struct {
+		struct kvmi_vcpu_hdr       hdr;
 		struct kvmi_event_reply    common;
 		struct kvmi_event_pf_reply pf;
 	} rpl = {};
 
-	printf( "PF gva 0x%llx gpa 0x%llx mode %s [0x%x] (vcpu%u)\n", pf->gva, pf->gpa, access_str[pf->mode & 7],
-	        pf->mode, vcpu );
+	printf( "PF gva 0x%llx gpa 0x%llx access %s [0x%x] (vcpu%u)\n", pf->gva, pf->gpa, access_str[pf->access & 7],
+	        pf->access, vcpu );
 
-	if ( pf->mode & KVMI_PAGE_ACCESS_W ) {
-		__u8 access = get_page_access( dom, vcpu, pf->gpa );
+	if ( pf->access & KVMI_PAGE_ACCESS_W ) {
+		__u8 access = get_page_access( dom, pf->gpa );
 
 		access |= KVMI_PAGE_ACCESS_W;
 
-		set_page_access( dom, vcpu, pf->gpa, access );
+		set_page_access( dom, pf->gpa, access );
 	}
 
-	reply_retry( dom, ev, &rpl, sizeof( rpl ) );
+	reply_retry( dom, ev, &rpl.hdr, sizeof( rpl ) );
 }
 
 static void handle_event( void *dom, struct kvmi_dom_event *ev )
@@ -250,9 +270,12 @@ static void pause_vm( void *dom )
 {
 	unsigned int count = 0;
 
+	if ( kvmi_get_vcpu_count( dom, &count ) )
+		die( "kvmi_get_vcpu_count" );
+
 	printf( "Sending the pause command...\n" );
 
-	if ( kvmi_pause_all_vcpus( dom, &count ) )
+	if ( kvmi_pause_all_vcpus( dom, count ) )
 		die( "kvmi_pause_all_vcpus" );
 
 	printf( "We should receive %u pause events\n", count );
@@ -329,12 +352,12 @@ static void spp_bitmap_test( void *dom)
 	fgets(buff, 63, stdin);
 
 	bitmap = atoll(buff);
-	printf("input spp bitmap: 0x%llx(%lld)\n", bitmap, bitmap);
+	printf("input spp bitmap: 0x%x(%d)\n", bitmap, bitmap);
 
 	/* to cheat kvmi function.*/
 	gpa = gfn << 12;
 
-	ret = kvmi_set_page_write_bitmap(dom, 0, &gpa, &bitmap, 1);
+	ret = kvmi_set_page_write_bitmap(dom, &gpa, &bitmap, 1);
 
 	if(ret < 0)
 	      printf("failed to set spp bitmap.\n");
@@ -344,7 +367,7 @@ static void spp_bitmap_test( void *dom)
 	origin_bitmap = bitmap;
 	bitmap = 0;
 
-	ret = kvmi_get_page_write_bitmap(dom, 0, gpa, &bitmap);
+	ret = kvmi_get_page_write_bitmap(dom, gpa, &bitmap);
 
 	if(ret <0)
 	      printf("failed to get spp bitmap. error = %d\n", ret);
