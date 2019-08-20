@@ -1,10 +1,10 @@
 TOPDIR := ../../..
-CO     := -g -pthread -D_GNU_SOURCE -I./include
+CO     := -g -pthread -I./include
 CO_LIB := $(CO) -fPIC -DPIC
 LO_LIB := -shared -Wl,-version-script=version
 
 kvmi-test : kvmi-test.c libkvmi.so
-	$(CC) $(CO) -o $@ kvmi-test.c -L. -lkvmi 
+	$(CC) $(CO) -o $@ kvmi-test.c -L. -lkvmi
 
 libkvmi.so : libkvmi.c version
 	$(CC) $(CO_LIB) $(LO_LIB) -o $@ libkvmi.c
