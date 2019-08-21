@@ -26,6 +26,7 @@
 
 #define EPT_TEST_PAGES 20
 #define PAGE_SIZE 4096
+#define WAIT_30s ( 30 * 1000 )
 
 #define CR3 3
 #define CR4 4
@@ -416,7 +417,7 @@ int main( int argc, char **argv )
 
 		printf( "Waiting...\n" );
 
-		if ( kvmi_wait_event( Dom, 30 * 1024 ) ) {
+		if ( kvmi_wait_event( Dom, WAIT_30s ) ) {
 			if ( errno == ETIMEDOUT ) {
 				printf( "No event.\n" );
 
