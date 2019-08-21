@@ -21,5 +21,5 @@ include/asm/% :
 
 .PHONY : clean
 clean :
-	-rm kvmi-test libkvmi.so
+	-rm kvmi-test libkvmi.so include/linux/*.h include/asm/*.h
 
