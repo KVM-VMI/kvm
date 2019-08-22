@@ -41,6 +41,7 @@ static const struct trace_print_flags kvmi_msg_id_symbol[] = {
 	EN(KVMI_GET_MTRR_TYPE),
 	EN(KVMI_CONTROL_SPP),
 	EN(KVMI_CONTROL_CMD_RESPONSE),
+	EN(KVMI_GET_MAX_GFN),
 	{-1, NULL}
 };
 

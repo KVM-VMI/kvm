@@ -1670,6 +1670,11 @@ int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token)
 	return kvmi_mem_generate_token(kvm, token);
 }
 
+int kvmi_cmd_get_max_gfn(struct kvm *kvm, gfn_t *gfn)
+{
+	return kvm_get_max_gfn(kvm, gfn);
+}
+
 int kvmi_cmd_control_events(struct kvm_vcpu *vcpu, unsigned int event_id,
 			    bool enable)
 {

@@ -76,7 +76,8 @@
 		BIT(KVMI_SET_PAGE_WRITE_BITMAP) | \
 		BIT(KVMI_GET_MTRR_TYPE) | \
 		BIT(KVMI_CONTROL_CMD_RESPONSE) | \
-		BIT(KVMI_GET_VCPU_INFO))
+		BIT(KVMI_GET_VCPU_INFO) | \
+		BIT(KVMI_GET_MAX_GFN))
 
 #define KVMI_NUM_COMMANDS KVMI_NEXT_AVAILABLE_COMMAND
 
@@ -244,6 +245,7 @@ int kvmi_add_job(struct kvm_vcpu *vcpu,
 void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action,
 				      const char *str);
 bool kvmi_start_ss(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access);
+int kvmi_cmd_get_max_gfn(struct kvm *kvm, gfn_t *gfn);
 
 /* arch */
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
