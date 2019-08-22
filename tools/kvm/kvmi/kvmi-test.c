@@ -435,6 +435,8 @@ int main( int argc, char **argv )
 			die( "kvmi_pop_event" );
 
 		handle_event( Dom, ev );
+
+		free(ev);
 	}
 
 	kvmi_uninit( ctx );
