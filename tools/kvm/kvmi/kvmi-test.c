@@ -284,6 +284,7 @@ static void pause_vm( void *dom )
 
 static int new_guest( void *dom, unsigned char ( *uuid )[16], void *ctx )
 {
+	unsigned long long max_gfn;
 	int k;
 
 	printf( "New guest: " );
@@ -294,6 +295,11 @@ static int new_guest( void *dom, unsigned char ( *uuid )[16], void *ctx )
 	printf( "fd %d ctx %p\n", kvmi_connection_fd( dom ), ctx );
 
 	pause_vm( dom );
+
+	if ( kvmi_get_maximum_gfn( dom, &max_gfn ) )
+		die( "kvmi_get_maximum_gfn" );
+
+	printf( "Max gfn: 0x%llx\n", max_gfn );
 
 	Dom = dom;
 
