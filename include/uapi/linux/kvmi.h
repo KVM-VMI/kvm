@@ -75,7 +75,7 @@ enum {
 #define KVMI_PAGE_ACCESS_W (1 << 1)
 #define KVMI_PAGE_ACCESS_X (1 << 2)
 
-#define KVMI_MSG_SIZE (4096 - sizeof(struct kvmi_msg_hdr))
+#define KVMI_MSG_SIZE (4096 * 2 - sizeof(struct kvmi_msg_hdr))
 
 struct kvmi_msg_hdr {
 	__u16 id;
