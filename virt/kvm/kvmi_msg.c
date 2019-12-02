@@ -335,8 +335,11 @@ static int handle_read_physical(struct kvmi *ikvm,
 {
 	const struct kvmi_read_physical *req = _req;
 
-	if (invalid_page_access(req->gpa, req->size))
-		return -EINVAL;
+	if (invalid_page_access(req->gpa, req->size)) {
+		int ec = -KVM_EINVAL;
+
+		return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
+	}
 
 	return kvmi_cmd_read_physical(ikvm->kvm, req->gpa, req->size,
 				      kvmi_msg_vm_maybe_reply, msg);
@@ -349,13 +352,14 @@ static int handle_write_physical(struct kvmi *ikvm,
 	const struct kvmi_write_physical *req = _req;
 	int ec;
 
-	if (invalid_page_access(req->gpa, req->size))
-		return -EINVAL;
-
 	if (msg->size < sizeof(*req) + req->size)
 		return -EINVAL;
 
-	ec = kvmi_cmd_write_physical(ikvm->kvm, req->gpa, req->size, req->data);
+	if (invalid_page_access(req->gpa, req->size))
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_cmd_write_physical(ikvm->kvm, req->gpa,
+					     req->size, req->data);
 
 	return kvmi_msg_vm_maybe_reply(ikvm, msg, ec, NULL, 0);
 }

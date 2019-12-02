@@ -788,7 +788,8 @@ one page (offset + size <= PAGE_SIZE).
 
 :Errors:
 
-* -KVM_EINVAL - the specified gpa is invalid
+* -KVM_EINVAL - the specified gpa/size pair is invalid
+* -KVM_ENOENT - the guest page doesn't exists
 
 15. KVMI_WRITE_PHYSICAL
 -----------------------
@@ -818,7 +819,8 @@ one page (offset + size <= PAGE_SIZE).
 
 :Errors:
 
-* -KVM_EINVAL - the specified gpa is invalid
+* -KVM_EINVAL - the specified gpa/size pair is invalid
+* -KVM_ENOENT - the guest page doesn't exists
 
 16. KVMI_PAUSE_VCPU
 -------------------

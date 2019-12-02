@@ -1635,7 +1635,7 @@ int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size, int(*send)(
 
 	ptr_page = get_page_ptr(kvm, gpa, &page, false);
 	if (!ptr_page) {
-		ec = -KVM_EINVAL;
+		ec = -KVM_ENOENT;
 		goto out;
 	}
 
@@ -1656,7 +1656,7 @@ int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size, const void *buf)
 
 	ptr = get_page_ptr(kvm, gpa, &page, true);
 	if (!ptr)
-		return -KVM_EINVAL;
+		return -KVM_ENOENT;
 
 	memcpy(ptr + (gpa & ~PAGE_MASK), buf, size);
 
