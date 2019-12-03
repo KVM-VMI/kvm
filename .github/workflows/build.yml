@@ -31,6 +31,6 @@ jobs:
         make -j4
         make -j4 modules
     - name: Build libkvmi
-    run: |
-      cd tools/kvm/kvmi
-      make
+      run: |
+        cd tools/kvm/kvmi
+        make
