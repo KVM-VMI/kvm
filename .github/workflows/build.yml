@@ -1,0 +1,29 @@
+name: Build
+
+on: [pull_request]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+    - name: Configure Linux kernel
+      run: make defconfig
+    - name: Ensure KVM is enabled
+      run: |
+        ./scripts/config --enable KVM
+        ./scripts/config --enable KVM_INTEL
+        ./scripts/config --enable KVM_AMD
+    - name: Enable KVM introspection
+      run: |
+        ./scripts/config --disable KSM
+        ./scripts/config --enable REMOTE_MAPPING
+        ./scripts/config --enable KVM_INTROSPECTION
+    - name: Build the kernel
+      run: |
+        make -j4
+        make -j4 modules
