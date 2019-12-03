@@ -13,7 +13,7 @@ jobs:
         fetch-depth: 1
     - name: Install build dependencies
       run: |
-        sudo apt-get install -y flex bison
+        sudo apt-get install -y flex bison libelf-dev
     - name: Configure Linux kernel
       run: make defconfig
     - name: Ensure KVM is enabled
