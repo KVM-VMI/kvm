@@ -26,7 +26,11 @@ jobs:
         ./scripts/config --disable KSM
         ./scripts/config --enable REMOTE_MAPPING
         ./scripts/config --enable KVM_INTROSPECTION
-    - name: Build the kernel
+    - name: Build kernel and modules
       run: |
         make -j4
         make -j4 modules
+    - name: Build libkvmi
+    run: |
+      cd tools/kvm/kvmi
+      make
