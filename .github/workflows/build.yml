@@ -1,0 +1,36 @@
+name: Build
+
+on: [pull_request]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+    - name: Install build dependencies
+      run: |
+        sudo apt-get install -y flex bison libelf-dev
+    - name: Configure Linux kernel
+      run: make defconfig
+    - name: Ensure KVM is enabled
+      run: |
+        ./scripts/config --enable KVM
+        ./scripts/config --enable KVM_INTEL
+        ./scripts/config --enable KVM_AMD
+    - name: Enable KVM introspection
+      run: |
+        ./scripts/config --disable KSM
+        ./scripts/config --enable REMOTE_MAPPING
+        ./scripts/config --enable KVM_INTROSPECTION
+    - name: Build kernel and modules
+      run: |
+        make -j4
+        make -j4 modules
+    - name: Build libkvmi
+      run: |
+        cd tools/kvm/kvmi
+        make
