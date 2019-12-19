@@ -20,7 +20,9 @@
 
 #define KVMI_KNOWN_EVENTS 0
 
-#define KVMI_KNOWN_COMMANDS 0
+#define KVMI_KNOWN_COMMANDS ( \
+			  BIT(KVMI_GET_VERSION) \
+		)
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
 

@@ -6,11 +6,16 @@
  * KVMI structures and definitions
  */
 
+#include <linux/kernel.h>
+#include <linux/types.h>
+
 enum {
 	KVMI_VERSION = 0x00000001
 };
 
 enum {
+	KVMI_GET_VERSION = 2,
+
 	KVMI_NUM_MESSAGES
 };
 
@@ -30,6 +35,11 @@ enum {
 
 struct kvmi_error_code {
 	__s32 err;
+	__u32 padding;
+};
+
+struct kvmi_get_version_reply {
+	__u32 version;
 	__u32 padding;
 };
 

@@ -76,6 +76,8 @@ alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 	BUILD_BUG_ON(sizeof(hook->uuid) != sizeof(kvmi->uuid));
 	memcpy(&kvmi->uuid, &hook->uuid, sizeof(kvmi->uuid));
 
+	set_bit(KVMI_GET_VERSION, kvmi->cmd_allow_mask);
+
 	kvmi->kvm = kvm;
 
 	return kvmi;
@@ -323,6 +325,18 @@ int kvmi_ioctl_command(struct kvm *kvm, void __user *argp)
 
 	bitmap_from_u64(known, KVMI_KNOWN_COMMANDS);
 	bitmap_and(requested, requested, known, KVMI_NUM_COMMANDS);
+
+	if (!allow) {
+		DECLARE_BITMAP(always_allowed, KVMI_NUM_COMMANDS);
+
+		if (id == KVMI_GET_VERSION)
+			return -EPERM;
+
+		set_bit(KVMI_GET_VERSION, always_allowed);
+
+		bitmap_andnot(requested, requested, always_allowed,
+			      KVMI_NUM_COMMANDS);
+	}
 
 	off_bitmap = offsetof(struct kvm_introspection, cmd_allow_mask);
 
