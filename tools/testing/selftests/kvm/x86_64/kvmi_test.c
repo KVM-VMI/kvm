@@ -201,6 +201,59 @@ static void test_cmd_get_version(void)
 	DEBUG("KVMI version: %u\n", rpl.version);
 }
 
+static int cmd_check_command(__u16 id)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_check_command cmd;
+	} req = {};
+
+	req.cmd.id = id;
+
+	return do_command(KVMI_VM_CHECK_COMMAND, &req.hdr, sizeof(req), NULL,
+			     0);
+}
+
+static void test_cmd_check_command(void)
+{
+	__u16 valid_id = KVMI_GET_VERSION;
+	__u16 invalid_id = 0xffff;
+	int r;
+
+	r = cmd_check_command(valid_id);
+	TEST_ASSERT(r == 0,
+		"KVMI_VM_CHECK_COMMAND failed, error %d (%s)\n",
+		-r, kvm_strerror(-r));
+
+	r = cmd_check_command(invalid_id);
+	TEST_ASSERT(r == -KVM_EINVAL,
+		"KVMI_VM_CHECK_COMMAND didn't failed with -KVM_EINVAL, error %d (%s)\n",
+		-r, kvm_strerror(-r));
+}
+
+static int cmd_check_event(__u16 id)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_check_event cmd;
+	} req = {};
+
+	req.cmd.id = id;
+
+	return do_command(KVMI_VM_CHECK_EVENT, &req.hdr, sizeof(req), NULL, 0);
+}
+
+static void test_cmd_check_event(void)
+{
+	__u16 invalid_id = 0xffff;
+	int r;
+
+	r = cmd_check_event(invalid_id);
+	TEST_ASSERT(r == -KVM_EINVAL,
+		"KVMI_VM_CHECK_EVENT didn't failed with -KVM_EINVAL, error %d (%s)\n",
+		-r, kvm_strerror(-r));
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	setup_socket();
@@ -208,6 +261,8 @@ static void test_introspection(struct kvm_vm *vm)
 
 	test_cmd_invalid();
 	test_cmd_get_version();
+	test_cmd_check_command();
+	test_cmd_check_event();
 
 	unhook_introspection(vm);
 }

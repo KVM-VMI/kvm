@@ -77,6 +77,8 @@ alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 	memcpy(&kvmi->uuid, &hook->uuid, sizeof(kvmi->uuid));
 
 	set_bit(KVMI_GET_VERSION, kvmi->cmd_allow_mask);
+	set_bit(KVMI_VM_CHECK_COMMAND, kvmi->cmd_allow_mask);
+	set_bit(KVMI_VM_CHECK_EVENT, kvmi->cmd_allow_mask);
 
 	kvmi->kvm = kvm;
 
@@ -329,10 +331,14 @@ int kvmi_ioctl_command(struct kvm *kvm, void __user *argp)
 	if (!allow) {
 		DECLARE_BITMAP(always_allowed, KVMI_NUM_COMMANDS);
 
-		if (id == KVMI_GET_VERSION)
+		if (id == KVMI_GET_VERSION
+				|| id == KVMI_VM_CHECK_COMMAND
+				|| id == KVMI_VM_CHECK_EVENT)
 			return -EPERM;
 
 		set_bit(KVMI_GET_VERSION, always_allowed);
+		set_bit(KVMI_VM_CHECK_COMMAND, always_allowed);
+		set_bit(KVMI_VM_CHECK_EVENT, always_allowed);
 
 		bitmap_andnot(requested, requested, always_allowed,
 			      KVMI_NUM_COMMANDS);

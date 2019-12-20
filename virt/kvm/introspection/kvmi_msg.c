@@ -9,7 +9,9 @@
 #include "kvmi_int.h"
 
 static const char *const msg_IDs[] = {
-	[KVMI_GET_VERSION] = "KVMI_GET_VERSION",
+	[KVMI_GET_VERSION]      = "KVMI_GET_VERSION",
+	[KVMI_VM_CHECK_COMMAND] = "KVMI_VM_CHECK_COMMAND",
+	[KVMI_VM_CHECK_EVENT]   = "KVMI_VM_CHECK_EVENT",
 };
 
 static bool is_known_message(u16 id)
@@ -128,12 +130,52 @@ static int handle_get_version(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, 0, &rpl, sizeof(rpl));
 }
 
+static int handle_check_command(struct kvm_introspection *kvmi,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vm_check_command *req = _req;
+	int ec = 0;
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (req->id >= KVMI_NUM_COMMANDS)
+		ec = -KVM_EINVAL;
+	else if (!is_command_allowed(kvmi, req->id))
+		ec = -KVM_EPERM;
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
+static bool is_event_allowed(struct kvm_introspection *kvmi, int id)
+{
+	return test_bit(id, kvmi->event_allow_mask);
+}
+
+static int handle_check_event(struct kvm_introspection *kvmi,
+			      const struct kvmi_msg_hdr *msg, const void *_req)
+{
+	const struct kvmi_vm_check_event *req = _req;
+	int ec = 0;
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (req->id >= KVMI_NUM_EVENTS)
+		ec = -KVM_EINVAL;
+	else if (!is_event_allowed(kvmi, req->id))
+		ec = -KVM_EPERM;
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
 static int(*const msg_vm[])(struct kvm_introspection *,
 			    const struct kvmi_msg_hdr *, const void *) = {
-	[KVMI_GET_VERSION] = handle_get_version,
+	[KVMI_GET_VERSION]      = handle_get_version,
+	[KVMI_VM_CHECK_COMMAND] = handle_check_command,
+	[KVMI_VM_CHECK_EVENT]   = handle_check_event,
 };
 
 static bool is_vm_message(u16 id)

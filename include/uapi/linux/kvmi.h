@@ -14,7 +14,9 @@ enum {
 };
 
 enum {
-	KVMI_GET_VERSION = 2,
+	KVMI_GET_VERSION      = 2,
+	KVMI_VM_CHECK_COMMAND = 3,
+	KVMI_VM_CHECK_EVENT   = 4,
 
 	KVMI_NUM_MESSAGES
 };
@@ -41,6 +43,18 @@ struct kvmi_error_code {
 struct kvmi_get_version_reply {
 	__u32 version;
 	__u32 padding;
+};
+
+struct kvmi_vm_check_command {
+	__u16 id;
+	__u16 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_vm_check_event {
+	__u16 id;
+	__u16 padding1;
+	__u32 padding2;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */
