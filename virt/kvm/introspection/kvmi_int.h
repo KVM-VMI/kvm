@@ -29,10 +29,17 @@
 			  BIT(KVMI_GET_VERSION) \
 			| BIT(KVMI_VM_CHECK_COMMAND) \
 			| BIT(KVMI_VM_CHECK_EVENT) \
+			| BIT(KVMI_VM_CONTROL_EVENTS) \
 			| BIT(KVMI_VM_GET_INFO) \
 		)
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
+
+static inline bool is_vm_event_enabled(struct kvm_introspection *kvmi,
+					int event)
+{
+	return test_bit(event, kvmi->vm_event_enable_mask);
+}
 
 /* kvmi_msg.c */
 bool kvmi_sock_get(struct kvm_introspection *kvmi, int fd);
@@ -45,5 +52,7 @@ int kvmi_msg_send_unhook(struct kvm_introspection *kvmi);
 void *kvmi_msg_alloc(void);
 void *kvmi_msg_alloc_check(size_t size);
 void kvmi_msg_free(void *addr);
+int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
+				unsigned int event_id, bool enable);
 
 #endif

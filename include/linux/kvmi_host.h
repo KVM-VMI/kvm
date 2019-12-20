@@ -22,6 +22,8 @@ struct kvm_introspection {
 	DECLARE_BITMAP(cmd_allow_mask, KVMI_NUM_COMMANDS);
 	DECLARE_BITMAP(event_allow_mask, KVMI_NUM_EVENTS);
 
+	DECLARE_BITMAP(vm_event_enable_mask, KVMI_NUM_EVENTS);
+
 	atomic_t ev_seq;
 };
 

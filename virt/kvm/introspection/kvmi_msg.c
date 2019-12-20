@@ -9,10 +9,11 @@
 #include "kvmi_int.h"
 
 static const char *const msg_IDs[] = {
-	[KVMI_GET_VERSION]      = "KVMI_GET_VERSION",
-	[KVMI_VM_CHECK_COMMAND] = "KVMI_VM_CHECK_COMMAND",
-	[KVMI_VM_CHECK_EVENT]   = "KVMI_VM_CHECK_EVENT",
-	[KVMI_VM_GET_INFO]      = "KVMI_VM_GET_INFO",
+	[KVMI_GET_VERSION]       = "KVMI_GET_VERSION",
+	[KVMI_VM_CHECK_COMMAND]  = "KVMI_VM_CHECK_COMMAND",
+	[KVMI_VM_CHECK_EVENT]    = "KVMI_VM_CHECK_EVENT",
+	[KVMI_VM_CONTROL_EVENTS] = "KVMI_VM_CONTROL_EVENTS",
+	[KVMI_VM_GET_INFO]       = "KVMI_VM_GET_INFO",
 };
 
 static bool is_known_message(u16 id)
@@ -181,15 +182,41 @@ static int handle_get_info(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, 0, &rpl, sizeof(rpl));
 }
 
+static int handle_vm_control_events(struct kvm_introspection *kvmi,
+				    const struct kvmi_msg_hdr *msg,
+				    const void *_req)
+{
+	const struct kvmi_vm_control_events *req = _req;
+	DECLARE_BITMAP(known_events, KVMI_NUM_EVENTS);
+	int ec;
+
+	bitmap_from_u64(known_events, KVMI_KNOWN_VM_EVENTS);
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (req->event_id >= KVMI_NUM_EVENTS)
+		ec = -KVM_EINVAL;
+	else if (!test_bit(req->event_id, known_events))
+		ec = -KVM_EINVAL;
+	else if (!is_event_allowed(kvmi, req->event_id))
+		ec = -KVM_EPERM;
+	else
+		ec = kvmi_cmd_vm_control_events(kvmi, req->event_id,
+						req->enable);
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
 static int(*const msg_vm[])(struct kvm_introspection *,
 			    const struct kvmi_msg_hdr *, const void *) = {
-	[KVMI_GET_VERSION]      = handle_get_version,
-	[KVMI_VM_CHECK_COMMAND] = handle_check_command,
-	[KVMI_VM_CHECK_EVENT]   = handle_check_event,
-	[KVMI_VM_GET_INFO]      = handle_get_info,
+	[KVMI_GET_VERSION]       = handle_get_version,
+	[KVMI_VM_CHECK_COMMAND]  = handle_check_command,
+	[KVMI_VM_CHECK_EVENT]    = handle_check_event,
+	[KVMI_VM_CONTROL_EVENTS] = handle_vm_control_events,
+	[KVMI_VM_GET_INFO]       = handle_get_info,
 };
 
 static bool is_vm_message(u16 id)

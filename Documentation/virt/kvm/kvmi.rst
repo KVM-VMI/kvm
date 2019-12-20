@@ -335,11 +335,45 @@ This command is always allowed.
 
 Returns the number of online vCPUs.
 
+5. KVMI_VM_CONTROL_EVENTS
+-------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_control_events {
+		__u16 event_id;
+		__u8 enable;
+		__u8 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables/disables VM introspection events. This command can be used with
+the following events::
+
+	KVMI_EVENT_UNHOOK
+
+:Errors:
+
+* -KVM_EINVAL - the event ID is invalid/unknown (use *KVMI_VM_CHECK_EVENT* first)
+* -KVM_EINVAL - padding is not zero
+* -KVM_EPERM - the access is restricted by the host
+
 Events
 ======
 
 All introspection events (VM or vCPU related) are sent
-using the *KVMI_EVENT* message id.
+using the *KVMI_EVENT* message id. No event will be sent unless
+it is explicitly enabled.
 
 The *KVMI_EVENT_UNHOOK* event doesn't have a reply and share the kvmi_event
 structure, for consistency with the vCPU events.
@@ -393,6 +427,8 @@ Specific data can follow these common structures.
 
 :Returns: none
 
-This event is sent when the device manager has to pause/stop/migrate the
-guest (see **Unhooking**).  The introspection tool has a chance to unhook
-and close the KVMI channel (signaling that the operation can proceed).
+This event is sent when the device manager has to pause/stop/migrate
+the guest (see **Unhooking**) and the introspection has been enabled
+for this event (see **KVMI_VM_CONTROL_EVENTS**). The introspection tool
+has a chance to unhook and close the KVMI channel (signaling that the
+operation can proceed).

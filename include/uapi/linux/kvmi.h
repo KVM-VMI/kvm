@@ -15,12 +15,13 @@ enum {
 };
 
 enum {
-	KVMI_EVENT            = 1,
+	KVMI_EVENT             = 1,
 
-	KVMI_GET_VERSION      = 2,
-	KVMI_VM_CHECK_COMMAND = 3,
-	KVMI_VM_CHECK_EVENT   = 4,
-	KVMI_VM_GET_INFO      = 5,
+	KVMI_GET_VERSION       = 2,
+	KVMI_VM_CHECK_COMMAND  = 3,
+	KVMI_VM_CHECK_EVENT    = 4,
+	KVMI_VM_GET_INFO       = 5,
+	KVMI_VM_CONTROL_EVENTS = 6,
 
 	KVMI_NUM_MESSAGES
 };
@@ -66,6 +67,13 @@ struct kvmi_vm_check_event {
 struct kvmi_vm_get_info_reply {
 	__u32 vcpu_count;
 	__u32 padding[3];
+};
+
+struct kvmi_vm_control_events {
+	__u16 event_id;
+	__u8 enable;
+	__u8 padding1;
+	__u32 padding2;
 };
 
 struct kvmi_event {
