@@ -8,12 +8,15 @@
 
 #include <linux/kernel.h>
 #include <linux/types.h>
+#include <asm/kvmi.h>
 
 enum {
 	KVMI_VERSION = 0x00000001
 };
 
 enum {
+	KVMI_EVENT            = 1,
+
 	KVMI_GET_VERSION      = 2,
 	KVMI_VM_CHECK_COMMAND = 3,
 	KVMI_VM_CHECK_EVENT   = 4,
@@ -23,6 +26,8 @@ enum {
 };
 
 enum {
+	KVMI_EVENT_UNHOOK = 0,
+
 	KVMI_NUM_EVENTS
 };
 
@@ -61,6 +66,14 @@ struct kvmi_vm_check_event {
 struct kvmi_vm_get_info_reply {
 	__u32 vcpu_count;
 	__u32 padding[3];
+};
+
+struct kvmi_event {
+	__u16 size;
+	__u16 vcpu;
+	__u8 event;
+	__u8 padding[3];
+	struct kvmi_event_arch arch;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

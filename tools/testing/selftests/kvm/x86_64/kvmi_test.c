@@ -268,6 +268,47 @@ static void test_cmd_get_vm_info(void)
 	DEBUG("vcpu count: %u\n", rpl.vcpu_count);
 }
 
+static void trigger_event_unhook_notification(struct kvm_vm *vm)
+{
+	int r;
+
+	r = ioctl(vm->fd, KVM_INTROSPECTION_PREUNHOOK, NULL);
+	TEST_ASSERT(r == 0,
+		"KVM_INTROSPECTION_PREUNHOOK failed, errno %d (%s)\n",
+		errno, strerror(errno));
+}
+
+static void receive_event(struct kvmi_msg_hdr *hdr, struct kvmi_event *ev,
+			 size_t ev_size, int event_id)
+{
+	receive_data(hdr, sizeof(*hdr));
+
+	TEST_ASSERT(hdr->id == KVMI_EVENT,
+		"Unexpected messages id %d, expected %d\n",
+		hdr->id, KVMI_EVENT);
+
+	TEST_ASSERT(hdr->size == ev_size,
+		"Invalid event size %d, expected %d bytes\n",
+		hdr->size, ev_size);
+
+	receive_data(ev, ev_size);
+
+	TEST_ASSERT(ev->event == event_id,
+		"Unexpected event %d, expected %d\n",
+		ev->event, event_id);
+}
+
+static void test_event_unhook(struct kvm_vm *vm)
+{
+	__u16 id = KVMI_EVENT_UNHOOK;
+	struct kvmi_msg_hdr hdr;
+	struct kvmi_event ev;
+
+	trigger_event_unhook_notification(vm);
+
+	receive_event(&hdr, &ev, sizeof(ev), id);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	setup_socket();
@@ -278,6 +319,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_check_command();
 	test_cmd_check_event();
 	test_cmd_get_vm_info();
+	test_event_unhook(vm);
 
 	unhook_introspection(vm);
 }

@@ -80,6 +80,8 @@ alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 	set_bit(KVMI_VM_CHECK_COMMAND, kvmi->cmd_allow_mask);
 	set_bit(KVMI_VM_CHECK_EVENT, kvmi->cmd_allow_mask);
 
+	atomic_set(&kvmi->ev_seq, 0);
+
 	kvmi->kvm = kvm;
 
 	return kvmi;
@@ -348,4 +350,32 @@ int kvmi_ioctl_command(struct kvm *kvm, void __user *argp)
 
 	return kvmi_ioctl_feature(kvm, allow, requested, off_bitmap,
 				  KVMI_NUM_COMMANDS);
+}
+
+static bool kvmi_unhook_event(struct kvm_introspection *kvmi)
+{
+	int err;
+
+	err = kvmi_msg_send_unhook(kvmi);
+
+	return !err;
+}
+
+int kvmi_ioctl_preunhook(struct kvm *kvm)
+{
+	struct kvm_introspection *kvmi;
+	int err = 0;
+
+	mutex_lock(&kvm->kvmi_lock);
+
+	kvmi = KVMI(kvm);
+	if (!kvmi)
+		return -EFAULT;
+
+	if (!kvmi_unhook_event(kvmi))
+		err = -ENOENT;
+
+	mutex_unlock(&kvm->kvmi_lock);
+
+	return err;
 }

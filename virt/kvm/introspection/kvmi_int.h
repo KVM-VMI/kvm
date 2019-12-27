@@ -18,7 +18,12 @@
 
 #define KVMI_MSG_SIZE_ALLOC (sizeof(struct kvmi_msg_hdr) + KVMI_MSG_SIZE)
 
-#define KVMI_KNOWN_EVENTS 0
+#define KVMI_KNOWN_VM_EVENTS ( \
+			  BIT(KVMI_EVENT_UNHOOK) \
+		)
+#define KVMI_KNOWN_VCPU_EVENTS 0
+
+#define KVMI_KNOWN_EVENTS (KVMI_KNOWN_VM_EVENTS | KVMI_KNOWN_VCPU_EVENTS)
 
 #define KVMI_KNOWN_COMMANDS ( \
 			  BIT(KVMI_GET_VERSION) \
@@ -34,6 +39,7 @@ bool kvmi_sock_get(struct kvm_introspection *kvmi, int fd);
 void kvmi_sock_shutdown(struct kvm_introspection *kvmi);
 void kvmi_sock_put(struct kvm_introspection *kvmi);
 bool kvmi_msg_process(struct kvm_introspection *kvmi);
+int kvmi_msg_send_unhook(struct kvm_introspection *kvmi);
 
 /* kvmi.c */
 void *kvmi_msg_alloc(void);

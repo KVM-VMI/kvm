@@ -21,6 +21,8 @@ struct kvm_introspection {
 
 	DECLARE_BITMAP(cmd_allow_mask, KVMI_NUM_COMMANDS);
 	DECLARE_BITMAP(event_allow_mask, KVMI_NUM_EVENTS);
+
+	atomic_t ev_seq;
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION
@@ -34,6 +36,7 @@ int kvmi_ioctl_hook(struct kvm *kvm, void __user *argp);
 int kvmi_ioctl_unhook(struct kvm *kvm);
 int kvmi_ioctl_command(struct kvm *kvm, void __user *argp);
 int kvmi_ioctl_event(struct kvm *kvm, void __user *argp);
+int kvmi_ioctl_preunhook(struct kvm *kvm);
 
 #else
 

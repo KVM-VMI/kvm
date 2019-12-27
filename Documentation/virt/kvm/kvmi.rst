@@ -196,9 +196,10 @@ becomes necessary to remove them before the guest is suspended, moved
 (migrated) or a snapshot with memory is created.
 
 The actions are normally performed by the device manager. In the case
-of QEMU, it will use another ioctl to notify the introspection tool and
-wait for a limited amount of time (a few seconds) for a confirmationthat
-is OK to proceed.
+of QEMU, it will use the *KVM_INTROSPECTION_PREUNHOOK* ioctl to trigger
+the *KVMI_EVENT_UNHOOK* event and wait for a limited amount of time
+(a few seconds) for a confirmation from the introspection tool that is
+OK to proceed.
 
 Live migrations
 ---------------
@@ -333,3 +334,65 @@ This command is always allowed.
 	};
 
 Returns the number of online vCPUs.
+
+Events
+======
+
+All introspection events (VM or vCPU related) are sent
+using the *KVMI_EVENT* message id.
+
+The *KVMI_EVENT_UNHOOK* event doesn't have a reply and share the kvmi_event
+structure, for consistency with the vCPU events.
+
+The message data begins with a common structure, having the size of the
+structure, the vCPU index and the event id::
+
+	struct kvmi_event {
+		__u16 size;
+		__u16 vcpu;
+		__u8 event;
+		__u8 padding[3];
+		struct kvmi_event_arch arch;
+	}
+
+On x86 the structure looks like this::
+
+	struct kvmi_event_arch {
+		__u8 mode;
+		__u8 padding[7];
+		struct kvm_regs regs;
+		struct kvm_sregs sregs;
+		struct {
+			__u64 sysenter_cs;
+			__u64 sysenter_esp;
+			__u64 sysenter_eip;
+			__u64 efer;
+			__u64 star;
+			__u64 lstar;
+			__u64 cstar;
+			__u64 pat;
+			__u64 shadow_gs;
+		} msrs;
+	};
+
+It contains information about the vCPU state at the time of the event.
+
+Specific data can follow these common structures.
+
+1. KVMI_EVENT_UNHOOK
+--------------------
+
+:Architecture: all
+:Versions: >= 1
+:Actions: none
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns: none
+
+This event is sent when the device manager has to pause/stop/migrate the
+guest (see **Unhooking**).  The introspection tool has a chance to unhook
+and close the KVMI channel (signaling that the operation can proceed).

@@ -328,3 +328,37 @@ out:
 
 	return err == 0;
 }
+
+static inline u32 new_seq(struct kvm_introspection *kvmi)
+{
+	return atomic_inc_return(&kvmi->ev_seq);
+}
+
+static void kvmi_setup_event_common(struct kvmi_event *ev, u32 ev_id)
+{
+	memset(ev, 0, sizeof(*ev));
+
+	ev->event = ev_id;
+	ev->size = sizeof(*ev);
+}
+
+int kvmi_msg_send_unhook(struct kvm_introspection *kvmi)
+{
+	struct kvmi_msg_hdr hdr;
+	struct kvmi_event common;
+	struct kvec vec[] = {
+		{.iov_base = &hdr,	.iov_len = sizeof(hdr)	 },
+		{.iov_base = &common,	.iov_len = sizeof(common)},
+	};
+	size_t msg_size = sizeof(hdr) + sizeof(common);
+	size_t n = ARRAY_SIZE(vec);
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.id = KVMI_EVENT;
+	hdr.seq = new_seq(kvmi);
+	hdr.size = msg_size - sizeof(hdr);
+
+	kvmi_setup_event_common(&common, KVMI_EVENT_UNHOOK);
+
+	return kvmi_sock_write(kvmi, vec, n, msg_size);
+}
