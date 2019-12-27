@@ -24,6 +24,7 @@
 			  BIT(KVMI_GET_VERSION) \
 			| BIT(KVMI_VM_CHECK_COMMAND) \
 			| BIT(KVMI_VM_CHECK_EVENT) \
+			| BIT(KVMI_VM_GET_INFO) \
 		)
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))

@@ -17,6 +17,7 @@ enum {
 	KVMI_GET_VERSION      = 2,
 	KVMI_VM_CHECK_COMMAND = 3,
 	KVMI_VM_CHECK_EVENT   = 4,
+	KVMI_VM_GET_INFO      = 5,
 
 	KVMI_NUM_MESSAGES
 };
@@ -55,6 +56,11 @@ struct kvmi_vm_check_event {
 	__u16 id;
 	__u16 padding1;
 	__u32 padding2;
+};
+
+struct kvmi_vm_get_info_reply {
+	__u32 vcpu_count;
+	__u32 padding[3];
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

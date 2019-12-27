@@ -254,6 +254,20 @@ static void test_cmd_check_event(void)
 		-r, kvm_strerror(-r));
 }
 
+static void test_cmd_get_vm_info(void)
+{
+	struct kvmi_vm_get_info_reply rpl;
+	struct kvmi_msg_hdr req;
+
+	test_vm_command(KVMI_VM_GET_INFO, &req, sizeof(req), &rpl,
+			sizeof(rpl));
+	TEST_ASSERT(rpl.vcpu_count == 1,
+		    "Unexpected number of vCPU count %u\n",
+		    rpl.vcpu_count);
+
+	DEBUG("vcpu count: %u\n", rpl.vcpu_count);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	setup_socket();
@@ -263,6 +277,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_get_version();
 	test_cmd_check_command();
 	test_cmd_check_event();
+	test_cmd_get_vm_info();
 
 	unhook_introspection(vm);
 }
@@ -282,5 +297,6 @@ int main(int argc, char *argv[])
 
 	test_introspection(vm);
 
+	kvm_vm_free(vm);
 	return 0;
 }
