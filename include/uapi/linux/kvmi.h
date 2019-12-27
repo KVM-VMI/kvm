@@ -18,4 +18,19 @@ enum {
 	KVMI_NUM_EVENTS
 };
 
+struct kvmi_msg_hdr {
+	__u16 id;
+	__u16 size;
+	__u32 seq;
+};
+
+enum {
+	KVMI_MSG_SIZE = (4096 * 2 - sizeof(struct kvmi_msg_hdr))
+};
+
+struct kvmi_error_code {
+	__s32 err;
+	__u32 padding;
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */
