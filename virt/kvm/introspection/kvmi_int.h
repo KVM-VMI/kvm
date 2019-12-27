@@ -16,6 +16,10 @@
 #define kvmi_err(kvmi, fmt, ...) \
 	kvm_info("%pU ERROR: " fmt, &kvmi->uuid, ## __VA_ARGS__)
 
+#define KVMI_KNOWN_EVENTS 0
+
+#define KVMI_KNOWN_COMMANDS 0
+
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
 
 /* kvmi_msg.c */

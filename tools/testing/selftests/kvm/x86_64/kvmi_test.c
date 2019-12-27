@@ -31,15 +31,43 @@ void setup_socket(void)
 		errno, strerror(errno));
 }
 
+static void toggle_event_permission(struct kvm_vm *vm, __s32 id, bool allow)
+{
+	struct kvm_introspection_feature feat = {
+		.allow = allow ? 1 : 0,
+		.id = id
+	};
+	int r;
+
+	r = ioctl(vm->fd, KVM_INTROSPECTION_EVENT, &feat);
+	TEST_ASSERT(r == 0,
+		"KVM_INTROSPECTION_EVENT failed, id %d, errno %d (%s)\n",
+		id, errno, strerror(errno));
+}
+
+static void allow_event(struct kvm_vm *vm, __s32 event_id)
+{
+	toggle_event_permission(vm, event_id, true);
+}
+
 static void hook_introspection(struct kvm_vm *vm)
 {
+	__s32 all_IDs = -1;
 	struct kvm_introspection_hook hook = {.fd = Kvm_socket};
+	struct kvm_introspection_feature feat = {.allow = 1, .id = all_IDs};
 	int r;
 
 	r = ioctl(vm->fd, KVM_INTROSPECTION_HOOK, &hook);
 	TEST_ASSERT(r == 0,
 		"KVM_INTROSPECTION_HOOK failed, errno %d (%s)\n",
 		errno, strerror(errno));
+
+	r = ioctl(vm->fd, KVM_INTROSPECTION_COMMAND, &feat);
+	TEST_ASSERT(r == 0,
+		"KVM_INTROSPECTION_COMMAND failed, errno %d (%s)\n",
+		errno, strerror(errno));
+
+	allow_event(vm, all_IDs);
 }
 
 static void unhook_introspection(struct kvm_vm *vm)

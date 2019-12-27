@@ -10,4 +10,12 @@ enum {
 	KVMI_VERSION = 0x00000001
 };
 
+enum {
+	KVMI_NUM_MESSAGES
+};
+
+enum {
+	KVMI_NUM_EVENTS
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */

@@ -8,6 +8,8 @@ struct kvm;
 
 #include <asm/kvmi_host.h>
 
+#define KVMI_NUM_COMMANDS KVMI_NUM_MESSAGES
+
 struct kvm_introspection {
 	struct kvm_arch_introspection arch;
 	struct kvm *kvm;
@@ -16,6 +18,9 @@ struct kvm_introspection {
 
 	struct socket *sock;
 	struct task_struct *recv;
+
+	DECLARE_BITMAP(cmd_allow_mask, KVMI_NUM_COMMANDS);
+	DECLARE_BITMAP(event_allow_mask, KVMI_NUM_EVENTS);
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION
@@ -27,6 +32,8 @@ void kvmi_destroy_vm(struct kvm *kvm);
 
 int kvmi_ioctl_hook(struct kvm *kvm, void __user *argp);
 int kvmi_ioctl_unhook(struct kvm *kvm);
+int kvmi_ioctl_command(struct kvm *kvm, void __user *argp);
+int kvmi_ioctl_event(struct kvm *kvm, void __user *argp);
 
 #else
 
