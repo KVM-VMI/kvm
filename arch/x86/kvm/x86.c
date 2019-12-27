@@ -3366,6 +3366,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_HYPERV_ENLIGHTENED_VMCS:
 		r = kvm_x86_ops->nested_enable_evmcs != NULL;
 		break;
+#ifdef CONFIG_KVM_INTROSPECTION
+	case KVM_CAP_INTROSPECTION:
+		r = KVMI_VERSION;
+		break;
+#endif
 	default:
 		break;
 	}
