@@ -8,6 +8,14 @@
 #include <linux/net.h>
 #include "kvmi_int.h"
 
+struct kvmi_vcpu_cmd_job {
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr cmd;
+	} *msg;
+	struct kvm_vcpu *vcpu;
+};
+
 static const char *const msg_IDs[] = {
 	[KVMI_GET_VERSION]       = "KVMI_GET_VERSION",
 	[KVMI_VM_CHECK_COMMAND]  = "KVMI_VM_CHECK_COMMAND",
@@ -121,6 +129,28 @@ static int kvmi_msg_vm_reply(struct kvm_introspection *kvmi,
 static bool is_command_allowed(struct kvm_introspection *kvmi, int id)
 {
 	return test_bit(id, kvmi->cmd_allow_mask);
+}
+
+static bool invalid_vcpu_hdr(const struct kvmi_vcpu_hdr *hdr)
+{
+	return hdr->padding1 || hdr->padding2;
+}
+
+static int kvmi_get_vcpu(struct kvm_introspection *kvmi, unsigned int vcpu_idx,
+			 struct kvm_vcpu **dest)
+{
+	struct kvm *kvm = kvmi->kvm;
+	struct kvm_vcpu *vcpu;
+
+	if (vcpu_idx >= atomic_read(&kvm->online_vcpus))
+		return -KVM_EINVAL;
+
+	vcpu = kvm_get_vcpu(kvm, vcpu_idx);
+	if (!vcpu)
+		return -KVM_EINVAL;
+
+	*dest = vcpu;
+	return 0;
 }
 
 static int handle_get_version(struct kvm_introspection *kvmi,
@@ -265,16 +295,67 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_WRITE_PHYSICAL] = handle_write_physical,
 };
 
+/*
+ * These commands are executed on the vCPU thread. The receiving thread
+ * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
+ * and signals the vCPU to handle the command (which includes
+ * sending back the reply).
+ */
+static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
+			      const struct kvmi_msg_hdr *, const void *) = {
+};
+
+static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)
+{
+	struct kvmi_vcpu_cmd_job *job = ctx;
+	size_t id = job->msg->hdr.id;
+	int err;
+
+	job->vcpu = vcpu;
+
+	err = msg_vcpu[id](job, &job->msg->hdr, job->msg + 1);
+
+	if (err) {
+		struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+
+		kvmi_err(kvmi,
+			 "%s: cmd id: %zu (%s), err: %d\n", __func__,
+			 id, id2str(id), err);
+		kvmi_sock_shutdown(kvmi);
+	}
+}
+
+static void kvmi_free_ctx(void *_ctx)
+{
+	const struct kvmi_vcpu_cmd_job *ctx = _ctx;
+
+	kvmi_msg_free(ctx->msg);
+	kfree(ctx);
+}
+
+static int kvmi_msg_queue_to_vcpu(struct kvm_vcpu *vcpu,
+				  const struct kvmi_vcpu_cmd_job *cmd)
+{
+	return kvmi_add_job(vcpu, kvmi_job_vcpu_cmd, (void *)cmd,
+			    kvmi_free_ctx);
+}
+
 static bool is_vm_message(u16 id)
 {
 	return id < ARRAY_SIZE(msg_vm) && !!msg_vm[id];
+}
+
+static bool is_vcpu_message(u16 id)
+{
+	return id < ARRAY_SIZE(msg_vcpu) && !!msg_vcpu[id];
 }
 
 static bool is_unsupported_message(u16 id)
 {
 	bool supported;
 
-	supported = is_known_message(id) && is_vm_message(id);
+	supported = is_known_message(id) &&
+			(is_vm_message(id) || is_vcpu_message(id));
 
 	return !supported;
 }
@@ -344,12 +425,78 @@ static int kvmi_msg_dispatch_vm_cmd(struct kvm_introspection *kvmi,
 	return msg_vm[msg->id](kvmi, msg, msg + 1);
 }
 
+static bool vcpu_can_handle_commands(struct kvm_vcpu *vcpu)
+{
+	return vcpu->arch.mp_state != KVM_MP_STATE_UNINITIALIZED;
+}
+
+static int kvmi_get_vcpu_if_ready(struct kvm_introspection *kvmi,
+				  unsigned int vcpu_idx,
+				  struct kvm_vcpu **vcpu)
+{
+	int err;
+
+	err = kvmi_get_vcpu(kvmi, vcpu_idx, vcpu);
+
+	if (!err && !vcpu_can_handle_commands(*vcpu))
+		err = -KVM_EAGAIN;
+
+	return err;
+}
+
+static int kvmi_msg_dispatch_vcpu_job(struct kvm_introspection *kvmi,
+				      struct kvmi_vcpu_cmd_job *job,
+				      bool *queued)
+{
+	struct kvmi_vcpu_hdr *cmd = &job->msg->cmd;
+	struct kvmi_msg_hdr *hdr = &job->msg->hdr;
+	struct kvm_vcpu *vcpu = NULL;
+	int err;
+
+	if (invalid_vcpu_hdr(cmd))
+		return -KVM_EINVAL;
+
+	err = kvmi_get_vcpu_if_ready(kvmi, cmd->vcpu, &vcpu);
+
+	if (err)
+		return kvmi_msg_vm_reply(kvmi, hdr, err, NULL, 0);
+
+	err = kvmi_msg_queue_to_vcpu(vcpu, job);
+	if (!err)
+		*queued = true;
+	return err;
+}
+
+static int kvmi_msg_dispatch_vcpu_cmd(struct kvm_introspection *kvmi,
+				      struct kvmi_msg_hdr *msg,
+				      bool *queued)
+{
+	struct kvmi_vcpu_cmd_job *job_cmd;
+	int err;
+
+	job_cmd = kzalloc(sizeof(*job_cmd), GFP_KERNEL);
+	if (!job_cmd)
+		return -KVM_ENOMEM;
+
+	job_cmd->msg = (void *)msg;
+
+	err = kvmi_msg_dispatch_vcpu_job(kvmi, job_cmd, queued);
+
+	if (!*queued)
+		kfree(job_cmd);
+
+	return err;
+}
+
 static int kvmi_msg_dispatch(struct kvm_introspection *kvmi,
 			     struct kvmi_msg_hdr *msg, bool *queued)
 {
 	int err;
 
-	err = kvmi_msg_dispatch_vm_cmd(kvmi, msg);
+	if (is_vcpu_message(msg->id))
+		err = kvmi_msg_dispatch_vcpu_cmd(kvmi, msg, queued);
+	else
+		err = kvmi_msg_dispatch_vm_cmd(kvmi, msg);
 
 	if (err)
 		kvmi_err(kvmi, "%s: msg id: %u (%s), err: %d\n", __func__,
