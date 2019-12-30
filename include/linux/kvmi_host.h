@@ -5,10 +5,15 @@
 #include <uapi/linux/kvmi.h>
 
 struct kvm;
+struct kvm_vcpu;
 
 #include <asm/kvmi_host.h>
 
 #define KVMI_NUM_COMMANDS KVMI_NUM_MESSAGES
+
+struct kvm_vcpu_introspection {
+	struct kvm_vcpu_arch_introspection arch;
+};
 
 struct kvm_introspection {
 	struct kvm_arch_introspection arch;
@@ -33,6 +38,7 @@ int kvmi_init(void);
 void kvmi_uninit(void);
 void kvmi_create_vm(struct kvm *kvm);
 void kvmi_destroy_vm(struct kvm *kvm);
+void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu);
 
 int kvmi_ioctl_hook(struct kvm *kvm, void __user *argp);
 int kvmi_ioctl_unhook(struct kvm *kvm);
@@ -46,6 +52,7 @@ static inline int kvmi_init(void) { return 0; }
 static inline void kvmi_uninit(void) { }
 static inline void kvmi_create_vm(struct kvm *kvm) { }
 static inline void kvmi_destroy_vm(struct kvm *kvm) { }
+static inline void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu) { }
 
 #endif /* CONFIG_KVM_INTROSPECTION */
 
