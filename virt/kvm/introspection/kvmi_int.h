@@ -31,6 +31,8 @@
 			| BIT(KVMI_VM_CHECK_EVENT) \
 			| BIT(KVMI_VM_CONTROL_EVENTS) \
 			| BIT(KVMI_VM_GET_INFO) \
+			| BIT(KVMI_VM_READ_PHYSICAL) \
+			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 		)
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
@@ -54,5 +56,12 @@ void *kvmi_msg_alloc_check(size_t size);
 void kvmi_msg_free(void *addr);
 int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 				unsigned int event_id, bool enable);
+int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size,
+			   int (*send)(struct kvm_introspection *,
+					const struct kvmi_msg_hdr*,
+					int err, const void *buf, size_t),
+			   const struct kvmi_msg_hdr *ctx);
+int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size,
+			    const void *buf);
 
 #endif

@@ -14,6 +14,8 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_CHECK_EVENT]    = "KVMI_VM_CHECK_EVENT",
 	[KVMI_VM_CONTROL_EVENTS] = "KVMI_VM_CONTROL_EVENTS",
 	[KVMI_VM_GET_INFO]       = "KVMI_VM_GET_INFO",
+	[KVMI_VM_READ_PHYSICAL]  = "KVMI_VM_READ_PHYSICAL",
+	[KVMI_VM_WRITE_PHYSICAL] = "KVMI_VM_WRITE_PHYSICAL",
 };
 
 static bool is_known_message(u16 id)
@@ -207,6 +209,48 @@ static int handle_vm_control_events(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static bool invalid_page_access(u64 gpa, u64 size)
+{
+	u64 off = gpa & ~PAGE_MASK;
+
+	return (size == 0 || size > PAGE_SIZE || off + size > PAGE_SIZE);
+}
+
+static int handle_read_physical(struct kvm_introspection *kvmi,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vm_read_physical *req = _req;
+
+	if (invalid_page_access(req->gpa, req->size)) {
+		int ec = -KVM_EINVAL;
+
+		return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+	}
+
+	return kvmi_cmd_read_physical(kvmi->kvm, req->gpa, req->size,
+				      kvmi_msg_vm_reply, msg);
+}
+
+static int handle_write_physical(struct kvm_introspection *kvmi,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *_req)
+{
+	const struct kvmi_vm_write_physical *req = _req;
+	int ec;
+
+	if (msg->size < sizeof(*req) + req->size)
+		return -EINVAL;
+
+	if (invalid_page_access(req->gpa, req->size))
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_cmd_write_physical(kvmi->kvm, req->gpa,
+					     req->size, req->data);
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
@@ -217,6 +261,8 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_CHECK_EVENT]    = handle_check_event,
 	[KVMI_VM_CONTROL_EVENTS] = handle_vm_control_events,
 	[KVMI_VM_GET_INFO]       = handle_get_info,
+	[KVMI_VM_READ_PHYSICAL]  = handle_read_physical,
+	[KVMI_VM_WRITE_PHYSICAL] = handle_write_physical,
 };
 
 static bool is_vm_message(u16 id)

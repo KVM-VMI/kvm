@@ -8,6 +8,7 @@
 #define _GNU_SOURCE /* for program_invocation_short_name */
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <time.h>
 
 #include "test_util.h"
 
@@ -23,6 +24,13 @@
 static int socket_pair[2];
 #define Kvm_socket       socket_pair[0]
 #define Userspace_socket socket_pair[1]
+
+static vm_vaddr_t test_gva;
+static void *test_hva;
+static vm_paddr_t test_gpa;
+
+static uint8_t test_write_pattern;
+static int page_size;
 
 void setup_socket(void)
 {
@@ -356,8 +364,153 @@ static void test_cmd_vm_control_events(void)
 	disable_vm_event(id);
 }
 
+static int cmd_write_page(__u64 gpa, __u64 size, void *p)
+{
+	struct kvmi_vm_write_physical *cmd;
+	struct kvmi_msg_hdr *req;
+	size_t req_size;
+	int r;
+
+	req_size = sizeof(*req) + sizeof(*cmd) + size;
+
+	req = calloc(1, req_size);
+	TEST_ASSERT(req, "Insufficient Memory\n");
+
+	cmd = (struct kvmi_vm_write_physical *)(req + 1);
+	cmd->gpa = gpa;
+	cmd->size = size;
+
+	memcpy(cmd + 1, p, size);
+
+	r = do_command(KVMI_VM_WRITE_PHYSICAL, req, req_size, NULL, 0);
+
+	free(req);
+
+	return r;
+}
+
+static void write_guest_page(__u64 gpa, void *p)
+{
+	int r;
+
+	r = cmd_write_page(gpa, page_size, p);
+	TEST_ASSERT(r == 0,
+		"KVMI_VM_WRITE_PHYSICAL failed, gpa 0x%lx, error %d (%s)\n",
+		gpa, -r, kvm_strerror(-r));
+}
+
+static void write_with_invalid_arguments(__u64 gpa, __u64 size, void *p)
+{
+	int r;
+
+	r = cmd_write_page(gpa, size, p);
+	TEST_ASSERT(r == -KVM_EINVAL,
+		"KVMI_VM_WRITE_PHYSICAL did not failed with EINVAL, gpa 0x%lx, error %d (%s)\n",
+		gpa, -r, kvm_strerror(-r));
+}
+
+static void write_invalid_guest_page(struct kvm_vm *vm, void *p)
+{
+	uint64_t gpa = vm->max_gfn << vm->page_shift;
+	int r;
+
+	r = cmd_write_page(gpa, 1, p);
+	TEST_ASSERT(r == -KVM_ENOENT,
+		"KVMI_VM_WRITE_PHYSICAL did not failed with ENOENT, gpa 0x%lx, error %d (%s)\n",
+		gpa, -r, kvm_strerror(-r));
+}
+
+static int cmd_read_page(__u64 gpa, __u64 size, void *p)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_read_physical cmd;
+	} req = { };
+
+	req.cmd.gpa = gpa;
+	req.cmd.size = size;
+
+	return do_command(KVMI_VM_READ_PHYSICAL, &req.hdr, sizeof(req), p,
+			     page_size);
+}
+
+static void read_guest_page(__u64 gpa, void *p)
+{
+	int r;
+
+	r = cmd_read_page(gpa, page_size, p);
+	TEST_ASSERT(r == 0,
+		"KVMI_VM_READ_PHYSICAL failed, gpa 0x%lx, error %d (%s)\n",
+		gpa, -r, kvm_strerror(-r));
+}
+
+static void read_with_invalid_arguments(__u64 gpa, __u64 size, void *p)
+{
+	int r;
+
+	r = cmd_read_page(gpa, size, p);
+	TEST_ASSERT(r == -KVM_EINVAL,
+		"KVMI_VM_READ_PHYSICAL did not failed with EINVAL, gpa 0x%lx, error %d (%s)\n",
+		gpa, -r, kvm_strerror(-r));
+}
+
+static void read_invalid_guest_page(struct kvm_vm *vm)
+{
+	uint64_t gpa = vm->max_gfn << vm->page_shift;
+	int r;
+
+	r = cmd_read_page(gpa, 1, NULL);
+	TEST_ASSERT(r == -KVM_ENOENT,
+		"KVMI_VM_READ_PHYSICAL did not failed with ENOENT, gpa 0x%lx, error %d (%s)\n",
+		gpa, -r, kvm_strerror(-r));
+}
+
+static void new_test_write_pattern(struct kvm_vm *vm)
+{
+	uint8_t n;
+
+	do {
+		n = random();
+	} while (!n || n == test_write_pattern);
+
+	test_write_pattern = n;
+	sync_global_to_guest(vm, test_write_pattern);
+}
+
+static void test_memory_access(struct kvm_vm *vm)
+{
+	void *pw, *pr;
+
+	new_test_write_pattern(vm);
+
+	pw = malloc(page_size);
+	TEST_ASSERT(pw, "Insufficient Memory\n");
+
+	memset(pw, test_write_pattern, page_size);
+
+	write_guest_page(test_gpa, pw);
+	TEST_ASSERT(memcmp(pw, test_hva, page_size) == 0,
+		"Write page test failed");
+
+	pr = malloc(page_size);
+	TEST_ASSERT(pr, "Insufficient Memory\n");
+
+	read_guest_page(test_gpa, pr);
+	TEST_ASSERT(memcmp(pw, pr, page_size) == 0,
+		"Read page test failed");
+
+	read_with_invalid_arguments(test_gpa, 0, pr);
+	write_with_invalid_arguments(test_gpa, 0, pw);
+	write_invalid_guest_page(vm, pw);
+
+	free(pw);
+	free(pr);
+
+	read_invalid_guest_page(vm);
+}
 static void test_introspection(struct kvm_vm *vm)
 {
+	srandom(time(0));
 	setup_socket();
 	hook_introspection(vm);
 
@@ -368,8 +521,21 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_get_vm_info();
 	test_event_unhook(vm);
 	test_cmd_vm_control_events();
+	test_memory_access(vm);
 
 	unhook_introspection(vm);
+}
+
+static void setup_test_pages(struct kvm_vm *vm)
+{
+	test_gva = vm_vaddr_alloc(vm, page_size, KVM_UTIL_MIN_VADDR, 0, 0);
+
+	sync_global_to_guest(vm, test_gva);
+
+	test_hva = addr_gva2hva(vm, test_gva);
+	memset(test_hva, 0, page_size);
+
+	test_gpa = addr_gva2gpa(vm, test_gva);
 }
 
 int main(int argc, char *argv[])
@@ -384,6 +550,9 @@ int main(int argc, char *argv[])
 
 	vm = vm_create_default(VCPU_ID, 0, NULL);
 	vcpu_set_cpuid(vm, VCPU_ID, kvm_get_supported_cpuid());
+
+	page_size = getpagesize();
+	setup_test_pages(vm);
 
 	test_introspection(vm);
 
