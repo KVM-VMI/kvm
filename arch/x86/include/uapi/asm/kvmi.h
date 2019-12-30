@@ -26,4 +26,8 @@ struct kvmi_event_arch {
 	} msrs;
 };
 
+struct kvmi_vcpu_get_info_reply {
+	__u64 tsc_speed;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

@@ -33,6 +33,7 @@
 			| BIT(KVMI_VM_GET_INFO) \
 			| BIT(KVMI_VM_READ_PHYSICAL) \
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
+			| BIT(KVMI_VCPU_GET_INFO) \
 		)
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
@@ -67,5 +68,9 @@ int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size,
 			   const struct kvmi_msg_hdr *ctx);
 int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size,
 			    const void *buf);
+
+/* arch */
+int kvmi_arch_cmd_vcpu_get_info(struct kvm_vcpu *vcpu,
+				struct kvmi_vcpu_get_info_reply *rpl);
 
 #endif

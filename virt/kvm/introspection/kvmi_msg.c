@@ -24,6 +24,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_GET_INFO]       = "KVMI_VM_GET_INFO",
 	[KVMI_VM_READ_PHYSICAL]  = "KVMI_VM_READ_PHYSICAL",
 	[KVMI_VM_WRITE_PHYSICAL] = "KVMI_VM_WRITE_PHYSICAL",
+	[KVMI_VCPU_GET_INFO]     = "KVMI_VCPU_GET_INFO",
 };
 
 static bool is_known_message(u16 id)
@@ -123,6 +124,15 @@ static int kvmi_msg_vm_reply(struct kvm_introspection *kvmi,
 			     int err, const void *rpl,
 			     size_t rpl_size)
 {
+	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
+}
+
+static int kvmi_msg_vcpu_reply(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg, int err,
+				const void *rpl, size_t rpl_size)
+{
+	struct kvm_introspection *kvmi = KVMI(job->vcpu->kvm);
+
 	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
 }
 
@@ -295,6 +305,18 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_WRITE_PHYSICAL] = handle_write_physical,
 };
 
+static int handle_get_vcpu_info(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg,
+				const void *req)
+{
+	struct kvmi_vcpu_get_info_reply rpl;
+
+	memset(&rpl, 0, sizeof(rpl));
+	kvmi_arch_cmd_vcpu_get_info(job->vcpu, &rpl);
+
+	return kvmi_msg_vcpu_reply(job, msg, 0, &rpl, sizeof(rpl));
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -303,6 +325,7 @@ static int(*const msg_vm[])(struct kvm_introspection *,
  */
 static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 			      const struct kvmi_msg_hdr *, const void *) = {
+	[KVMI_VCPU_GET_INFO] = handle_get_vcpu_info,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)
