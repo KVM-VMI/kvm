@@ -11,8 +11,18 @@ struct kvm_vcpu;
 
 #define KVMI_NUM_COMMANDS KVMI_NUM_MESSAGES
 
+struct kvmi_job {
+	struct list_head link;
+	void *ctx;
+	void (*fct)(struct kvm_vcpu *vcpu, void *ctx);
+	void (*free_fct)(void *ctx);
+};
+
 struct kvm_vcpu_introspection {
 	struct kvm_vcpu_arch_introspection arch;
+
+	struct list_head job_list;
+	spinlock_t job_lock;
 };
 
 struct kvm_introspection {

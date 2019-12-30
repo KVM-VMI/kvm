@@ -36,6 +36,7 @@
 		)
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
+#define VCPUI(vcpu) ((struct kvm_vcpu_introspection *)((vcpu)->kvmi))
 
 static inline bool is_vm_event_enabled(struct kvm_introspection *kvmi,
 					int event)
