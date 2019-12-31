@@ -25,6 +25,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_READ_PHYSICAL]  = "KVMI_VM_READ_PHYSICAL",
 	[KVMI_VM_WRITE_PHYSICAL] = "KVMI_VM_WRITE_PHYSICAL",
 	[KVMI_VCPU_GET_INFO]     = "KVMI_VCPU_GET_INFO",
+	[KVMI_VCPU_PAUSE]        = "KVMI_VCPU_PAUSE",
 };
 
 static bool is_known_message(u16 id)
@@ -292,6 +293,43 @@ static int handle_write_physical(struct kvm_introspection *kvmi,
 }
 
 /*
+ * We handle this vCPU command on the receiving thread to make it easier
+ * for userspace to implement a 'pause VM' command. Usually, this is done
+ * by sending one 'pause vCPU' command for every vCPU. By handling the
+ * command here, the userspace can consider that the VM has stopped
+ * once it receives the reply for the last 'pause vCPU' command.
+ */
+static int handle_pause_vcpu(struct kvm_introspection *kvmi,
+			     const struct kvmi_msg_hdr *msg,
+			     const void *_req)
+{
+	const struct kvmi_vcpu_pause *req = _req;
+	const struct kvmi_vcpu_hdr *cmd;
+	struct kvm_vcpu *vcpu = NULL;
+	int err;
+
+	if (req->padding1 || req->padding2 || req->padding3)
+		return -KVM_EINVAL;
+
+	if (!is_event_allowed(kvmi, KVMI_EVENT_PAUSE_VCPU))
+		return -KVM_EPERM;
+
+	cmd = (const struct kvmi_vcpu_hdr *) (msg + 1);
+
+	if (invalid_vcpu_hdr(cmd)) {
+		err = -KVM_EINVAL;
+		goto reply;
+	}
+
+	err = kvmi_get_vcpu(kvmi, cmd->vcpu, &vcpu);
+	if (!err)
+		err = kvmi_cmd_vcpu_pause(vcpu, req->wait == 1);
+
+reply:
+	return kvmi_msg_vm_reply(kvmi, msg, err, NULL, 0);
+}
+
+/*
  * These commands are executed by the receiving thread/worker.
  */
 static int(*const msg_vm[])(struct kvm_introspection *,
@@ -303,6 +341,7 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_GET_INFO]       = handle_get_info,
 	[KVMI_VM_READ_PHYSICAL]  = handle_read_physical,
 	[KVMI_VM_WRITE_PHYSICAL] = handle_write_physical,
+	[KVMI_VCPU_PAUSE]        = handle_pause_vcpu,
 };
 
 static int handle_get_vcpu_info(const struct kvmi_vcpu_cmd_job *job,

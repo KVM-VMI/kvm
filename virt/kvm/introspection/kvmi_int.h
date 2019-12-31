@@ -21,7 +21,9 @@
 #define KVMI_KNOWN_VM_EVENTS ( \
 			  BIT(KVMI_EVENT_UNHOOK) \
 		)
-#define KVMI_KNOWN_VCPU_EVENTS 0
+#define KVMI_KNOWN_VCPU_EVENTS ( \
+			  BIT(KVMI_EVENT_PAUSE_VCPU) \
+		)
 
 #define KVMI_KNOWN_EVENTS (KVMI_KNOWN_VM_EVENTS | KVMI_KNOWN_VCPU_EVENTS)
 
@@ -34,6 +36,7 @@
 			| BIT(KVMI_VM_READ_PHYSICAL) \
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VCPU_GET_INFO) \
+			| BIT(KVMI_VCPU_PAUSE) \
 		)
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
@@ -68,6 +71,7 @@ int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size,
 			   const struct kvmi_msg_hdr *ctx);
 int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size,
 			    const void *buf);
+int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait);
 
 /* arch */
 int kvmi_arch_cmd_vcpu_get_info(struct kvm_vcpu *vcpu,

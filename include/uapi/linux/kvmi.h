@@ -26,12 +26,14 @@ enum {
 	KVMI_VM_WRITE_PHYSICAL = 8,
 
 	KVMI_VCPU_GET_INFO     = 9,
+	KVMI_VCPU_PAUSE        = 10,
 
 	KVMI_NUM_MESSAGES
 };
 
 enum {
-	KVMI_EVENT_UNHOOK = 0,
+	KVMI_EVENT_UNHOOK     = 0,
+	KVMI_EVENT_PAUSE_VCPU = 1,
 
 	KVMI_NUM_EVENTS
 };
@@ -95,6 +97,13 @@ struct kvmi_vcpu_hdr {
 	__u16 vcpu;
 	__u16 padding1;
 	__u32 padding2;
+};
+
+struct kvmi_vcpu_pause {
+	__u8 wait;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
 };
 
 struct kvmi_event {

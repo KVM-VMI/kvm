@@ -649,6 +649,36 @@ static void test_cmd_get_vcpu_info(struct kvm_vm *vm)
 	DEBUG("tsc_speed: %llu HZ\n", rpl.tsc_speed);
 }
 
+static int cmd_pause_vcpu(struct kvm_vm *vm)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_pause cmd;
+	} req = {};
+	__u16 vcpu_index = 0;
+
+	req.vcpu_hdr.vcpu = vcpu_index;
+
+	return do_command(KVMI_VCPU_PAUSE, &req.hdr, sizeof(req),
+			     NULL, 0);
+}
+
+static void pause_vcpu(struct kvm_vm *vm)
+{
+	int r;
+
+	r = cmd_pause_vcpu(vm);
+	TEST_ASSERT(r == 0,
+		"KVMI_VCPU_PAUSE failed, error %d(%s)\n",
+		-r, kvm_strerror(-r));
+}
+
+static void test_pause(struct kvm_vm *vm)
+{
+	pause_vcpu(vm);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -664,6 +694,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vm_control_events();
 	test_memory_access(vm);
 	test_cmd_get_vcpu_info(vm);
+	test_pause(vm);
 
 	unhook_introspection(vm);
 }
