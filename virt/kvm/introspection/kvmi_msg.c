@@ -29,6 +29,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_GET_INFO]       = "KVMI_VCPU_GET_INFO",
 	[KVMI_VCPU_GET_REGISTERS]  = "KVMI_VCPU_GET_REGISTERS",
 	[KVMI_VCPU_PAUSE]          = "KVMI_VCPU_PAUSE",
+	[KVMI_VCPU_SET_REGISTERS]  = "KVMI_VCPU_SET_REGISTERS",
 };
 
 static bool is_known_message(u16 id)
@@ -451,6 +452,18 @@ static int handle_get_registers(const struct kvmi_vcpu_cmd_job *job,
 	return err;
 }
 
+static int handle_set_registers(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvm_regs *regs = _req;
+	int ec;
+
+	ec = kvmi_cmd_vcpu_set_registers(job->vcpu, regs);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -463,6 +476,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_CONTROL_EVENTS] = handle_vcpu_control_events,
 	[KVMI_VCPU_GET_INFO]       = handle_get_vcpu_info,
 	[KVMI_VCPU_GET_REGISTERS]  = handle_get_registers,
+	[KVMI_VCPU_SET_REGISTERS]  = handle_set_registers,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)
@@ -818,6 +832,7 @@ static int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
 	if (err)
 		goto out;
 
+	kvmi_post_reply(vcpu);
 	*action = vcpui->reply.action;
 
 out:

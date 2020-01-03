@@ -803,3 +803,27 @@ int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait)
 
 	return 0;
 }
+
+int kvmi_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
+				const struct kvm_regs *regs)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+
+	if (!vcpui->waiting_for_reply)
+		return -KVM_EOPNOTSUPP;
+
+	memcpy(&vcpui->delayed_regs, regs, sizeof(vcpui->delayed_regs));
+	vcpui->have_delayed_regs = true;
+
+	return 0;
+}
+
+void kvmi_post_reply(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+
+	if (vcpui->have_delayed_regs) {
+		kvm_arch_vcpu_set_regs(vcpu, &vcpui->delayed_regs, false);
+		vcpui->have_delayed_regs = false;
+	}
+}

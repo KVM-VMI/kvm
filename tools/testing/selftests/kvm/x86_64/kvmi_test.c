@@ -829,6 +829,87 @@ static void test_cmd_vcpu_get_registers(struct kvm_vm *vm)
 	DEBUG("get_registers rip 0x%llx\n", regs.rip);
 }
 
+static int __cmd_set_registers(struct kvm_vm *vm,
+			       struct kvm_regs *regs)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvm_regs regs;
+	} req = {};
+	__u16 vcpu_index = 0;
+
+	req.vcpu_hdr.vcpu = vcpu_index;
+
+	memcpy(&req.regs, regs, sizeof(req.regs));
+
+	return do_command(KVMI_VCPU_SET_REGISTERS,
+			  &req.hdr, sizeof(req), NULL, 0);
+}
+
+static int cmd_set_registers(struct kvm_vm *vm,
+			     struct kvm_regs *regs)
+{
+	struct vcpu_worker_data data = {.vm = vm, .vcpu_id = VCPU_ID};
+	pthread_t vcpu_thread;
+	int r;
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	r = __cmd_set_registers(vm, regs);
+
+	stop_vcpu_worker(vcpu_thread, &data);
+
+	return r;
+}
+
+static void __set_registers(struct kvm_vm *vm,
+			    struct kvm_regs *regs)
+{
+	int r;
+
+	r = __cmd_set_registers(vm, regs);
+	TEST_ASSERT(r == 0,
+		"KVMI_VCPU_SET_REGISTERS failed, error %d(%s)\n",
+		-r, kvm_strerror(-r));
+}
+
+static void test_cmd_vcpu_set_registers(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {.vm = vm, .vcpu_id = VCPU_ID};
+	__u16 event_id = KVMI_EVENT_PAUSE_VCPU;
+	struct kvmi_msg_hdr hdr;
+	pthread_t vcpu_thread;
+	struct kvmi_event ev;
+	struct vcpu_reply rpl = {};
+	struct kvm_regs regs = {};
+	int r;
+
+	get_vcpu_registers(vm, &regs);
+
+	r = cmd_set_registers(vm, &regs);
+	TEST_ASSERT(r == -KVM_EOPNOTSUPP,
+		"KVMI_VCPU_SET_REGISTERS didn't failed with KVM_EOPNOTSUPP, error %d(%s)\n",
+		-r, kvm_strerror(-r));
+
+	enable_vcpu_event(vm, event_id);
+
+	pause_vcpu(vm);
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_event(&hdr, &ev, sizeof(ev), event_id);
+
+	__set_registers(vm, &ev.arch.regs);
+
+	reply_to_event(&hdr, &ev, KVMI_EVENT_ACTION_CONTINUE,
+			&rpl, sizeof(rpl));
+
+	stop_vcpu_worker(vcpu_thread, &data);
+
+	disable_vcpu_event(vm, event_id);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -847,6 +928,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_pause(vm);
 	test_cmd_vcpu_control_events(vm);
 	test_cmd_vcpu_get_registers(vm);
+	test_cmd_vcpu_set_registers(vm);
 
 	unhook_introspection(vm);
 }
