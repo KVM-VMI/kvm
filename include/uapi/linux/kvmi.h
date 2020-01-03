@@ -15,6 +15,7 @@ enum {
 };
 
 enum {
+	KVMI_EVENT_REPLY       = 0,
 	KVMI_EVENT             = 1,
 
 	KVMI_GET_VERSION       = 2,
@@ -36,6 +37,12 @@ enum {
 	KVMI_EVENT_PAUSE_VCPU = 1,
 
 	KVMI_NUM_EVENTS
+};
+
+enum {
+	KVMI_EVENT_ACTION_CONTINUE = 0,
+	KVMI_EVENT_ACTION_RETRY    = 1,
+	KVMI_EVENT_ACTION_CRASH    = 2,
 };
 
 struct kvmi_msg_hdr {
@@ -112,6 +119,13 @@ struct kvmi_event {
 	__u8 event;
 	__u8 padding[3];
 	struct kvmi_event_arch arch;
+};
+
+struct kvmi_event_reply {
+	__u8 action;
+	__u8 event;
+	__u16 padding1;
+	__u32 padding2;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

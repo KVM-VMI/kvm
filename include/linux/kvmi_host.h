@@ -11,6 +11,14 @@ struct kvm_vcpu;
 
 #define KVMI_NUM_COMMANDS KVMI_NUM_MESSAGES
 
+struct kvmi_vcpu_reply {
+	int error;
+	int action;
+	u32 seq;
+	void *data;
+	size_t size;
+};
+
 struct kvmi_job {
 	struct list_head link;
 	void *ctx;
@@ -25,6 +33,9 @@ struct kvm_vcpu_introspection {
 	spinlock_t job_lock;
 
 	atomic_t pause_requests;
+
+	struct kvmi_vcpu_reply reply;
+	bool waiting_for_reply;
 };
 
 struct kvm_introspection {
