@@ -544,6 +544,19 @@ int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 	return 0;
 }
 
+int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
+				 unsigned int event_id, bool enable)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+
+	if (enable)
+		set_bit(event_id, vcpui->ev_mask);
+	else
+		clear_bit(event_id, vcpui->ev_mask);
+
+	return 0;
+}
+
 static unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn)
 {
 	unsigned long hva;

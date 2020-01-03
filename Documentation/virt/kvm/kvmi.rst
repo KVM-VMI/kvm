@@ -508,13 +508,55 @@ Use *KVMI_VM_CHECK_EVENT* first.
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_EBUSY  - the selected vCPU has too many queued *KVMI_EVENT_PAUSE_VCPU* events
 
+10. KVMI_VCPU_CONTROL_EVENTS
+----------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_control_events {
+		__u16 event_id;
+		__u8 enable;
+		__u8 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables/disables vCPU introspection events.
+
+When an event is enabled, the introspection tool is notified and it
+must reply with: continue, retry, crash, etc. (see **Events** below).
+
+The *KVMI_EVENT_PAUSE_VCPU* event is always allowed,
+because it is triggered by the *KVMI_VCPU_PAUSE* command.
+
+The *KVMI_EVENT_UNHOOK* event is controlled
+by the *KVMI_VM_CONTROL_EVENTS* command.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the event ID is invalid/unknown (use *KVMI_VM_CHECK_EVENT* first)
+* -KVM_EINVAL - padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EPERM - the access is restricted by the host
 
 Events
 ======
 
 All introspection events (VM or vCPU related) are sent
 using the *KVMI_EVENT* message id. No event will be sent unless
-it is explicitly enabled or requested (eg. *KVMI_EVENT_PAUSE_VCPU*).
+it is explicitly enabled (see *KVMI_VM_CONTROL_EVENTS* and *KVMI_VCPU_CONTROL_EVENTS*)
+or requested (eg. *KVMI_EVENT_PAUSE_VCPU*).
 
 The *KVMI_EVENT_UNHOOK* event doesn't have a reply and share the kvmi_event
 structure, for consistency with the vCPU events.

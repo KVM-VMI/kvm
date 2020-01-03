@@ -97,6 +97,11 @@ static void toggle_event_permission(struct kvm_vm *vm, __s32 id, bool allow)
 		id, errno, strerror(errno));
 }
 
+static void disallow_event(struct kvm_vm *vm, __s32 event_id)
+{
+	toggle_event_permission(vm, event_id, false);
+}
+
 static void allow_event(struct kvm_vm *vm, __s32 event_id)
 {
 	toggle_event_permission(vm, event_id, true);
@@ -723,6 +728,82 @@ static void test_pause(struct kvm_vm *vm)
 	stop_vcpu_worker(vcpu_thread, &data);
 }
 
+static int cmd_vcpu_control_event(struct kvm_vm *vm, __u16 event_id,
+				  bool enable)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_control_events cmd;
+	} req = {};
+
+	req.cmd.event_id = event_id;
+	req.cmd.enable = enable ? 1 : 0;
+
+	return do_vcpu0_command(vm, KVMI_VCPU_CONTROL_EVENTS,
+				&req.hdr, sizeof(req), NULL, 0);
+}
+
+static void enable_vcpu_event(struct kvm_vm *vm, __u16 event_id)
+{
+	int r;
+
+	r = cmd_vcpu_control_event(vm, event_id, true);
+	TEST_ASSERT(r == 0,
+		"KVMI_VCPU_CONTROL_EVENTS failed to enable vCPU event %d, error %d(%s)\n",
+		event_id, -r, kvm_strerror(-r));
+}
+
+static void disable_vcpu_event(struct kvm_vm *vm, __u16 event_id)
+{
+	int r;
+
+	r = cmd_vcpu_control_event(vm, event_id, false);
+	TEST_ASSERT(r == 0,
+		"KVMI_VCPU_CONTROL_EVENTS failed to disable vCPU event %d, error %d(%s)\n",
+		event_id, -r, kvm_strerror(-r));
+}
+
+static void test_disallowed_vcpu_event(struct kvm_vm *vm, __u16 event_id)
+{
+	bool enable = true;
+	int r;
+
+	disallow_event(vm, event_id);
+
+	r = cmd_vcpu_control_event(vm, event_id, enable);
+	TEST_ASSERT(r == -KVM_EPERM,
+		"KVMI_VCPU_CONTROL_EVENTS didn't failed with KVM_EPERM, id %d, error %d (%s)\n",
+		event_id, -r, kvm_strerror(-r));
+
+	allow_event(vm, event_id);
+}
+
+static void test_invalid_vcpu_event(struct kvm_vm *vm, __u16 event_id)
+{
+	bool enable = true;
+	int r;
+
+	r = cmd_vcpu_control_event(vm, event_id, enable);
+	TEST_ASSERT(r == -KVM_EINVAL,
+		"cmd_vcpu_control_event didn't failed with KVM_EINVAL, id %d, error %d (%s)\n",
+		event_id, -r, kvm_strerror(-r));
+}
+
+static void test_cmd_vcpu_control_events(struct kvm_vm *vm)
+{
+	__u16 valid_id = KVMI_EVENT_PAUSE_VCPU;
+	__u16 invalid_id = 0xffff;
+
+	test_disallowed_vcpu_event(vm, valid_id);
+
+	enable_vcpu_event(vm, valid_id);
+
+	disable_vcpu_event(vm, valid_id);
+
+	test_invalid_vcpu_event(vm, invalid_id);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -739,6 +820,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_memory_access(vm);
 	test_cmd_get_vcpu_info(vm);
 	test_pause(vm);
+	test_cmd_vcpu_control_events(vm);
 
 	unhook_introspection(vm);
 }

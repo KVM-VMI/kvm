@@ -17,16 +17,17 @@ struct kvmi_vcpu_cmd_job {
 };
 
 static const char *const msg_IDs[] = {
-	[KVMI_EVENT_REPLY]       = "KVMI_EVENT_REPLY",
-	[KVMI_GET_VERSION]       = "KVMI_GET_VERSION",
-	[KVMI_VM_CHECK_COMMAND]  = "KVMI_VM_CHECK_COMMAND",
-	[KVMI_VM_CHECK_EVENT]    = "KVMI_VM_CHECK_EVENT",
-	[KVMI_VM_CONTROL_EVENTS] = "KVMI_VM_CONTROL_EVENTS",
-	[KVMI_VM_GET_INFO]       = "KVMI_VM_GET_INFO",
-	[KVMI_VM_READ_PHYSICAL]  = "KVMI_VM_READ_PHYSICAL",
-	[KVMI_VM_WRITE_PHYSICAL] = "KVMI_VM_WRITE_PHYSICAL",
-	[KVMI_VCPU_GET_INFO]     = "KVMI_VCPU_GET_INFO",
-	[KVMI_VCPU_PAUSE]        = "KVMI_VCPU_PAUSE",
+	[KVMI_EVENT_REPLY]         = "KVMI_EVENT_REPLY",
+	[KVMI_GET_VERSION]         = "KVMI_GET_VERSION",
+	[KVMI_VM_CHECK_COMMAND]    = "KVMI_VM_CHECK_COMMAND",
+	[KVMI_VM_CHECK_EVENT]      = "KVMI_VM_CHECK_EVENT",
+	[KVMI_VM_CONTROL_EVENTS]   = "KVMI_VM_CONTROL_EVENTS",
+	[KVMI_VM_GET_INFO]         = "KVMI_VM_GET_INFO",
+	[KVMI_VM_READ_PHYSICAL]    = "KVMI_VM_READ_PHYSICAL",
+	[KVMI_VM_WRITE_PHYSICAL]   = "KVMI_VM_WRITE_PHYSICAL",
+	[KVMI_VCPU_CONTROL_EVENTS] = "KVMI_VCPU_CONTROL_EVENTS",
+	[KVMI_VCPU_GET_INFO]       = "KVMI_VCPU_GET_INFO",
+	[KVMI_VCPU_PAUSE]          = "KVMI_VCPU_PAUSE",
 };
 
 static bool is_known_message(u16 id)
@@ -407,6 +408,32 @@ out_wakeup:
 	return expected->error;
 }
 
+static int handle_vcpu_control_events(const struct kvmi_vcpu_cmd_job *job,
+				      const struct kvmi_msg_hdr *msg,
+				      const void *_req)
+{
+	struct kvm_introspection *kvmi = KVMI(job->vcpu->kvm);
+	const struct kvmi_vcpu_control_events *req = _req;
+	DECLARE_BITMAP(known_events, KVMI_NUM_EVENTS);
+	int ec;
+
+	bitmap_from_u64(known_events, KVMI_KNOWN_VCPU_EVENTS);
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (req->event_id >= KVMI_NUM_EVENTS)
+		ec = -KVM_EINVAL;
+	else if (!test_bit(req->event_id, known_events))
+		ec = -KVM_EINVAL;
+	else if (!is_event_allowed(kvmi, req->event_id))
+		ec = -KVM_EPERM;
+	else
+		ec = kvmi_cmd_vcpu_control_events(job->vcpu, req->event_id,
+						  req->enable);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -415,8 +442,9 @@ out_wakeup:
  */
 static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 			      const struct kvmi_msg_hdr *, const void *) = {
-	[KVMI_EVENT_REPLY]   = handle_event_reply,
-	[KVMI_VCPU_GET_INFO] = handle_get_vcpu_info,
+	[KVMI_EVENT_REPLY]         = handle_event_reply,
+	[KVMI_VCPU_CONTROL_EVENTS] = handle_vcpu_control_events,
+	[KVMI_VCPU_GET_INFO]       = handle_get_vcpu_info,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)

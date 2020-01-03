@@ -18,16 +18,17 @@ enum {
 	KVMI_EVENT_REPLY       = 0,
 	KVMI_EVENT             = 1,
 
-	KVMI_GET_VERSION       = 2,
-	KVMI_VM_CHECK_COMMAND  = 3,
-	KVMI_VM_CHECK_EVENT    = 4,
-	KVMI_VM_GET_INFO       = 5,
-	KVMI_VM_CONTROL_EVENTS = 6,
-	KVMI_VM_READ_PHYSICAL  = 7,
-	KVMI_VM_WRITE_PHYSICAL = 8,
+	KVMI_GET_VERSION         = 2,
+	KVMI_VM_CHECK_COMMAND    = 3,
+	KVMI_VM_CHECK_EVENT      = 4,
+	KVMI_VM_GET_INFO         = 5,
+	KVMI_VM_CONTROL_EVENTS   = 6,
+	KVMI_VM_READ_PHYSICAL    = 7,
+	KVMI_VM_WRITE_PHYSICAL   = 8,
 
-	KVMI_VCPU_GET_INFO     = 9,
-	KVMI_VCPU_PAUSE        = 10,
+	KVMI_VCPU_GET_INFO       = 9,
+	KVMI_VCPU_PAUSE          = 10,
+	KVMI_VCPU_CONTROL_EVENTS = 11,
 
 	KVMI_NUM_MESSAGES
 };
@@ -111,6 +112,13 @@ struct kvmi_vcpu_pause {
 	__u8 padding1;
 	__u16 padding2;
 	__u32 padding3;
+};
+
+struct kvmi_vcpu_control_events {
+	__u16 event_id;
+	__u8 enable;
+	__u8 padding1;
+	__u32 padding2;
 };
 
 struct kvmi_event {
