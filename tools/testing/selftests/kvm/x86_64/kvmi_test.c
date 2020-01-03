@@ -804,6 +804,31 @@ static void test_cmd_vcpu_control_events(struct kvm_vm *vm)
 	test_invalid_vcpu_event(vm, invalid_id);
 }
 
+static void get_vcpu_registers(struct kvm_vm *vm,
+			       struct kvm_regs *regs)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_get_registers cmd;
+	} req = {};
+	struct kvmi_vcpu_get_registers_reply rpl;
+
+	test_vcpu0_command(vm, KVMI_VCPU_GET_REGISTERS, &req.hdr, sizeof(req),
+			   &rpl, sizeof(rpl));
+
+	memcpy(regs, &rpl.regs, sizeof(*regs));
+}
+
+static void test_cmd_vcpu_get_registers(struct kvm_vm *vm)
+{
+	struct kvm_regs regs = {};
+
+	get_vcpu_registers(vm, &regs);
+
+	DEBUG("get_registers rip 0x%llx\n", regs.rip);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -821,6 +846,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_get_vcpu_info(vm);
 	test_pause(vm);
 	test_cmd_vcpu_control_events(vm);
+	test_cmd_vcpu_get_registers(vm);
 
 	unhook_introspection(vm);
 }
