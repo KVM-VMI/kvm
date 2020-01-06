@@ -38,6 +38,7 @@
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
+			| BIT(KVMI_VCPU_GET_CPUID) \
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
 			| BIT(KVMI_VCPU_SET_REGISTERS) \
 		)
@@ -92,5 +93,8 @@ int kvmi_arch_cmd_vcpu_get_registers(struct kvm_vcpu *vcpu,
 				const struct kvmi_vcpu_get_registers *req,
 				struct kvmi_vcpu_get_registers_reply **dest,
 				size_t *dest_size);
+int kvmi_arch_cmd_vcpu_get_cpuid(struct kvm_vcpu *vcpu,
+				 const struct kvmi_vcpu_get_cpuid *req,
+				 struct kvmi_vcpu_get_cpuid_reply *rpl);
 
 #endif
