@@ -8,6 +8,8 @@
 
 #include <asm/kvm.h>
 
+#define KVM_HC_XEN_HVM_OP_GUEST_REQUEST_VM_EVENT 24
+
 struct kvmi_event_arch {
 	__u8 mode;		/* 2, 4 or 8 */
 	__u8 padding[7];
