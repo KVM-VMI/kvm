@@ -230,3 +230,55 @@ void kvmi_arch_hypercall_event(struct kvm_vcpu *vcpu)
 						"HYPERCALL");
 	}
 }
+
+static int kvmi_control_bp_intercept(struct kvm_vcpu *vcpu, bool enable)
+{
+	struct kvm_guest_debug dbg = {};
+	int err = 0;
+
+	if (enable)
+		dbg.control = KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP;
+	err = kvm_arch_vcpu_set_guest_debug(vcpu, &dbg);
+
+	return err;
+}
+
+int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
+				    unsigned int event_id, bool enable)
+{
+	int err = 0;
+
+	switch (event_id) {
+	case KVMI_EVENT_BREAKPOINT:
+		err = kvmi_control_bp_intercept(vcpu, enable);
+		break;
+	default:
+		break;
+	}
+
+	return err;
+}
+
+void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
+{
+	u32 action;
+	u64 gpa;
+
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
+
+	action = kvmi_msg_send_bp(vcpu, gpa, insn_len);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		kvm_queue_exception(vcpu, BP_VECTOR);
+		break;
+	case KVMI_EVENT_ACTION_RETRY:
+		/* rip was most likely adjusted past the INT 3 instruction */
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu->kvm, action, "BP");
+	}
+}
+
+void kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
+{
+}

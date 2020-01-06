@@ -49,6 +49,7 @@ struct vcpu_worker_data {
 
 enum {
 	GUEST_TEST_NOOP = 0,
+	GUEST_TEST_BP,
 	GUEST_TEST_HYPERCALL,
 };
 
@@ -61,6 +62,11 @@ static int guest_test_id(void)
 {
 	GUEST_REQUEST_TEST();
 	return READ_ONCE(test_id);
+}
+
+static void guest_bp_test(void)
+{
+	asm volatile("int3");
 }
 
 static void guest_hypercall_test(void)
@@ -76,6 +82,9 @@ static void guest_code(void)
 	while (true) {
 		switch (guest_test_id()) {
 		case GUEST_TEST_NOOP:
+			break;
+		case GUEST_TEST_BP:
+			guest_bp_test();
 			break;
 		case GUEST_TEST_HYPERCALL:
 			guest_hypercall_test();
@@ -985,6 +994,42 @@ static void test_event_hypercall(struct kvm_vm *vm)
 	disable_vcpu_event(vm, event_id);
 }
 
+static void test_event_breakpoint(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.test_id = GUEST_TEST_BP,
+	};
+	struct kvmi_msg_hdr hdr;
+	struct {
+		struct kvmi_event common;
+		struct kvmi_event_breakpoint bp;
+	} ev;
+	struct vcpu_reply rpl = {};
+	__u16 event_id = KVMI_EVENT_BREAKPOINT;
+	pthread_t vcpu_thread;
+
+	enable_vcpu_event(vm, event_id);
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_event(&hdr, &ev.common, sizeof(ev), event_id);
+
+	DEBUG("Breakpoint event, rip 0x%llx, len %u\n",
+		ev.common.arch.regs.rip, ev.bp.insn_len);
+
+	ev.common.arch.regs.rip += ev.bp.insn_len;
+	__set_registers(vm, &ev.common.arch.regs);
+
+	reply_to_event(&hdr, &ev.common, KVMI_EVENT_ACTION_RETRY,
+			&rpl, sizeof(rpl));
+
+	stop_vcpu_worker(vcpu_thread, &data);
+
+	disable_vcpu_event(vm, event_id);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1006,6 +1051,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_set_registers(vm);
 	test_cmd_vcpu_get_cpuid(vm);
 	test_event_hypercall(vm);
+	test_event_breakpoint(vm);
 
 	unhook_introspection(vm);
 }

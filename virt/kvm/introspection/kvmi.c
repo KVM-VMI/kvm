@@ -163,6 +163,8 @@ static void free_vcpui(struct kvm_vcpu *vcpu)
 
 	kfree(vcpui);
 	vcpu->kvmi = NULL;
+
+	kvmi_make_request(vcpu, false);
 }
 
 static void free_kvmi(struct kvm *kvm)
@@ -554,7 +556,7 @@ int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
 	else
 		clear_bit(event_id, vcpui->ev_mask);
 
-	return 0;
+	return kvmi_arch_cmd_control_intercept(vcpu, event_id, enable);
 }
 
 static unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn)
@@ -776,7 +778,7 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 
 	kvmi = kvmi_get(vcpu->kvm);
 	if (!kvmi)
-		return;
+		goto out;
 
 	for (;;) {
 		kvmi_run_jobs(vcpu);
@@ -788,6 +790,9 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 	}
 
 	kvmi_put(vcpu->kvm);
+
+out:
+	kvmi_arch_restore_interception(vcpu);
 }
 
 int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait)
@@ -849,3 +854,23 @@ bool kvmi_hypercall_event(struct kvm_vcpu *vcpu)
 
 	return ret;
 }
+
+bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = false;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_BREAKPOINT))
+		kvmi_arch_breakpoint_event(vcpu, gva, insn_len);
+	else
+		ret = true;
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_breakpoint_event);

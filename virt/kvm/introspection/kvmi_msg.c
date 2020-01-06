@@ -430,9 +430,12 @@ static int handle_vcpu_control_events(const struct kvmi_vcpu_cmd_job *job,
 		ec = -KVM_EINVAL;
 	else if (!is_event_allowed(kvmi, req->event_id))
 		ec = -KVM_EPERM;
-	else
+	else {
 		ec = kvmi_cmd_vcpu_control_events(job->vcpu, req->event_id,
 						  req->enable);
+		if (ec)
+			ec = -KVM_EOPNOTSUPP;
+	}
 
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
@@ -874,6 +877,23 @@ u32 kvmi_msg_send_hypercall(struct kvm_vcpu *vcpu)
 	int err, action;
 
 	err = kvmi_send_event(vcpu, KVMI_EVENT_HYPERCALL, NULL, 0,
+			      NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}
+
+u32 kvmi_msg_send_bp(struct kvm_vcpu *vcpu, u64 gpa, u8 insn_len)
+{
+	struct kvmi_event_breakpoint e;
+	int err, action;
+
+	memset(&e, 0, sizeof(e));
+	e.gpa = gpa;
+	e.insn_len = insn_len;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_BREAKPOINT, &e, sizeof(e),
 			      NULL, 0, &action);
 	if (err)
 		return KVMI_EVENT_ACTION_CONTINUE;
