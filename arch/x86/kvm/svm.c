@@ -7245,6 +7245,19 @@ static inline bool svm_bp_intercepted(struct kvm_vcpu *vcpu)
 	return get_exception_intercept(svm, BP_VECTOR);
 }
 
+static void svm_control_cr3_intercept(struct kvm_vcpu *vcpu, int type,
+				      bool enable)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (type & CR_TYPE_R)
+		enable ? set_cr_intercept(svm, INTERCEPT_CR3_READ) :
+			 clr_cr_intercept(svm, INTERCEPT_CR3_READ);
+	if (type & CR_TYPE_W)
+		enable ? set_cr_intercept(svm, INTERCEPT_CR3_WRITE) :
+			 clr_cr_intercept(svm, INTERCEPT_CR3_WRITE);
+}
+
 static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = has_svm,
 	.disabled_by_bios = is_disabled,
@@ -7287,6 +7300,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.set_cr0 = svm_set_cr0,
 	.set_cr3 = svm_set_cr3,
 	.set_cr4 = svm_set_cr4,
+	.control_cr3_intercept = svm_control_cr3_intercept,
 	.set_efer = svm_set_efer,
 	.get_idt = svm_get_idt,
 	.set_idt = svm_set_idt,
