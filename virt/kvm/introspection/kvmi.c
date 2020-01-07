@@ -788,6 +788,16 @@ static void kvmi_vcpu_pause_event(struct kvm_vcpu *vcpu)
 	}
 }
 
+void kvmi_send_pending_event(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+
+	if (vcpui->exception.send_event) {
+		vcpui->exception.send_event = false;
+		kvmi_arch_trap_event(vcpu);
+	}
+}
+
 void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
@@ -796,6 +806,8 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 	kvmi = kvmi_get(vcpu->kvm);
 	if (!kvmi)
 		goto out;
+
+	kvmi_send_pending_event(vcpu);
 
 	for (;;) {
 		kvmi_run_jobs(vcpu);
@@ -895,3 +907,39 @@ bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 	return ret;
 }
 EXPORT_SYMBOL(kvmi_breakpoint_event);
+
+static bool kvmi_inject_pending_exception(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+
+	if (!vcpui->exception.pending)
+		return false;
+
+	kvmi_arch_inject_pending_exception(vcpu);
+
+	vcpui->exception.pending = false;
+
+	if (!is_event_enabled(vcpu, KVMI_EVENT_TRAP))
+		return false;
+
+	kvm_make_request(KVM_REQ_INTROSPECTION, vcpu);
+	vcpui->exception.send_event = true;
+
+	return true;
+}
+
+bool kvmi_enter_guest(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi;
+	bool r = true;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return true;
+
+	if (kvmi_inject_pending_exception(vcpu))
+		r = false;
+
+	kvmi_put(vcpu->kvm);
+	return r;
+}

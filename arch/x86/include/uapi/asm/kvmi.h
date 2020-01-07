@@ -83,4 +83,18 @@ struct kvmi_event_cr_reply {
 	__u64 new_val;
 };
 
+struct kvmi_event_trap {
+	__u32 vector;
+	__u32 error_code;
+	__u64 cr2;
+};
+
+struct kvmi_vcpu_inject_exception {
+	__u8 nr;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 error_code;
+	__u64 address;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

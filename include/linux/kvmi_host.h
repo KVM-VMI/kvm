@@ -41,6 +41,15 @@ struct kvm_vcpu_introspection {
 
 	struct kvm_regs delayed_regs;
 	bool have_delayed_regs;
+
+	struct {
+		u8 nr;
+		u32 error_code;
+		bool error_code_valid;
+		u64 address;
+		bool pending;
+		bool send_event;
+	} exception;
 };
 
 struct kvm_introspection {
@@ -77,6 +86,7 @@ int kvmi_ioctl_preunhook(struct kvm *kvm);
 void kvmi_handle_requests(struct kvm_vcpu *vcpu);
 bool kvmi_hypercall_event(struct kvm_vcpu *vcpu);
 bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len);
+bool kvmi_enter_guest(struct kvm_vcpu *vcpu);
 
 #else
 
@@ -90,6 +100,8 @@ static inline void kvmi_handle_requests(struct kvm_vcpu *vcpu) { }
 static inline bool kvmi_hypercall_event(struct kvm_vcpu *vcpu) { return false; }
 static inline bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva,
 					 u8 insn_len)
+			{ return true; }
+static inline bool kvmi_enter_guest(struct kvm_vcpu *vcpu)
 			{ return true; }
 
 #endif /* CONFIG_KVM_INTROSPECTION */

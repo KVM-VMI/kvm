@@ -25,6 +25,7 @@
 			    BIT(KVMI_EVENT_BREAKPOINT) \
 			  | BIT(KVMI_EVENT_CR) \
 			  | BIT(KVMI_EVENT_HYPERCALL) \
+			  | BIT(KVMI_EVENT_TRAP) \
 			  | BIT(KVMI_EVENT_PAUSE_VCPU) \
 		)
 
@@ -44,6 +45,7 @@
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
 			| BIT(KVMI_VCPU_GET_CPUID) \
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
+			| BIT(KVMI_VCPU_INJECT_EXCEPTION) \
 			| BIT(KVMI_VCPU_SET_REGISTERS) \
 		)
 
@@ -87,6 +89,7 @@ void kvmi_handle_common_event_actions(struct kvm *kvm,
 				      u32 action, const char *str);
 struct kvm_introspection * __must_check kvmi_get(struct kvm *kvm);
 void kvmi_put(struct kvm *kvm);
+void kvmi_send_pending_event(struct kvm_vcpu *vcpu);
 int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 				unsigned int event_id, bool enable);
 int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
@@ -126,5 +129,9 @@ int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
 				    unsigned int event_id, bool enable);
 int kvmi_arch_cmd_vcpu_control_cr(struct kvm_vcpu *vcpu,
 				  const struct kvmi_vcpu_control_cr *req);
+int kvmi_arch_cmd_vcpu_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
+					u32 error_code, u64 address);
+void kvmi_arch_trap_event(struct kvm_vcpu *vcpu);
+void kvmi_arch_inject_pending_exception(struct kvm_vcpu *vcpu);
 
 #endif
