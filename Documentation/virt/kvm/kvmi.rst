@@ -538,6 +538,7 @@ the following events::
 	KVMI_EVENT_CR
 	KVMI_EVENT_HYPERCALL
 	KVMI_EVENT_TRAP
+	KVMI_EVENT_XSETBV
 
 When an event is enabled, the introspection tool is notified and it
 must reply with: continue, retry, crash, etc. (see **Events** below).
@@ -1006,3 +1007,28 @@ took place and the introspection has been enabled for this event
 ``kvmi_event``, exception/interrupt number (vector), exception code
 (``error_code``) and CR2 are sent to the introspection tool,
 which should check if its exception has been injected or overridden.
+
+7. KVMI_EVENT_XSETBV
+--------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent when the extended control register XCR0 is going
+to be changed and the introspection has been enabled for this event
+(see *KVMI_VCPU_CONTROL_EVENTS*).
+
+``kvmi_event`` is sent to the introspection tool.
