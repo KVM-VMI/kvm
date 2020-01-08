@@ -47,6 +47,7 @@
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
 			| BIT(KVMI_VCPU_GET_CPUID) \
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
+			| BIT(KVMI_VCPU_GET_XSAVE) \
 			| BIT(KVMI_VCPU_INJECT_EXCEPTION) \
 			| BIT(KVMI_VCPU_SET_REGISTERS) \
 		)
@@ -135,5 +136,8 @@ int kvmi_arch_cmd_vcpu_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 					u32 error_code, u64 address);
 void kvmi_arch_trap_event(struct kvm_vcpu *vcpu);
 void kvmi_arch_inject_pending_exception(struct kvm_vcpu *vcpu);
+int kvmi_arch_cmd_vcpu_get_xsave(struct kvm_vcpu *vcpu,
+				 struct kvmi_vcpu_get_xsave_reply **dest,
+				 size_t *dest_size);
 
 #endif
