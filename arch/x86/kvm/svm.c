@@ -627,6 +627,13 @@ static inline void clr_intercept(struct vcpu_svm *svm, int bit)
 	recalc_intercepts(svm);
 }
 
+static inline bool get_intercept(struct vcpu_svm *svm, int bit)
+{
+	struct vmcb *vmcb = get_host_vmcb(svm);
+
+	return (vmcb->control.intercept & (1ULL << bit));
+}
+
 static inline bool vgif_enabled(struct vcpu_svm *svm)
 {
 	return !!(svm->vmcb->control.int_ctl & V_GIF_ENABLE_MASK);
@@ -7290,6 +7297,20 @@ static void svm_control_desc_intercept(struct kvm_vcpu *vcpu, bool enable)
 	}
 }
 
+static inline bool svm_desc_intercepted(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	return (get_intercept(svm, INTERCEPT_STORE_IDTR) ||
+		get_intercept(svm, INTERCEPT_STORE_GDTR) ||
+		get_intercept(svm, INTERCEPT_STORE_LDTR) ||
+		get_intercept(svm, INTERCEPT_STORE_TR) ||
+		get_intercept(svm, INTERCEPT_LOAD_IDTR) ||
+		get_intercept(svm, INTERCEPT_LOAD_GDTR) ||
+		get_intercept(svm, INTERCEPT_LOAD_LDTR) ||
+		get_intercept(svm, INTERCEPT_LOAD_TR));
+}
+
 static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = has_svm,
 	.disabled_by_bios = is_disabled,
@@ -7340,6 +7361,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.get_gdt = svm_get_gdt,
 	.set_gdt = svm_set_gdt,
 	.control_desc_intercept = svm_control_desc_intercept,
+	.desc_intercepted = svm_desc_intercepted,
 	.get_dr6 = svm_get_dr6,
 	.set_dr6 = svm_set_dr6,
 	.set_dr7 = svm_set_dr7,
