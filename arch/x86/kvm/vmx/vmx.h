@@ -16,10 +16,6 @@ extern u64 host_efer;
 
 extern u32 get_umwait_control_msr(void);
 
-#define MSR_TYPE_R	1
-#define MSR_TYPE_W	2
-#define MSR_TYPE_RW	3
-
 #define X2APIC_MSR(r) (APIC_BASE_MSR + ((r) >> 4))
 
 #define NR_AUTOLOAD_MSRS 8
