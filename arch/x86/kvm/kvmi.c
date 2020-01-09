@@ -407,6 +407,72 @@ static void kvmi_arch_disable_desc_intercept(struct kvm_vcpu *vcpu)
 	vcpu->arch.kvmi->descriptor.kvm_intercepted = false;
 }
 
+static unsigned long *msr_mask(struct kvm_vcpu *vcpu, unsigned int *msr)
+{
+	switch (*msr) {
+	case 0 ... 0x1fff:
+		return vcpu->arch.kvmi->msrw.kvmi_mask.low;
+	case 0xc0000000 ... 0xc0001fff:
+		*msr &= 0x1fff;
+		return vcpu->arch.kvmi->msrw.kvmi_mask.high;
+	}
+
+	return NULL;
+}
+
+static bool test_msr_mask(struct kvm_vcpu *vcpu, unsigned int msr)
+{
+	unsigned long *mask = msr_mask(vcpu, &msr);
+
+	if (!mask)
+		return false;
+
+	return !!test_bit(msr, mask);
+}
+
+static bool msr_control(struct kvm_vcpu *vcpu, unsigned int msr, bool enable)
+{
+	unsigned long *mask = msr_mask(vcpu, &msr);
+
+	if (!mask)
+		return false;
+
+	if (enable)
+		set_bit(msr, mask);
+	else
+		clear_bit(msr, mask);
+
+	return true;
+}
+
+static unsigned int msr_mask_to_base(struct kvm_vcpu *vcpu, unsigned long *mask)
+{
+	if (mask == vcpu->arch.kvmi->msrw.kvmi_mask.high)
+		return 0xc0000000;
+
+	return 0;
+}
+
+static void kvmi_arch_disable_msr_intercept(struct kvm_vcpu *vcpu,
+					    unsigned long *mask)
+{
+	int offset = -1;
+	unsigned int msr_base = msr_mask_to_base(vcpu, mask);
+
+	for (;;) {
+		offset = find_next_bit(mask, KVMI_NUM_MSR, offset + 1);
+
+		if (offset >= KVMI_NUM_MSR)
+			break;
+
+		kvm_x86_ops->control_msr_intercept(vcpu, msr_base + offset,
+						   MSR_TYPE_W, false);
+		msr_control(vcpu, msr_base + offset, false);
+	}
+
+	bitmap_zero(mask, KVMI_NUM_MSR);
+}
+
 int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
 				    unsigned int event_id, bool enable)
 {
@@ -456,6 +522,8 @@ bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
 	kvmi_arch_disable_bp_intercept(vcpu);
 	kvmi_arch_disable_cr3w_intercept(vcpu);
 	kvmi_arch_disable_desc_intercept(vcpu);
+	kvmi_arch_disable_msr_intercept(vcpu, arch_vcpui->msrw.kvmi_mask.low);
+	kvmi_arch_disable_msr_intercept(vcpu, arch_vcpui->msrw.kvmi_mask.high);
 
 	return true;
 }
@@ -841,3 +909,98 @@ bool kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor, u8 write)
 	return ret;
 }
 EXPORT_SYMBOL(kvmi_descriptor_event);
+
+static bool kvmi_msr_valid(unsigned int msr)
+{
+	if ((msr < 0x1fff) || ((msr > 0xc0000000) && (msr < 0xc0001fff)))
+		return true;
+
+	return false;
+}
+
+
+int kvmi_arch_cmd_vcpu_control_msr(struct kvm_vcpu *vcpu,
+				   const struct kvmi_vcpu_control_msr *req)
+{
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	if (!kvmi_msr_valid(req->msr))
+		return -KVM_EINVAL;
+
+	kvm_x86_ops->control_msr_intercept(vcpu, req->msr, MSR_TYPE_W,
+					   req->enable);
+	msr_control(vcpu, req->msr, req->enable);
+
+	return 0;
+}
+
+static u32 kvmi_send_msr(struct kvm_vcpu *vcpu, u32 msr, u64 old_value,
+			 u64 new_value, u64 *ret_value)
+{
+	struct kvmi_event_msr e = {
+		.msr = msr,
+		.old_value = old_value,
+		.new_value = new_value,
+	};
+	struct kvmi_event_msr_reply r;
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_MSR, &e, sizeof(e),
+			      &r, sizeof(r), &action);
+	if (err) {
+		*ret_value = new_value;
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	*ret_value = r.new_val;
+	return action;
+}
+
+static bool __kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	struct msr_data old_msr = {
+		.host_initiated = true,
+		.index = msr->index,
+	};
+	bool ret = false;
+	u64 ret_value;
+	u32 action;
+
+	if (!test_msr_mask(vcpu, msr->index))
+		return true;
+	if (kvm_x86_ops->get_msr(vcpu, &old_msr))
+		return true;
+	if (old_msr.data == msr->data)
+		return true;
+
+	action = kvmi_send_msr(vcpu, msr->index, old_msr.data, msr->data,
+			       &ret_value);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		msr->data = ret_value;
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu->kvm, action, "MSR");
+	}
+
+	return ret;
+}
+
+bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = true;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_MSR))
+		ret = __kvmi_msr_event(vcpu, msr);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}

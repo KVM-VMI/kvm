@@ -57,6 +57,7 @@ enum {
 	GUEST_TEST_CR,
 	GUEST_TEST_DESCRIPTOR,
 	GUEST_TEST_HYPERCALL,
+	GUEST_TEST_MSR,
 	GUEST_TEST_XSETBV,
 };
 
@@ -95,6 +96,15 @@ static void guest_hypercall_test(void)
 	asm volatile("mov $24, %rdi");
 	asm volatile("mov $0, %rsi");
 	asm volatile(".byte 0x0f,0x01,0xc1");
+}
+
+static void guest_msr_test(void)
+{
+	uint64_t msr;
+
+	msr = rdmsr(MSR_MISC_FEATURES_ENABLES);
+	msr |= 1; /* MSR_MISC_FEATURES_ENABLES_CPUID_FAULT */
+	wrmsr(MSR_MISC_FEATURES_ENABLES, msr);
 }
 
 /* from fpu/internal.h */
@@ -153,6 +163,9 @@ static void guest_code(void)
 			break;
 		case GUEST_TEST_HYPERCALL:
 			guest_hypercall_test();
+			break;
+		case GUEST_TEST_MSR:
+			guest_msr_test();
 			break;
 		case GUEST_TEST_XSETBV:
 			guest_xsetbv_test();
@@ -1420,6 +1433,94 @@ static void test_event_descriptor(struct kvm_vm *vm)
 	disable_vcpu_event(vm, event_id);
 }
 
+static int cmd_control_msr(struct kvm_vm *vm, __u32 msr, bool enable)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_control_msr cmd;
+	} req = {};
+
+	req.cmd.msr = msr;
+	req.cmd.enable = enable ? 1 : 0;
+
+	return do_vcpu0_command(vm, KVMI_VCPU_CONTROL_MSR,
+				&req.hdr, sizeof(req), NULL, 0);
+}
+
+static void enable_msr_events(struct kvm_vm *vm, __u32 msr)
+{
+	int r;
+
+	enable_vcpu_event(vm, KVMI_EVENT_MSR);
+
+	r = cmd_control_msr(vm, msr, true);
+	TEST_ASSERT(r == 0,
+		"KVMI_EVENT_MSR failed, error %d(%s)\n",
+		-r, kvm_strerror(-r));
+}
+
+static void disable_msr_events(struct kvm_vm *vm, __u32 msr)
+{
+	int r;
+
+	r = cmd_control_msr(vm, msr, false);
+	TEST_ASSERT(r == 0,
+		"KVMI_EVENT_MSR failed, error %d(%s)\n",
+		-r, kvm_strerror(-r));
+
+	disable_vcpu_event(vm, KVMI_EVENT_MSR);
+}
+
+static void test_cmd_vcpu_control_msr(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.test_id = GUEST_TEST_MSR,
+	};
+	struct kvmi_msg_hdr hdr;
+	struct {
+		struct kvmi_event common;
+		struct kvmi_event_msr msr;
+	} ev;
+	struct {
+		struct vcpu_reply common;
+		struct kvmi_event_msr_reply msr;
+	} rpl = {};
+	__u16 event_id = KVMI_EVENT_MSR;
+	__u32 msr = MSR_MISC_FEATURES_ENABLES;
+	uint64_t msr_data;
+	pthread_t vcpu_thread;
+
+	enable_msr_events(vm, msr);
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_event(&hdr, &ev.common, sizeof(ev), event_id);
+
+	DEBUG("MSR 0x%x, old 0x%llx, new 0x%llx\n",
+		ev.msr.msr, ev.msr.old_value, ev.msr.new_value);
+
+	TEST_ASSERT(ev.msr.msr == msr,
+		"Unexpected MSR event, received MSR 0x%x, expected MSR 0x%x",
+		ev.msr.msr, msr);
+
+	rpl.msr.new_val = ev.msr.old_value;
+
+	reply_to_event(&hdr, &ev.common, KVMI_EVENT_ACTION_CONTINUE,
+			&rpl.common, sizeof(rpl));
+
+	stop_vcpu_worker(vcpu_thread, &data);
+
+	disable_msr_events(vm, msr);
+
+	msr_data = vcpu_get_msr(vm, VCPU_ID, msr);
+	TEST_ASSERT(msr_data == ev.msr.old_value,
+		"Failed to block MSR 0x%x update, value 0x%x, expected 0x%x",
+		msr, msr_data, ev.msr.old_value);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1449,6 +1550,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_get_xsave(vm);
 	test_cmd_vcpu_get_mtrr_type(vm);
 	test_event_descriptor(vm);
+	test_cmd_vcpu_control_msr(vm);
 
 	unhook_introspection(vm);
 }
