@@ -55,6 +55,7 @@ enum {
 	GUEST_TEST_NOOP = 0,
 	GUEST_TEST_BP,
 	GUEST_TEST_CR,
+	GUEST_TEST_DESCRIPTOR,
 	GUEST_TEST_HYPERCALL,
 	GUEST_TEST_XSETBV,
 };
@@ -78,6 +79,14 @@ static void guest_bp_test(void)
 static void guest_cr_test(void)
 {
 	set_cr4(get_cr4() | X86_CR4_OSXSAVE);
+}
+
+static void guest_descriptor_test(void)
+{
+	void *ptr;
+
+	asm volatile("sgdt %0" :: "m"(ptr));
+	asm volatile("lgdt %0" :: "m"(ptr));
 }
 
 static void guest_hypercall_test(void)
@@ -138,6 +147,9 @@ static void guest_code(void)
 			break;
 		case GUEST_TEST_CR:
 			guest_cr_test();
+			break;
+		case GUEST_TEST_DESCRIPTOR:
+			guest_descriptor_test();
 			break;
 		case GUEST_TEST_HYPERCALL:
 			guest_hypercall_test();
@@ -1361,6 +1373,53 @@ static void test_cmd_vcpu_get_mtrr_type(struct kvm_vm *vm)
 	DEBUG("mtrr_type: gpa 0x%lx type 0x%x\n", test_gpa, rpl.type);
 }
 
+static void test_event_descriptor(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.test_id = GUEST_TEST_DESCRIPTOR,
+	};
+	struct kvmi_msg_hdr hdr;
+	struct {
+		struct kvmi_event common;
+		struct kvmi_event_descriptor desc;
+	} ev;
+	struct vcpu_reply rpl = {};
+	__u16 event_id = KVMI_EVENT_DESCRIPTOR;
+	pthread_t vcpu_thread;
+
+	enable_vcpu_event(vm, event_id);
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_event(&hdr, &ev.common, sizeof(ev), event_id);
+
+	DEBUG("Descriptor event (read), descriptor %u, write %u\n",
+		ev.desc.descriptor, ev.desc.write);
+
+	TEST_ASSERT(ev.desc.write == 0,
+		"Received a write descriptor access\n");
+
+	reply_to_event(&hdr, &ev.common, KVMI_EVENT_ACTION_CONTINUE,
+			&rpl, sizeof(rpl));
+
+	receive_event(&hdr, &ev.common, sizeof(ev), event_id);
+
+	DEBUG("Descriptor event (write), descriptor %u, write %u\n",
+		ev.desc.descriptor, ev.desc.write);
+
+	TEST_ASSERT(ev.desc.write == 1,
+		"Received a read descriptor access\n");
+
+	reply_to_event(&hdr, &ev.common, KVMI_EVENT_ACTION_CONTINUE,
+			&rpl, sizeof(rpl));
+
+	stop_vcpu_worker(vcpu_thread, &data);
+
+	disable_vcpu_event(vm, event_id);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1389,6 +1448,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_event_xsetbv(vm);
 	test_cmd_vcpu_get_xsave(vm);
 	test_cmd_vcpu_get_mtrr_type(vm);
+	test_event_descriptor(vm);
 
 	unhook_introspection(vm);
 }

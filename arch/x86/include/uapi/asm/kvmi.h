@@ -110,4 +110,15 @@ struct kvmi_vcpu_get_mtrr_type_reply {
 	__u8 padding[7];
 };
 
+#define KVMI_DESC_IDTR  1
+#define KVMI_DESC_GDTR  2
+#define KVMI_DESC_LDTR  3
+#define KVMI_DESC_TR    4
+
+struct kvmi_event_descriptor {
+	__u8 descriptor;
+	__u8 write;
+	__u8 padding[6];
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

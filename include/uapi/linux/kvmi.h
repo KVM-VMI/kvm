@@ -51,6 +51,7 @@ enum {
 	KVMI_EVENT_CR         = 4,
 	KVMI_EVENT_TRAP       = 5,
 	KVMI_EVENT_XSETBV     = 6,
+	KVMI_EVENT_DESCRIPTOR = 7,
 
 	KVMI_NUM_EVENTS
 };

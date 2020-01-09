@@ -349,6 +349,21 @@ static void kvmi_arch_disable_cr3w_intercept(struct kvm_vcpu *vcpu)
 	vcpu->arch.kvmi->cr3w.kvm_intercepted = false;
 }
 
+static int kvmi_control_desc_intercept(struct kvm_vcpu *vcpu, bool enable)
+{
+	if (!kvm_x86_ops->umip_emulated())
+		return -KVM_EOPNOTSUPP;
+
+	kvm_x86_ops->control_desc_intercept(vcpu, enable);
+
+	return 0;
+}
+
+static void kvmi_arch_disable_desc_intercept(struct kvm_vcpu *vcpu)
+{
+	kvmi_control_desc_intercept(vcpu, false);
+}
+
 int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
 				    unsigned int event_id, bool enable)
 {
@@ -357,6 +372,9 @@ int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
 	switch (event_id) {
 	case KVMI_EVENT_BREAKPOINT:
 		err = kvmi_control_bp_intercept(vcpu, enable);
+		break;
+	case KVMI_EVENT_DESCRIPTOR:
+		err = kvmi_control_desc_intercept(vcpu, enable);
 		break;
 	default:
 		break;
@@ -394,6 +412,7 @@ bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
 
 	kvmi_arch_disable_bp_intercept(vcpu);
 	kvmi_arch_disable_cr3w_intercept(vcpu);
+	kvmi_arch_disable_desc_intercept(vcpu);
 
 	return true;
 }
@@ -721,3 +740,59 @@ int kvmi_arch_cmd_vcpu_get_mtrr_type(struct kvm_vcpu *vcpu, u64 gpa, u8 *type)
 
 	return 0;
 }
+
+static u32 kvmi_msg_send_descriptor(struct kvm_vcpu *vcpu, u8 descriptor,
+				    u8 write)
+{
+	struct kvmi_event_descriptor e;
+	int err, action;
+
+	memset(&e, 0, sizeof(e));
+	e.descriptor = descriptor;
+	e.write = write;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_DESCRIPTOR, &e, sizeof(e),
+			      NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}
+
+static bool __kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor,
+				    u8 write)
+{
+	bool ret = false;
+	u32 action;
+
+	action = kvmi_msg_send_descriptor(vcpu, descriptor, write);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ret = true;
+		break;
+	case KVMI_EVENT_ACTION_RETRY:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu->kvm, action, "DESC");
+	}
+
+	return ret;
+}
+
+bool kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor, u8 write)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = true;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_DESCRIPTOR))
+		ret = __kvmi_descriptor_event(vcpu, descriptor, write);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_descriptor_event);
