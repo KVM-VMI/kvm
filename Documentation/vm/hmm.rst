@@ -147,49 +147,16 @@ Address space mirroring implementation and API
 Address space mirroring's main objective is to allow duplication of a range of
 CPU page table into a device page table; HMM helps keep both synchronized. A
 device driver that wants to mirror a process address space must start with the
-registration of an hmm_mirror struct::
+registration of a mmu_interval_notifier::
 
- int hmm_mirror_register(struct hmm_mirror *mirror,
-                         struct mm_struct *mm);
+ int mmu_interval_notifier_insert(struct mmu_interval_notifier *interval_sub,
+				  struct mm_struct *mm, unsigned long start,
+				  unsigned long length,
+				  const struct mmu_interval_notifier_ops *ops);
 
-The mirror struct has a set of callbacks that are used
-to propagate CPU page tables::
-
- struct hmm_mirror_ops {
-     /* release() - release hmm_mirror
-      *
-      * @mirror: pointer to struct hmm_mirror
-      *
-      * This is called when the mm_struct is being released.  The callback
-      * must ensure that all access to any pages obtained from this mirror
-      * is halted before the callback returns. All future access should
-      * fault.
-      */
-     void (*release)(struct hmm_mirror *mirror);
-
-     /* sync_cpu_device_pagetables() - synchronize page tables
-      *
-      * @mirror: pointer to struct hmm_mirror
-      * @update: update information (see struct mmu_notifier_range)
-      * Return: -EAGAIN if update.blockable false and callback need to
-      *         block, 0 otherwise.
-      *
-      * This callback ultimately originates from mmu_notifiers when the CPU
-      * page table is updated. The device driver must update its page table
-      * in response to this callback. The update argument tells what action
-      * to perform.
-      *
-      * The device driver must not return from this callback until the device
-      * page tables are completely updated (TLBs flushed, etc); this is a
-      * synchronous call.
-      */
-     int (*sync_cpu_device_pagetables)(struct hmm_mirror *mirror,
-                                       const struct hmm_update *update);
- };
-
-The device driver must perform the update action to the range (mark range
-read only, or fully unmap, etc.). The device must complete the update before
-the driver callback returns.
+During the ops->invalidate() callback the device driver must perform the
+update action to the range (mark range read only, or fully unmap, etc.). The
+device must complete the update before the driver callback returns.
 
 When the device driver wants to populate a range of virtual addresses, it can
 use::
@@ -216,6 +183,7 @@ The usage pattern is::
       struct hmm_range range;
       ...
 
+      range.notifier = &interval_sub;
       range.start = ...;
       range.end = ...;
       range.pfns = ...;
@@ -224,14 +192,11 @@ The usage pattern is::
       range.pfn_shift = ...;
       hmm_range_register(&range, mirror);
 
-      /*
-       * Just wait for range to be valid, safe to ignore return value as we
-       * will use the return value of hmm_range_fault() below under the
-       * mmap_sem to ascertain the validity of the range.
-       */
-      hmm_range_wait_until_valid(&range, TIMEOUT_IN_MSEC);
+      if (!mmget_not_zero(interval_sub->notifier.mm))
+          return -EFAULT;
 
  again:
+      range.notifier_seq = mmu_interval_read_begin(&interval_sub);
       down_read(&mm->mmap_sem);
       ret = hmm_range_fault(&range, HMM_RANGE_SNAPSHOT);
       if (ret) {
