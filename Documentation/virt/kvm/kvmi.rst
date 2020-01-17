@@ -256,9 +256,20 @@ The commands related to vCPUs start with::
 	struct kvmi_get_version_reply {
 		__u32 version;
 		__u32 padding;
+		struct kvmi_features features;
 	};
 
-Returns the introspection API version.
+For x86
+
+::
+
+	struct kvmi_features {
+		__u8 singlestep;
+		__u8 padding[7];
+	};
+
+Returns the introspection API version and some of the features supported
+by the hardware.
 
 This command is always allowed and successful (if the introspection is
 built in kernel).

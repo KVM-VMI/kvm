@@ -1201,6 +1201,11 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	return ret;
 }
 
+void kvmi_arch_features(struct kvmi_features *feat)
+{
+	feat->singlestep = !!kvm_x86_ops->control_singlestep;
+}
+
 bool kvmi_arch_pf_of_interest(struct kvm_vcpu *vcpu)
 {
 	return kvm_x86_ops->spt_fault(vcpu) &&
