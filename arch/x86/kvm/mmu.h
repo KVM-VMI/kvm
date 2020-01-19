@@ -28,6 +28,8 @@
 #define PT_GLOBAL_MASK (1ULL << 8)
 #define PT64_NX_SHIFT 63
 #define PT64_NX_MASK (1ULL << PT64_NX_SHIFT)
+#define PT_SPP_SHIFT 61
+#define PT_SPP_MASK (1ULL << PT_SPP_SHIFT)
 
 #define PT_PAT_SHIFT 7
 #define PT_DIR_PAT_SHIFT 12

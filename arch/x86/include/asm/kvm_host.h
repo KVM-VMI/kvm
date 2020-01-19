@@ -712,6 +712,7 @@ struct kvm_vcpu_arch {
 	unsigned nmi_pending; /* NMI queued after currently running handler */
 	bool nmi_injected;    /* Trying to inject an NMI this entry */
 	bool smi_pending;    /* SMI queued after currently running handler */
+	bool spp_pending;    /* SPP has been requested, need to update VMCS */
 
 	struct kvm_mtrr mtrr_state;
 	u64 pat;
@@ -818,6 +819,7 @@ struct kvm_lpage_info {
 
 struct kvm_arch_memory_slot {
 	struct kvm_rmap_head *rmap[KVM_NR_PAGE_SIZES];
+	u32 *subpage_wp_info;
 	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
 	unsigned short *gfn_track[KVM_MAX_EPT_VIEWS][KVM_PAGE_TRACK_MAX];
 };
@@ -966,6 +968,7 @@ struct kvm_arch {
 
 	refcount_t kvmi_refcount;
 	hpa_t sppt_root;
+	bool spp_active;
 };
 
 struct kvm_vm_stat {

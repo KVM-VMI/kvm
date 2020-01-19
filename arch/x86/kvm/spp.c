@@ -17,6 +17,68 @@ static void shadow_spp_walk_init(struct kvm_shadow_walk_iterator *iterator,
 	iterator->level = PT64_ROOT_4LEVEL;
 }
 
+u32 *gfn_to_subpage_wp_info(struct kvm_memory_slot *slot, gfn_t gfn)
+{
+	unsigned long idx;
+
+	if (!slot->arch.subpage_wp_info)
+		return NULL;
+
+	idx = gfn_to_index(gfn, slot->base_gfn, PT_PAGE_TABLE_LEVEL);
+	if (idx > slot->npages - 1)
+		return NULL;
+
+	return &slot->arch.subpage_wp_info[idx];
+}
+
+static bool __rmap_update_subpage_bit(struct kvm *kvm,
+				      struct kvm_rmap_head *rmap_head,
+				      bool setbit)
+{
+	struct rmap_iterator iter;
+	bool flush = false;
+	u64 *sptep;
+	u64 spte;
+
+	for_each_rmap_spte(rmap_head, &iter, sptep) {
+		/*
+		 * SPP works only when the page is write-protected
+		 * and SPP bit is set in EPT leaf entry.
+		 */
+		flush |= spte_write_protect(sptep, false);
+		spte = setbit ? (*sptep | PT_SPP_MASK) :
+				(*sptep & ~PT_SPP_MASK);
+		flush |= mmu_spte_update(sptep, spte);
+	}
+
+	return flush;
+}
+
+static int kvm_spp_update_write_protect(struct kvm *kvm,
+					struct kvm_memory_slot *slot,
+					gfn_t gfn,
+					bool enable)
+{
+	struct kvm_rmap_head *rmap_head;
+	bool flush = false;
+
+	/*
+	 * SPP is only supported with 4KB level1 memory page, check
+	 * if the page is mapped in EPT leaf entry.
+	 */
+	rmap_head = __gfn_to_rmap(gfn, PT_PAGE_TABLE_LEVEL, slot);
+
+	if (!rmap_head->val)
+		return -EFAULT;
+
+	flush |= __rmap_update_subpage_bit(kvm, rmap_head, enable);
+
+	if (flush)
+		kvm_flush_remote_tlbs(kvm);
+
+	return 0;
+}
+
 struct kvm_mmu_page *kvm_spp_get_page(struct kvm_vcpu *vcpu,
 				      gfn_t gfn,
 				      unsigned int level)
@@ -82,6 +144,20 @@ static void spp_spte_set(u64 *sptep, u64 new_spte)
 	__set_spte(sptep, new_spte);
 }
 
+static int kvm_spp_level_pages(gfn_t gfn_lower, gfn_t gfn_upper, int level)
+{
+	int page_num = KVM_PAGES_PER_HPAGE(level);
+	gfn_t gfn_max = (gfn_lower & ~(page_num - 1)) + page_num - 1;
+	int ret;
+
+	if (gfn_upper <= gfn_max)
+		ret = gfn_upper - gfn_lower + 1;
+	else
+		ret = gfn_max - gfn_lower + 1;
+
+	return ret;
+}
+
 int kvm_spp_setup_structure(struct kvm_vcpu *vcpu,
 			    u32 access_map, gfn_t gfn)
 {
@@ -122,5 +198,171 @@ int kvm_spp_setup_structure(struct kvm_vcpu *vcpu,
 	}
 
 	kvm_flush_remote_tlbs(vcpu->kvm);
+	return ret;
+}
+
+int kvm_spp_get_permission(struct kvm *kvm, u64 gfn, u32 npages,
+			   u32 *access_map)
+{
+	u32 *access;
+	struct kvm_memory_slot *slot;
+	int i;
+
+	if (!kvm->arch.spp_active)
+		return -ENODEV;
+
+	for (i = 0; i < npages; i++, gfn++) {
+		slot = gfn_to_memslot(kvm, gfn);
+		if (!slot)
+			return -EFAULT;
+		access = gfn_to_subpage_wp_info(slot, gfn);
+		if (!access)
+			return -EFAULT;
+		access_map[i] = *access;
+	}
+
+	return i;
+}
+
+static void kvm_spp_zap_pte(struct kvm *kvm, u64 *spte, int level)
+{
+	u64 pte;
+
+	pte = *spte;
+	if (is_shadow_present_pte(pte) && is_last_spte(pte, level)) {
+		drop_spte(kvm, spte);
+		if (is_large_pte(pte))
+			--kvm->stat.lpages;
+	}
+}
+
+static bool kvm_spp_flush_rmap(struct kvm *kvm, u64 gfn_min, u64 gfn_max)
+{
+	u64 *sptep;
+	struct rmap_iterator iter;
+	struct kvm_rmap_head *rmap_head;
+	int level;
+	struct kvm_memory_slot *slot;
+	bool flush = false;
+
+	slot = gfn_to_memslot(kvm, gfn_min);
+	if (!slot)
+		return false;
+
+	for (; gfn_min <= gfn_max; gfn_min++) {
+		for (level = PT_PAGE_TABLE_LEVEL;
+		     level <= PT_DIRECTORY_LEVEL; level++) {
+			rmap_head = __gfn_to_rmap(gfn_min, level, slot);
+			for_each_rmap_spte(rmap_head, &iter, sptep) {
+				pte_list_remove(rmap_head, sptep);
+				flush = true;
+			}
+		}
+	}
+
+	return flush;
+}
+
+int kvm_spp_set_permission(struct kvm *kvm, u64 gfn, u32 npages,
+			   u32 *access_map)
+{
+	gfn_t old_gfn = gfn;
+	u32 *access;
+	struct kvm_memory_slot *slot;
+	struct kvm_shadow_walk_iterator iterator;
+	struct kvm_vcpu *vcpu;
+	gfn_t gfn_end;
+	int i, count, level;
+	bool flush = false;
+
+	if (!kvm->arch.spp_active)
+		return -ENODEV;
+
+	vcpu = kvm_get_vcpu(kvm, 0);
+	if (!VALID_PAGE(vcpu->kvm->arch.sppt_root))
+		return -EFAULT;
+
+	for (i = 0; i < npages; i++, gfn++) {
+		slot = gfn_to_memslot(kvm, gfn);
+		if (!slot)
+			return -EFAULT;
+
+		access = gfn_to_subpage_wp_info(slot, gfn);
+		if (!access)
+			return -EFAULT;
+		*access = access_map[i];
+	}
+
+	gfn = old_gfn;
+	gfn_end = gfn + npages - 1;
+	vcpu = kvm_get_vcpu(kvm, 0);
+
+	if (!vcpu || (vcpu && !VALID_PAGE(vcpu->arch.mmu->root_hpa)))
+		goto out;
+
+	/* Flush any existing stale mappings in EPT before set up SPP */
+	flush = kvm_spp_flush_rmap(kvm, gfn, gfn_end);
+
+	for (i = 0; gfn <= gfn_end; i++, gfn++) {
+		for_each_shadow_entry(vcpu, (u64)gfn << PAGE_SHIFT, iterator) {
+			if (!is_shadow_present_pte(*iterator.sptep))
+				break;
+
+			if (iterator.level == PT_PAGE_TABLE_LEVEL) {
+				if (kvm_spp_mark_protection(kvm,
+							    gfn,
+							    access_map[i]) < 0)
+					return -EFAULT;
+				break;
+			} else if (is_large_pte(*iterator.sptep)) {
+				level = iterator.level;
+				if (access_map[i] == FULL_SPP_ACCESS)
+					break;
+				count = kvm_spp_level_pages(gfn,
+							    gfn_end,
+							    level);
+				/*
+				 * Zap existing hugepage entry so that eligible
+				 * 4KB mappings can be rebuilt in page_fault.
+				 */
+				kvm_spp_zap_pte(kvm, iterator.sptep, level);
+				flush = true;
+				if (count >= npages)
+					goto out;
+				gfn += count - 1;
+			}
+		}
+	}
+out:
+	if (flush)
+		kvm_flush_remote_tlbs(kvm);
+	return npages;
+}
+
+int kvm_spp_mark_protection(struct kvm *kvm, u64 gfn, u32 access)
+{
+	struct kvm_memory_slot *slot;
+	struct kvm_rmap_head *rmap_head;
+	int ret = 0;
+	bool enable;
+
+	if (!kvm->arch.spp_active)
+		return -ENODEV;
+
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot)
+		return -EFAULT;
+
+	/*
+	 * check whether the target 4KB page exists in EPT leaf
+	 * entry.If it's there, just flag SPP bit of the entry,
+	 * defer the setup to SPPT miss induced vm-exit  handler.
+	 */
+	rmap_head = __gfn_to_rmap(gfn, PT_PAGE_TABLE_LEVEL, slot);
+
+	if (rmap_head->val) {
+		enable = access != FULL_SPP_ACCESS;
+		ret = kvm_spp_update_write_protect(kvm, slot, gfn, enable);
+	}
 	return ret;
 }
