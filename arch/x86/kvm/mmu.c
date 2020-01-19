@@ -20,6 +20,7 @@
 #include "x86.h"
 #include "kvm_cache_regs.h"
 #include "cpuid.h"
+#include "spp.h"
 
 #include <linux/kvm_host.h>
 #include <linux/types.h>
@@ -177,6 +178,7 @@ module_param(dbg, bool, 0644);
 /* The mask for the R/X bits in EPT PTEs */
 #define PT64_EPT_READABLE_MASK			0x1ull
 #define PT64_EPT_EXECUTABLE_MASK		0x4ull
+#define PT64_SPP_SAVED_BIT	(1ULL << (PT64_SECOND_AVAIL_BITS_SHIFT + 1))
 
 #include <trace/events/kvm.h>
 
@@ -200,6 +202,7 @@ enum {
 	RET_PF_RETRY = 0,
 	RET_PF_EMULATE = 1,
 	RET_PF_INVALID = 2,
+	RET_PF_USERSPACE = 3,
 };
 
 struct pte_list_desc {
@@ -991,6 +994,9 @@ static u64 mark_spte_for_access_track(u64 spte)
 		shadow_acc_track_saved_bits_shift;
 	spte &= ~shadow_acc_track_mask;
 
+	if (spte & PT_SPP_MASK)
+		save_spp_bit(&spte);
+
 	return spte;
 }
 
@@ -1656,9 +1662,16 @@ static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
 static bool spte_write_protect(u64 *sptep, bool pt_protect)
 {
 	u64 spte = *sptep;
+	bool spp_protected = false;
+
+	if (spte & PT_SPP_MASK) {
+		save_spp_bit(&spte);
+		spp_protected = true;
+	}
 
 	if (!is_writable_pte(spte) &&
-	      !(pt_protect && spte_can_locklessly_be_made_writable(spte)))
+	    !(pt_protect && spte_can_locklessly_be_made_writable(spte)) &&
+	    !spp_protected)
 		return false;
 
 	rmap_printk("rmap_write_protect: spte %p %llx\n", sptep, *sptep);
@@ -1768,8 +1781,14 @@ static bool spte_wrprot_for_clear_dirty(u64 *sptep)
 {
 	bool was_writable = test_and_clear_bit(PT_WRITABLE_SHIFT,
 					       (unsigned long *)sptep);
+	bool was_spp_armed = test_and_clear_bit(PT_SPP_SHIFT,
+					       (unsigned long *)sptep);
+
 	if (was_writable && !spte_ad_enabled(*sptep))
 		kvm_set_pfn_dirty(spte_to_pfn(*sptep));
+
+	if (was_spp_armed)
+		*sptep |= PT64_SPP_SAVED_BIT;
 
 	return was_writable;
 }
@@ -3665,7 +3684,8 @@ static bool page_fault_can_be_fast(u32 error_code)
  */
 static bool
 fast_pf_fix_direct_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
-			u64 *sptep, u64 old_spte, u64 new_spte)
+			u64 *sptep, u64 old_spte, u64 new_spte,
+			bool spp_protected)
 {
 	gfn_t gfn;
 
@@ -3686,7 +3706,8 @@ fast_pf_fix_direct_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	if (cmpxchg64(sptep, old_spte, new_spte) != old_spte)
 		return false;
 
-	if (is_writable_pte(new_spte) && !is_writable_pte(old_spte)) {
+	if ((is_writable_pte(new_spte) && !is_writable_pte(old_spte)) ||
+	    spp_protected) {
 		/*
 		 * The gfn of direct spte is stable since it is
 		 * calculated by sp->gfn.
@@ -3721,6 +3742,7 @@ static bool fast_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, int level,
 	struct kvm_shadow_walk_iterator iterator;
 	struct kvm_mmu_page *sp;
 	bool fault_handled = false;
+	bool spp_protected = false;
 	u64 spte = shadow_init_value;
 	uint retry_count = 0;
 
@@ -3772,7 +3794,30 @@ static bool fast_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, int level,
 		if ((error_code & PFERR_WRITE_MASK) &&
 		    spte_can_locklessly_be_made_writable(spte))
 		{
-			new_spte |= PT_WRITABLE_MASK;
+			/*
+			 * Record write protect fault caused by
+			 * Sub-page Protection, let VMI decide
+			 * the next step.
+			 */
+			if (spte & PT_SPP_MASK) {
+				int len = kvm_x86_ops->get_insn_len(vcpu);
+
+				fault_handled = true;
+				vcpu->run->exit_reason = KVM_EXIT_SPP;
+				vcpu->run->spp.addr = cr2_or_gpa;
+				vcpu->run->spp.insn_len = len;
+				trace_kvm_spp_induced_page_fault(vcpu,
+								 cr2_or_gpa,
+								 len);
+				break;
+			}
+
+			if (was_spp_armed(new_spte)) {
+				restore_spp_bit(&new_spte);
+				spp_protected = true;
+			} else {
+				new_spte |= PT_WRITABLE_MASK;
+			}
 
 			/*
 			 * Do not fix write-permission on the large spte.  Since
@@ -3791,7 +3836,8 @@ static bool fast_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, int level,
 
 		/* Verify that the fault can be handled in the fast path */
 		if (new_spte == spte ||
-		    !is_access_allowed(error_code, new_spte))
+		    (!is_access_allowed(error_code, new_spte) &&
+		    !spp_protected))
 			break;
 
 		/*
@@ -3801,7 +3847,8 @@ static bool fast_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, int level,
 		 */
 		fault_handled = fast_pf_fix_direct_spte(vcpu, sp,
 							iterator.sptep, spte,
-							new_spte);
+							new_spte,
+							spp_protected);
 		if (fault_handled)
 			break;
 
@@ -5435,7 +5482,6 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu, bool reset_roots)
 		uint i;
 
 		vcpu->arch.mmu->root_hpa = INVALID_PAGE;
-
 		for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 			vcpu->arch.mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
 	}
@@ -5756,6 +5802,10 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 		r = vcpu->arch.mmu->page_fault(vcpu, cr2_or_gpa,
 					       lower_32_bits(error_code),
 					       false);
+
+		if (vcpu->run->exit_reason == KVM_EXIT_SPP)
+			r = RET_PF_USERSPACE;
+
 		WARN_ON(r == RET_PF_INVALID);
 	}
 
@@ -5764,6 +5814,8 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 	if (r < 0)
 		return r;
 
+	if (r == RET_PF_USERSPACE)
+		return 0;
 	/*
 	 * Before emulating the instruction, check if the error code
 	 * was due to a RO violation while translating the guest page.

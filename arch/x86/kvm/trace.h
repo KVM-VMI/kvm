@@ -1496,6 +1496,72 @@ TRACE_EVENT(kvm_nested_vmenter_failed,
 		__print_symbolic(__entry->err, VMX_VMENTER_INSTRUCTION_ERRORS))
 );
 
+TRACE_EVENT(kvm_spp_set_subpages,
+	TP_PROTO(struct kvm_vcpu *vcpu, gfn_t gfn, u32 access),
+	TP_ARGS(vcpu, gfn, access),
+
+	TP_STRUCT__entry(
+		__field(int, vcpu_id)
+		__field(gfn_t, gfn)
+		__field(u32, access)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_id = vcpu->vcpu_id;
+		__entry->gfn = gfn;
+		__entry->access = access;
+	),
+
+	TP_printk("vcpu %d gfn %llx access %x",
+		  __entry->vcpu_id,
+		  __entry->gfn,
+		  __entry->access)
+);
+
+TRACE_EVENT(kvm_spp_induced_exit,
+	TP_PROTO(struct kvm_vcpu *vcpu, gpa_t gpa, u32 qualification),
+	TP_ARGS(vcpu, gpa, qualification),
+
+	TP_STRUCT__entry(
+		__field(int, vcpu_id)
+		__field(gpa_t, gpa)
+		__field(u32, qualification)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_id = vcpu->vcpu_id;
+		__entry->gpa = gpa;
+		__entry->qualification = qualification;
+	),
+
+	TP_printk("vcpu %d gpa %llx qualificaiton %x",
+		  __entry->vcpu_id,
+		  __entry->gpa,
+		  __entry->qualification)
+);
+
+TRACE_EVENT(kvm_spp_induced_page_fault,
+	TP_PROTO(struct kvm_vcpu *vcpu, gpa_t gpa, int insn_len),
+	TP_ARGS(vcpu, gpa, insn_len),
+
+	TP_STRUCT__entry(
+		__field(int, vcpu_id)
+		__field(gpa_t, gpa)
+		__field(int, insn_len)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_id = vcpu->vcpu_id;
+		__entry->gpa = gpa;
+		__entry->insn_len = insn_len;
+	),
+
+	TP_printk("vcpu %d gpa %llx insn_len %d",
+		  __entry->vcpu_id,
+		  __entry->gpa,
+		  __entry->insn_len)
+);
+
 #endif /* _TRACE_KVM_H */
 
 #undef TRACE_INCLUDE_PATH

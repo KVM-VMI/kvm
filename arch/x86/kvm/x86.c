@@ -10699,3 +10699,6 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pml_full);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_pi_irte_update);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_avic_unaccelerated_access);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_avic_incomplete_ipi);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_spp_set_subpages);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_spp_induced_exit);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_spp_induced_page_fault);

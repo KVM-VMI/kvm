@@ -60,6 +60,7 @@
 #include "vmcs12.h"
 #include "vmx.h"
 #include "x86.h"
+#include "spp.h"
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
@@ -1413,6 +1414,11 @@ static void vmx_vcpu_put(struct kvm_vcpu *vcpu)
 static bool emulation_required(struct kvm_vcpu *vcpu)
 {
 	return emulate_invalid_guest_state && !guest_state_valid(vcpu);
+}
+
+static int vmx_get_insn_len(struct kvm_vcpu *vcpu)
+{
+	return vmcs_read32(VM_EXIT_INSTRUCTION_LEN);
 }
 
 static void vmx_decache_cr0_guest_bits(struct kvm_vcpu *vcpu);
@@ -5660,6 +5666,69 @@ static int handle_monitor_trap(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int handle_spp(struct kvm_vcpu *vcpu)
+{
+	unsigned long exit_qualification;
+	struct kvm_memory_slot *slot;
+	gfn_t gfn, gfn_end;
+	u32 *access;
+	gpa_t gpa;
+
+	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+
+	/*
+	 * SPP VM exit happened while executing iret from NMI,
+	 * "blocked by NMI" bit has to be set before next VM entry.
+	 * There are errata that may cause this bit to not be set:
+	 * AAK134, BY25.
+	 */
+	if (!(to_vmx(vcpu)->idt_vectoring_info & VECTORING_INFO_VALID_MASK) &&
+	    (exit_qualification & SPPT_INTR_INFO_UNBLOCK_NMI))
+		vmcs_set_bits(GUEST_INTERRUPTIBILITY_INFO,
+			      GUEST_INTR_STATE_NMI);
+
+	vcpu->arch.exit_qualification = exit_qualification;
+	if (WARN_ON(!(exit_qualification & SPPT_INDUCED_EXIT_TYPE)))
+		goto out_err;
+	/*
+	 * SPPT missing
+	 * We don't set SPP write access for the corresponding
+	 * GPA, if we haven't setup, we need to construct
+	 * SPP table here.
+	 */
+	gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+	gfn = gpa_to_gfn(gpa);
+	trace_kvm_spp_induced_exit(vcpu, gpa, exit_qualification);
+	/*
+	 * In level 1 of SPPT, there's no PRESENT bit, all data is
+	 * regarded as permission vector, so need to check from
+	 * level 2 to set up the vector if target page is protected.
+	 */
+	spin_lock(&vcpu->kvm->mmu_lock);
+	gfn &= ~(MAX_ENTRIES_PER_MMUPAGE - 1);
+	gfn_end = gfn + MAX_ENTRIES_PER_MMUPAGE;
+	for (; gfn < gfn_end; gfn++) {
+		slot = gfn_to_memslot(vcpu->kvm, gfn);
+		if (!slot)
+			continue;
+		access = gfn_to_subpage_wp_info(slot, gfn);
+		if (access && *access != FULL_SPP_ACCESS)
+			kvm_spp_setup_structure(vcpu, *access, gfn);
+	}
+	spin_unlock(&vcpu->kvm->mmu_lock);
+	return 1;
+out_err:
+	/*
+	 * SPPT Misconfig
+	 * This is probably caused by some mis-configuration in SPPT
+	 * entries, cannot handle it here, escalate the fault to
+	 * emulator.
+	 */
+	vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
+	vcpu->run->hw.hardware_exit_reason = EXIT_REASON_SPP;
+	return 0;
+}
+
 static int handle_monitor(struct kvm_vcpu *vcpu)
 {
 	printk_once(KERN_WARNING "kvm: MONITOR instruction emulated as NOP!\n");
@@ -5874,6 +5943,7 @@ static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_INVVPID]                 = handle_vmx_instruction,
 	[EXIT_REASON_RDRAND]                  = handle_invalid_op,
 	[EXIT_REASON_RDSEED]                  = handle_invalid_op,
+	[EXIT_REASON_SPP]                     = handle_spp,
 	[EXIT_REASON_PML_FULL]		      = handle_pml_full,
 	[EXIT_REASON_INVPCID]                 = handle_invpcid,
 	[EXIT_REASON_VMFUNC]		      = handle_vmx_instruction,
@@ -8436,6 +8506,8 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.get_ve_status = vmx_get_ve_status,
 	.set_ve_info = vmx_set_ve_info,
 	.disable_ve = vmx_disable_ve,
+
+	.get_insn_len = vmx_get_insn_len,
 };
 
 static void vmx_cleanup_l1d_flush(void)

@@ -17,6 +17,25 @@ static void shadow_spp_walk_init(struct kvm_shadow_walk_iterator *iterator,
 	iterator->level = PT64_ROOT_4LEVEL;
 }
 
+/* Save reserved bit for SPP armed PTE */
+void save_spp_bit(u64 *spte)
+{
+	*spte |= PT64_SPP_SAVED_BIT;
+	*spte &= ~PT_SPP_MASK;
+}
+
+/* Restore reserved bit for SPP armed PTE */
+void restore_spp_bit(u64 *spte)
+{
+	*spte &= ~PT64_SPP_SAVED_BIT;
+	*spte |= PT_SPP_MASK;
+}
+
+bool was_spp_armed(u64 spte)
+{
+	return !!(spte & PT64_SPP_SAVED_BIT);
+}
+
 u32 *gfn_to_subpage_wp_info(struct kvm_memory_slot *slot, gfn_t gfn)
 {
 	unsigned long idx;
@@ -30,6 +49,7 @@ u32 *gfn_to_subpage_wp_info(struct kvm_memory_slot *slot, gfn_t gfn)
 
 	return &slot->arch.subpage_wp_info[idx];
 }
+EXPORT_SYMBOL_GPL(gfn_to_subpage_wp_info);
 
 static bool __rmap_update_subpage_bit(struct kvm *kvm,
 				      struct kvm_rmap_head *rmap_head,
@@ -200,6 +220,7 @@ int kvm_spp_setup_structure(struct kvm_vcpu *vcpu,
 	kvm_flush_remote_tlbs(vcpu->kvm);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(kvm_spp_setup_structure);
 
 int spp_flush_sppt(struct kvm *kvm, u64 gfn_base, u32 npages)
 {
@@ -331,6 +352,7 @@ int kvm_spp_set_permission(struct kvm *kvm, u64 gfn, u32 npages,
 		if (!access)
 			return -EFAULT;
 		*access = access_map[i];
+		trace_kvm_spp_set_subpages(vcpu, gfn, *access);
 	}
 
 	gfn = old_gfn;
@@ -445,3 +467,9 @@ int kvm_vm_ioctl_set_subpages(struct kvm *kvm,
 
 	return ret;
 }
+
+inline u64 construct_spptp(unsigned long root_hpa)
+{
+	return root_hpa & PAGE_MASK;
+}
+EXPORT_SYMBOL_GPL(construct_spptp);

@@ -4,6 +4,7 @@
 
 #define FULL_SPP_ACCESS		(u32)(BIT_ULL(32) - 1)
 #define KVM_SUBPAGE_MAX_PAGES   512
+#define MAX_ENTRIES_PER_MMUPAGE BIT(9)
 
 int kvm_spp_get_permission(struct kvm *kvm, u64 gfn, u32 npages,
 			   u32 *access_map);
@@ -22,5 +23,9 @@ int kvm_spp_setup_structure(struct kvm_vcpu *vcpu,
 			    u32 access_map, gfn_t gfn);
 u32 *gfn_to_subpage_wp_info(struct kvm_memory_slot *slot, gfn_t gfn);
 int spp_flush_sppt(struct kvm *kvm, u64 gfn_base, u32 npages);
+void save_spp_bit(u64 *spte);
+void restore_spp_bit(u64 *spte);
+bool was_spp_armed(u64 spte);
+u64 construct_spptp(unsigned long root_hpa);
 
 #endif /* __KVM_X86_VMX_SPP_H */

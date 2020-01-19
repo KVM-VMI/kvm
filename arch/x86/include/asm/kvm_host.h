@@ -1272,6 +1272,8 @@ struct kvm_x86_ops {
 	int (*set_ve_info)(struct kvm_vcpu *vcpu, unsigned long ve_info,
 				bool trigger_vmexit);
 	int (*disable_ve)(struct kvm_vcpu *vcpu);
+
+	int (*get_insn_len)(struct kvm_vcpu *vcpu);
 };
 
 struct kvm_arch_async_pf {
