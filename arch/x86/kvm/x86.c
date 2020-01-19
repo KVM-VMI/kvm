@@ -3397,6 +3397,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = KVMI_VERSION;
 		break;
 #endif
+	case KVM_CAP_X86_SPP:
+		r = KVM_SUBPAGE_MAX_PAGES;
+		break;
 	default:
 		break;
 	}
@@ -4896,6 +4899,9 @@ split_irqchip_unlock:
 	case KVM_CAP_EXCEPTION_PAYLOAD:
 		kvm->arch.exception_payload_enabled = cap->args[0];
 		r = 0;
+		break;
+	case KVM_CAP_X86_SPP:
+		r =  spp_init(kvm);
 		break;
 	default:
 		r = -EINVAL;
@@ -10098,6 +10104,7 @@ void kvm_arch_free_memslot(struct kvm *kvm, struct kvm_memory_slot *free,
 	}
 
 	kvm_page_track_free_memslot(free, dont);
+	kvm_spp_free_memslot(free, dont);
 }
 
 int kvm_arch_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,

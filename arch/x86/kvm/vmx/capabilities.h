@@ -266,6 +266,11 @@ static inline bool vmx_xsaves_supported(void)
 		SECONDARY_EXEC_XSAVES;
 }
 
+static inline bool cpu_has_vmx_ept_spp(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_SPP;
+}
+
 static inline bool vmx_waitpkg_supported(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &

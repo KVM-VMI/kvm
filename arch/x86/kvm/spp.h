@@ -5,7 +5,12 @@
 #define FULL_SPP_ACCESS		(u32)(BIT_ULL(32) - 1)
 #define KVM_SUBPAGE_MAX_PAGES   512
 #define MAX_ENTRIES_PER_MMUPAGE BIT(9)
+#define SPP_STATUS_VMX_SUPPORT   0x1
+#define SPP_STATUS_EPT_SUPPORT   0x2
 
+int spp_init(struct kvm *kvm);
+void kvm_spp_free_memslot(struct kvm_memory_slot *free,
+			  struct kvm_memory_slot *dont);
 int kvm_spp_get_permission(struct kvm *kvm, u64 gfn, u32 npages,
 			   u32 *access_map);
 int kvm_spp_set_permission(struct kvm *kvm, u64 gfn, u32 npages,

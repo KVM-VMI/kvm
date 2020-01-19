@@ -115,6 +115,9 @@ module_param_named(pml, enable_pml, bool, S_IRUGO);
 static bool __read_mostly dump_invalid_vmcs = 0;
 module_param(dump_invalid_vmcs, bool, 0644);
 
+/* SPP is disabled by default unless it's enabled via KVM_ENABLE_CAP. */
+static bool __read_mostly enable_spp = 0;
+
 #define MSR_BITMAP_MODE_X2APIC		1
 #define MSR_BITMAP_MODE_X2APIC_APICV	2
 
@@ -1421,6 +1424,17 @@ static int vmx_get_insn_len(struct kvm_vcpu *vcpu)
 	return vmcs_read32(VM_EXIT_INSTRUCTION_LEN);
 }
 
+static u32 vmx_get_spp_status(struct kvm_vcpu *vcpu)
+{
+	u32 status = 0;
+
+	if (cpu_has_vmx_ept_spp())
+		status |= SPP_STATUS_VMX_SUPPORT;
+	if (enable_ept)
+		status |= SPP_STATUS_EPT_SUPPORT;
+	return status;
+}
+
 static void vmx_decache_cr0_guest_bits(struct kvm_vcpu *vcpu);
 
 unsigned long vmx_get_rflags(struct kvm_vcpu *vcpu)
@@ -2397,6 +2411,7 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 			SECONDARY_EXEC_RDRAND_EXITING |
 			SECONDARY_EXEC_ENABLE_PML |
 			SECONDARY_EXEC_EPT_VE |
+			SECONDARY_EXEC_SPP |
 			SECONDARY_EXEC_TSC_SCALING |
 			SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE |
 			SECONDARY_EXEC_PT_USE_GPA |
@@ -3072,6 +3087,7 @@ void vmx_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 	bool update_guest_cr3 = true;
 	unsigned long guest_cr3;
 	u64 eptp;
+	u64 spptp;
 
 	guest_cr3 = cr3;
 	if (enable_ept) {
@@ -3100,6 +3116,20 @@ void vmx_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 
 	if (update_guest_cr3)
 		vmcs_writel(GUEST_CR3, guest_cr3);
+
+	if (kvm->arch.spp_active && VALID_PAGE(vcpu->kvm->arch.sppt_root)) {
+		spptp = construct_spptp(vcpu->kvm->arch.sppt_root);
+		vmcs_write64(SPPT_POINTER, spptp);
+
+		if (vcpu->arch.spp_pending && cpu_has_secondary_exec_ctrls()) {
+			struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+			secondary_exec_controls_setbit(vmx,
+						       SECONDARY_EXEC_SPP);
+			enable_spp = 1;
+			vcpu->arch.spp_pending = false;
+		}
+	}
 }
 
 int vmx_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
@@ -4146,6 +4176,9 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 
 	if (!enable_pml)
 		exec_control &= ~SECONDARY_EXEC_ENABLE_PML;
+
+	if (!enable_spp)
+		exec_control &= ~SECONDARY_EXEC_SPP;
 
 	if (vmx_xsaves_supported()) {
 		/* Exposing XSAVES only when XSAVE is exposed */
@@ -6220,6 +6253,8 @@ void dump_vmcs(void)
 		pr_err("PostedIntrVec = 0x%02x\n", vmcs_read16(POSTED_INTR_NV));
 	if ((secondary_exec_control & SECONDARY_EXEC_ENABLE_EPT))
 		pr_err("EPT pointer = 0x%016llx\n", vmcs_read64(EPT_POINTER));
+	if ((secondary_exec_control & SECONDARY_EXEC_SPP))
+		pr_err("SPPT pointer = 0x%016llx\n", vmcs_read64(SPPT_POINTER));
 	n = vmcs_read32(CR3_TARGET_COUNT);
 	for (i = 0; i + 1 < n; i += 4)
 		pr_err("CR3 target%u=%016lx target%u=%016lx\n",
@@ -8508,6 +8543,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.disable_ve = vmx_disable_ve,
 
 	.get_insn_len = vmx_get_insn_len,
+	.get_spp_status = vmx_get_spp_status,
 };
 
 static void vmx_cleanup_l1d_flush(void)

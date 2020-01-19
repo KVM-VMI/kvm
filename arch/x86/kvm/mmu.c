@@ -4012,6 +4012,12 @@ void kvm_mmu_free_roots(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 						   mmu->root_hpa_altviews + i,
 						   &invalid_list);
 			mmu->root_hpa = INVALID_PAGE;
+			if (vcpu->kvm->arch.spp_active) {
+				vcpu->kvm->arch.spp_active = false;
+				mmu_free_root_page(vcpu->kvm,
+						   &vcpu->kvm->arch.sppt_root,
+						   &invalid_list);
+			}
 		} else {
 			for (i = 0; i < 4; ++i)
 				if (mmu->pae_root[i] != 0)
@@ -5519,6 +5525,9 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu, bool reset_roots)
 		uint i;
 
 		vcpu->arch.mmu->root_hpa = INVALID_PAGE;
+		if (!vcpu->kvm->arch.spp_active)
+			vcpu->kvm->arch.sppt_root = INVALID_PAGE;
+
 		for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 			vcpu->arch.mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
 	}
