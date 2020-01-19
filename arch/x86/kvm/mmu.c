@@ -6726,3 +6726,10 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
 	if (kvm->arch.nx_lpage_recovery_thread)
 		kthread_stop(kvm->arch.nx_lpage_recovery_thread);
 }
+
+/*
+ * SPP Table structure is similar to EPT, so a lot of MMU functions
+ * defined in mmu.c are re-used in spp.c. To make least
+ * change to mmu.c, spp.c is embedded in mmu.c here.
+ */
+#include "spp.c"

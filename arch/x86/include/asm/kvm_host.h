@@ -276,7 +276,8 @@ union kvm_mmu_page_role {
 		unsigned smap_andnot_wp:1;
 		unsigned ad_disabled:1;
 		unsigned guest_mode:1;
-		unsigned :6;
+		unsigned spp:1;
+		unsigned reserved:5;
 
 		/*
 		 * This is left at the top of the word so that
@@ -964,6 +965,7 @@ struct kvm_arch {
 	struct task_struct *nx_lpage_recovery_thread;
 
 	refcount_t kvmi_refcount;
+	hpa_t sppt_root;
 };
 
 struct kvm_vm_stat {
