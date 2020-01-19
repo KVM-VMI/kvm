@@ -26,6 +26,7 @@
 #include "cpuid.h"
 #include "pmu.h"
 #include "hyperv.h"
+#include "spp.h"
 
 #include <linux/clocksource.h>
 #include <linux/interrupt.h>
@@ -5203,6 +5204,93 @@ set_identity_unlock:
 	case KVM_SET_PMU_EVENT_FILTER:
 		r = kvm_vm_ioctl_set_pmu_event_filter(kvm, argp);
 		break;
+	case KVM_SUBPAGES_GET_ACCESS: {
+		struct kvm_subpage spp_info, *pinfo;
+		u32 total;
+
+		r = -ENODEV;
+		if (!kvm->arch.spp_active)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_from_user(&spp_info, argp, sizeof(spp_info)))
+			goto out;
+
+		r = -EINVAL;
+		if (spp_info.flags != 0 ||
+		    spp_info.npages > KVM_SUBPAGE_MAX_PAGES)
+			goto out;
+		r = 0;
+		if (!spp_info.npages)
+			goto out;
+
+		total = sizeof(spp_info) +
+			sizeof(spp_info.access_map[0]) * spp_info.npages;
+		pinfo = kvzalloc(total, GFP_KERNEL_ACCOUNT);
+
+		r = -ENOMEM;
+		if (!pinfo)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_from_user(pinfo, argp, total))
+			goto out;
+
+		r = kvm_vm_ioctl_get_subpages(kvm,
+					      pinfo->gfn_base,
+					      pinfo->npages,
+					      pinfo->access_map);
+		if (r != pinfo->npages)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_to_user(argp, pinfo, total))
+			goto out;
+
+		r = pinfo->npages;
+		kfree(pinfo);
+		break;
+	}
+	case KVM_SUBPAGES_SET_ACCESS: {
+		struct kvm_subpage spp_info, *pinfo;
+		u32 total;
+
+		r = -ENODEV;
+		if (!kvm->arch.spp_active)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_from_user(&spp_info, argp, sizeof(spp_info)))
+			goto out;
+
+		r = -EINVAL;
+		if (spp_info.flags != 0 ||
+		    spp_info.npages > KVM_SUBPAGE_MAX_PAGES)
+			goto out;
+
+		r = 0;
+		if (!spp_info.npages)
+			goto out;
+
+		total = sizeof(spp_info) +
+			sizeof(spp_info.access_map[0]) * spp_info.npages;
+		pinfo = kvzalloc(total, GFP_KERNEL_ACCOUNT);
+
+		r = -ENOMEM;
+		if (!pinfo)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_from_user(pinfo, argp, total))
+			goto out;
+
+		r = kvm_vm_ioctl_set_subpages(kvm,
+					      pinfo->gfn_base,
+					      pinfo->npages,
+					      pinfo->access_map);
+		kfree(pinfo);
+		break;
+	}
 	default:
 		r = -ENOTTY;
 	}

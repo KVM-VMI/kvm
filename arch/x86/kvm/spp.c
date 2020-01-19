@@ -201,6 +201,46 @@ int kvm_spp_setup_structure(struct kvm_vcpu *vcpu,
 	return ret;
 }
 
+int spp_flush_sppt(struct kvm *kvm, u64 gfn_base, u32 npages)
+{
+	struct kvm_shadow_walk_iterator iter;
+	struct kvm_vcpu *vcpu;
+	gfn_t gfn = gfn_base;
+	gfn_t gfn_end = gfn_base + npages - 1;
+	u64 spde;
+	int count;
+	bool flush = false;
+
+	vcpu = kvm_get_vcpu(kvm, 0);
+	if (!VALID_PAGE(vcpu->kvm->arch.sppt_root))
+		return -EFAULT;
+
+	for (; gfn <= gfn_end; gfn++) {
+		for_each_shadow_spp_entry(vcpu, (u64)gfn << PAGE_SHIFT, iter) {
+			if (!is_shadow_present_pte(*iter.sptep))
+				break;
+
+			if (iter.level != PT_DIRECTORY_LEVEL)
+				continue;
+
+			spde = *iter.sptep;
+			spde &= ~PT_PRESENT_MASK;
+			spp_spte_set(iter.sptep, spde);
+			count = kvm_spp_level_pages(gfn, gfn_end,
+						    PT_DIRECTORY_LEVEL);
+			flush = true;
+			if (count >= npages)
+				goto out;
+			gfn += count;
+			break;
+		}
+	}
+out:
+	if (flush)
+		kvm_flush_remote_tlbs(kvm);
+	return 0;
+}
+
 int kvm_spp_get_permission(struct kvm *kvm, u64 gfn, u32 npages,
 			   u32 *access_map)
 {
@@ -364,5 +404,44 @@ int kvm_spp_mark_protection(struct kvm *kvm, u64 gfn, u32 access)
 		enable = access != FULL_SPP_ACCESS;
 		ret = kvm_spp_update_write_protect(kvm, slot, gfn, enable);
 	}
+	return ret;
+}
+
+int kvm_vm_ioctl_get_subpages(struct kvm *kvm,
+			      u64 gfn,
+			      u32 npages,
+			      u32 *access_map)
+{
+	int ret;
+
+	mutex_lock(&kvm->slots_lock);
+	ret = kvm_spp_get_permission(kvm, gfn, npages, access_map);
+	mutex_unlock(&kvm->slots_lock);
+
+	return ret;
+}
+
+int kvm_vm_ioctl_set_subpages(struct kvm *kvm,
+			      u64 gfn,
+			      u32 npages,
+			      u32 *access_map)
+{
+	int ret;
+
+	spin_lock(&kvm->mmu_lock);
+	ret = spp_flush_sppt(kvm, gfn, npages);
+	spin_unlock(&kvm->mmu_lock);
+
+	if (ret < 0)
+		return ret;
+
+	mutex_lock(&kvm->slots_lock);
+	spin_lock(&kvm->mmu_lock);
+
+	ret = kvm_spp_set_permission(kvm, gfn, npages, access_map);
+
+	spin_unlock(&kvm->mmu_lock);
+	mutex_unlock(&kvm->slots_lock);
+
 	return ret;
 }
