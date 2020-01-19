@@ -4242,6 +4242,45 @@ introspection tool a chance to unhook the VM and then it should use
 KVM_INTROSPECTION_UNHOOK to make sure all the introspection structures
 are freed.
 
+4.122 KVM_SUBPAGES_GET_ACCESS
+
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_subpage_info (in/out)
+Returns: 0 on success, < 0 on error
+
+#define KVM_SUBPAGE_MAX_PAGES   512
+struct kvm_subpage {
+	__u64 gfn_base;    /* the first page gfn of the contiguous pages */
+	__u32 npages; /* number of 4K pages */
+	__u32 flags;  /* reserved to 0 now */
+	__u32 access_map[0]; /* start place of bitmap array */
+};
+
+This ioctl fetches subpage permission from contiguous pages starting with
+gfn. npages is the number of contiguous pages to fetch. access_map contains permission
+vectors fetched for all the pages.
+
+4.123 KVM_SUBPAGES_SET_ACCESS
+
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_subpage_info (in/out)
+Returns: 0 on success, < 0 on error
+
+#define KVM_SUBPAGE_MAX_PAGES   512
+struct kvm_subpage {
+	__u64 gfn_base;    /* the first page gfn of the contiguous pages */
+	__u32 npages; /* number of 4K pages */
+	__u32 flags;  /* reserved to 0 now */
+	__u32 access_map[0]; /* start place of bitmap array */
+};
+
+This ioctl sets subpage permission for contiguous pages starting with gfn. npages is
+the number of contiguous pages to set. access_map contains permission vectors for all the
+pages. Since during execution of the ioctl, it holds mmu_lock, so limits the MAX pages
+to 512 to reduce the impact to EPT.
+
 5. The kvm_run structure
 ------------------------
 
