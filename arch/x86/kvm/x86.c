@@ -5818,6 +5818,39 @@ static const struct read_write_emulator_ops write_emultor = {
 	.write = true,
 };
 
+#if 0
+static bool is_emulator_spp_protected(struct kvm_vcpu *vcpu,
+				      gpa_t gpa,
+				      unsigned int bytes)
+{
+	gfn_t gfn, gfn_start, gfn_end;
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_memory_slot *slot;
+	u32 *access;
+
+	if (!kvm->arch.spp_active)
+		return false;
+
+	gfn_start = gpa_to_gfn(gpa);
+	gfn_end = gpa_to_gfn(gpa + bytes);
+	for (gfn = gfn_start; gfn <= gfn_end; gfn++) {
+		slot = gfn_to_memslot(kvm, gfn);
+		if (slot) {
+			access = gfn_to_subpage_wp_info(slot, gfn);
+			if (access && *access != FULL_SPP_ACCESS) {
+				vcpu->run->exit_reason = KVM_EXIT_SPP;
+				vcpu->run->spp.addr = gfn;
+				vcpu->run->spp.insn_len =
+					kvm_x86_ops->get_insn_len(vcpu);
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+#endif
+
 static int emulator_read_write_onepage(unsigned long addr, void *val,
 				       unsigned int bytes,
 				       struct x86_exception *exception,
@@ -5847,6 +5880,11 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 		if (ret < 0)
 			return X86EMUL_PROPAGATE_FAULT;
 	}
+
+#if 0
+	if (write && is_emulator_spp_protected(vcpu, gpa, bytes))
+		return X86EMUL_UNHANDLEABLE;
+#endif
 
 	if (!ret) {
 		ret = ops->read_write_emulate(vcpu, gpa, addr, val, bytes);
@@ -7045,6 +7083,9 @@ restart:
 		return 1;
 
 	if (r == EMULATION_FAILED) {
+		if (vcpu->run->exit_reason == KVM_EXIT_SPP)
+			return 0;
+
 		if (!kvm_page_track_emulation_failure(vcpu, cr2_or_gpa))
 			return 1;
 		if (kvmi_singlestep_insn(vcpu, cr2_or_gpa, &emulation_type))
