@@ -7839,6 +7839,13 @@ static bool vmx_bp_intercepted(struct kvm_vcpu *vcpu)
 	return (vmcs_read32(EXCEPTION_BITMAP) & (1u << BP_VECTOR));
 }
 
+static bool vmx_cr3_write_intercepted(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	return !!(exec_controls_get(vmx) & CPU_BASED_CR3_LOAD_EXITING);
+}
+
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -7879,6 +7886,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.set_cr3 = vmx_set_cr3,
 	.set_cr4 = vmx_set_cr4,
 	.control_cr3_intercept = vmx_control_cr3_intercept,
+	.cr3_write_intercepted = vmx_cr3_write_intercepted,
 	.set_efer = vmx_set_efer,
 	.get_idt = vmx_get_idt,
 	.set_idt = vmx_set_idt,
