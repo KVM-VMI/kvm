@@ -1230,3 +1230,7 @@ bool kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu)
 	return true;
 }
 
+gpa_t kvmi_arch_cmd_translate_gva(struct kvm_vcpu *vcpu, gva_t gva)
+{
+	return kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
+}
