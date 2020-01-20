@@ -2,6 +2,7 @@ TOPDIR := ../../..
 CO     := -g -pthread -I./include
 CO_LIB := $(CO) -fPIC -DPIC
 LO_LIB := -shared -Wl,-version-script=version
+DESTDIR := /usr/local
 
 kvmi-test : kvmi-test.c libkvmi.so
 	$(CC) $(CO) -o $@ kvmi-test.c -L. -lkvmi
@@ -23,3 +24,7 @@ include/asm/% :
 clean :
 	-rm kvmi-test libkvmi.so include/linux/*.h include/asm/*.h
 
+.PHONY : install
+install: libkvmi.so
+	cp -rv include/ $(DESTDIR)
+	cp libkvmi.so $(DESTDIR)/lib
