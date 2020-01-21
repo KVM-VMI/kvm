@@ -7879,6 +7879,13 @@ static void vmx_control_msr_intercept(struct kvm_vcpu *vcpu, unsigned int msr,
 	vmx_set_intercept_for_msr(vcpu, msr_bitmap, msr, type, enable);
 }
 
+static u64 vmx_fault_gla(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->arch.exit_qualification & EPT_VIOLATION_GLA_VALID)
+		return vmcs_readl(GUEST_LINEAR_ADDRESS);
+	return ~0ull;
+}
+
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -8038,6 +8045,8 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.nested_get_evmcs_version = NULL,
 	.need_emulation_on_page_fault = vmx_need_emulation_on_page_fault,
 	.apic_init_signal_blocked = vmx_apic_init_signal_blocked,
+
+	.fault_gla = vmx_fault_gla,
 };
 
 static void vmx_cleanup_l1d_flush(void)
