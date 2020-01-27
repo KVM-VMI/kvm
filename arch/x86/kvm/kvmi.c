@@ -1183,10 +1183,15 @@ int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			u8 access)
 {
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
 	bool ret = false;
 	u32 action;
 
-	action = kvmi_msg_send_pf(vcpu, gpa, gva, access);
+	if (vcpui->effective_rep_complete)
+		return true;
+
+	action = kvmi_msg_send_pf(vcpu, gpa, gva, access,
+				  &vcpui->rep_complete);
 
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:

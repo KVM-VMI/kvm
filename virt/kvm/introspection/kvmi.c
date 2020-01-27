@@ -1408,3 +1408,42 @@ bool kvmi_tracked_gfn(struct kvm_vcpu *vcpu, gfn_t gfn)
 
 	return ret;
 }
+
+void kvmi_init_emulate(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui;
+	struct kvm_introspection *kvmi;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return;
+
+	vcpui = VCPUI(vcpu);
+
+	vcpui->rep_complete = false;
+	vcpui->effective_rep_complete = false;
+
+	kvmi_put(vcpu->kvm);
+}
+EXPORT_SYMBOL(kvmi_init_emulate);
+
+/*
+ * If the user has requested that events triggered by repetitive
+ * instructions be suppressed after the first cycle, then this
+ * function will effectively activate it. This ensures that we don't
+ * prematurely suppress potential events (second or later) triggered
+ * by an instruction during a single pass.
+ */
+void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return;
+
+	VCPUI(vcpu)->effective_rep_complete = VCPUI(vcpu)->rep_complete;
+
+	kvmi_put(vcpu->kvm);
+}
+EXPORT_SYMBOL(kvmi_activate_rep_complete);

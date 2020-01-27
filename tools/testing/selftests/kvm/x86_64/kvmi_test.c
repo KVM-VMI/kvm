@@ -47,6 +47,11 @@ struct pf_ev {
 	struct kvmi_event_pf pf;
 };
 
+struct pf_ev_reply {
+	struct vcpu_reply common;
+	struct kvmi_event_pf_reply pf;
+};
+
 struct vcpu_worker_data {
 	struct kvm_vm *vm;
 	int vcpu_id;
@@ -60,7 +65,7 @@ static struct kvmi_features features;
 
 typedef void (*fct_pf_event)(struct kvm_vm *vm, struct kvmi_msg_hdr *hdr,
 				struct pf_ev *ev,
-				struct vcpu_reply *rpl);
+				struct pf_ev_reply *rpl);
 
 enum {
 	GUEST_TEST_NOOP = 0,
@@ -1627,7 +1632,7 @@ static void test_pf(struct kvm_vm *vm, fct_pf_event cbk)
 		.test_id = GUEST_TEST_PF,
 	};
 	struct kvmi_msg_hdr hdr;
-	struct vcpu_reply rpl = {};
+	struct pf_ev_reply rpl = {};
 	pthread_t vcpu_thread;
 	struct pf_ev ev;
 
@@ -1660,12 +1665,12 @@ static void test_pf(struct kvm_vm *vm, fct_pf_event cbk)
 }
 
 static void cbk_test_event_pf(struct kvm_vm *vm, struct kvmi_msg_hdr *hdr,
-				struct pf_ev *ev, struct vcpu_reply *rpl)
+				struct pf_ev *ev, struct pf_ev_reply *rpl)
 {
 	set_page_access(test_gpa, KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_W);
 
 	reply_to_event(hdr, &ev->common, KVMI_EVENT_ACTION_RETRY,
-			rpl, sizeof(*rpl));
+			&rpl->common, sizeof(*rpl));
 }
 
 static void test_event_pf(struct kvm_vm *vm)

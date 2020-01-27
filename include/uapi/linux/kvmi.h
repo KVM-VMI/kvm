@@ -11,7 +11,7 @@
 #include <asm/kvmi.h>
 
 enum {
-	KVMI_VERSION = 0x00000001
+	KVMI_VERSION = 0x00000002
 };
 
 enum {
@@ -196,6 +196,13 @@ struct kvmi_event_pf {
 	__u64 gva;
 	__u64 gpa;
 	__u8 access;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
+};
+
+struct kvmi_event_pf_reply {
+	__u8 rep_complete;
 	__u8 padding1;
 	__u16 padding2;
 	__u32 padding3;

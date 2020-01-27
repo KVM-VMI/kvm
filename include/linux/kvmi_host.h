@@ -54,6 +54,9 @@ struct kvm_vcpu_introspection {
 	struct {
 		bool loop;
 	} singlestep;
+
+	bool rep_complete;
+	bool effective_rep_complete;
 };
 
 struct kvm_introspection {
@@ -98,6 +101,8 @@ bool kvmi_vcpu_running_singlestep(struct kvm_vcpu *vcpu);
 void kvmi_singlestep_done(struct kvm_vcpu *vcpu);
 void kvmi_singlestep_failed(struct kvm_vcpu *vcpu);
 bool kvmi_tracked_gfn(struct kvm_vcpu *vcpu, gfn_t gfn);
+void kvmi_init_emulate(struct kvm_vcpu *vcpu);
+void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu);
 
 #else
 
@@ -120,6 +125,8 @@ static inline void kvmi_singlestep_done(struct kvm_vcpu *vcpu) { }
 static inline void kvmi_singlestep_failed(struct kvm_vcpu *vcpu) { }
 static inline bool kvmi_tracked_gfn(struct kvm_vcpu *vcpu, gfn_t gfn)
 			{ return false; }
+static inline void kvmi_init_emulate(struct kvm_vcpu *vcpu) { }
+static inline void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu) { }
 
 #endif /* CONFIG_KVM_INTROSPECTION */
 

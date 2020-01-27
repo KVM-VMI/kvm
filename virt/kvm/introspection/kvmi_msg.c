@@ -1065,8 +1065,10 @@ u32 kvmi_msg_send_bp(struct kvm_vcpu *vcpu, u64 gpa, u8 insn_len)
 	return action;
 }
 
-u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access)
+u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
+		     bool *rep_complete)
 {
+	struct kvmi_event_pf_reply r;
 	struct kvmi_event_pf e;
 	int err, action;
 
@@ -1075,10 +1077,23 @@ u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access)
 	e.gva = gva;
 	e.access = access;
 
+	*rep_complete = false;
+
 	err = kvmi_send_event(vcpu, KVMI_EVENT_PF, &e, sizeof(e),
-			      NULL, 0, &action);
+			      &r, sizeof(r), &action);
 	if (err)
 		return KVMI_EVENT_ACTION_CONTINUE;
+
+	if (r.padding1 || r.padding2 || r.padding3) {
+		struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+
+		kvmi_err(kvmi, "%s: non zero padding %u,%u,%u\n",
+			__func__, r.padding1, r.padding2, r.padding3);
+		kvmi_sock_shutdown(kvmi);
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	*rep_complete = r.rep_complete == 1;
 
 	return action;
 }

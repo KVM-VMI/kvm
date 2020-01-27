@@ -1372,6 +1372,12 @@ sent to the introspection tool. The *CONTINUE* action will set the ``new_val``.
 
 	struct kvmi_vcpu_hdr;
 	struct kvmi_event_reply;
+	struct kvmi_event_pf_reply {
+		__u8 rep_complete;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 padding3;
+	};
 
 This event is sent when a hypervisor page fault occurs due to a failed
 permission check in the shadow page tables, the introspection has been
@@ -1390,6 +1396,9 @@ guest physical address and the access flags (eg. KVMI_PAGE_ACCESS_R)
 are sent to the introspection tool.
 
 The *CONTINUE* action will continue the page fault handling via emulation.
+If ``rep_complete`` is 1, the REP prefixed instruction should be emulated
+just once (or at least no other *KVMI_EVENT_PF* event should be sent
+for the current instruction).
 
 The *RETRY* action is used by the introspection tool to retry the
 execution of the current instruction, usually because it changed the
