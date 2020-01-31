@@ -23,6 +23,7 @@
 		)
 #define KVMI_KNOWN_VCPU_EVENTS ( \
 			    BIT(KVMI_EVENT_BREAKPOINT) \
+			  | BIT(KVMI_EVENT_CR) \
 			  | BIT(KVMI_EVENT_HYPERCALL) \
 			  | BIT(KVMI_EVENT_PAUSE_VCPU) \
 		)
@@ -39,6 +40,7 @@
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
+			| BIT(KVMI_VCPU_CONTROL_CR) \
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
 			| BIT(KVMI_VCPU_GET_CPUID) \
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
@@ -64,6 +66,9 @@ bool kvmi_sock_get(struct kvm_introspection *kvmi, int fd);
 void kvmi_sock_shutdown(struct kvm_introspection *kvmi);
 void kvmi_sock_put(struct kvm_introspection *kvmi);
 bool kvmi_msg_process(struct kvm_introspection *kvmi);
+int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
+		    void *ev, size_t ev_size,
+		    void *rpl, size_t rpl_size, int *action);
 int kvmi_msg_send_unhook(struct kvm_introspection *kvmi);
 u32 kvmi_msg_send_vcpu_pause(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_hypercall(struct kvm_vcpu *vcpu);
@@ -80,6 +85,8 @@ void kvmi_run_jobs(struct kvm_vcpu *vcpu);
 void kvmi_post_reply(struct kvm_vcpu *vcpu);
 void kvmi_handle_common_event_actions(struct kvm *kvm,
 				      u32 action, const char *str);
+struct kvm_introspection * __must_check kvmi_get(struct kvm *kvm);
+void kvmi_put(struct kvm *kvm);
 int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 				unsigned int event_id, bool enable);
 int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
@@ -117,5 +124,7 @@ void kvmi_arch_hypercall_event(struct kvm_vcpu *vcpu);
 void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len);
 int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
 				    unsigned int event_id, bool enable);
+int kvmi_arch_cmd_vcpu_control_cr(struct kvm_vcpu *vcpu,
+				  const struct kvmi_vcpu_control_cr *req);
 
 #endif

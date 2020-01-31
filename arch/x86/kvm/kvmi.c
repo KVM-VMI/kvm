@@ -379,3 +379,115 @@ void kvmi_arch_request_restore_interception(struct kvm_vcpu *vcpu)
 	if (arch_vcpui)
 		arch_vcpui->restore_interception = true;
 }
+
+int kvmi_arch_cmd_vcpu_control_cr(struct kvm_vcpu *vcpu,
+				  const struct kvmi_vcpu_control_cr *req)
+{
+	u32 cr = req->cr;
+
+	if (req->padding1 || req->padding2 || cr >= KVMI_NUM_CR)
+		return -KVM_EINVAL;
+
+	switch (cr) {
+	case 0:
+		break;
+	case 3:
+		kvm_x86_ops->control_cr3_intercept(vcpu, CR_TYPE_W,
+						   req->enable);
+		break;
+	case 4:
+		break;
+	default:
+		return -KVM_EINVAL;
+	}
+
+	if (req->enable)
+		set_bit(cr, VCPUI(vcpu)->arch.cr_mask);
+	else
+		clear_bit(cr, VCPUI(vcpu)->arch.cr_mask);
+
+	return 0;
+}
+
+static u32 kvmi_send_cr(struct kvm_vcpu *vcpu, u32 cr, u64 old_value,
+			u64 new_value, u64 *ret_value)
+{
+	struct kvmi_event_cr e = {
+		.cr = cr,
+		.old_value = old_value,
+		.new_value = new_value
+	};
+	struct kvmi_event_cr_reply r;
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_CR, &e, sizeof(e),
+			      &r, sizeof(r), &action);
+	if (err) {
+		*ret_value = new_value;
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	*ret_value = r.new_val;
+	return action;
+}
+
+static bool __kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
+			    unsigned long old_value, unsigned long *new_value)
+{
+	u64 ret_value;
+	u32 action;
+	bool ret = false;
+
+	if (!test_bit(cr, VCPUI(vcpu)->arch.cr_mask))
+		return true;
+
+	action = kvmi_send_cr(vcpu, cr, old_value, *new_value, &ret_value);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		*new_value = ret_value;
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu->kvm, action, "CR");
+	}
+
+	return ret;
+}
+
+bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
+		   unsigned long old_value, unsigned long *new_value)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = true;
+
+	if (old_value == *new_value)
+		return true;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_CR))
+		ret = __kvmi_cr_event(vcpu, cr, old_value, new_value);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
+bool kvmi_cr3_intercepted(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi;
+	bool ret;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return false;
+
+	ret = test_bit(3, VCPUI(vcpu)->arch.cr_mask);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_cr3_intercepted);

@@ -25,6 +25,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_GET_INFO]         = "KVMI_VM_GET_INFO",
 	[KVMI_VM_READ_PHYSICAL]    = "KVMI_VM_READ_PHYSICAL",
 	[KVMI_VM_WRITE_PHYSICAL]   = "KVMI_VM_WRITE_PHYSICAL",
+	[KVMI_VCPU_CONTROL_CR]     = "KVMI_VCPU_CONTROL_CR",
 	[KVMI_VCPU_CONTROL_EVENTS] = "KVMI_VCPU_CONTROL_EVENTS",
 	[KVMI_VCPU_GET_CPUID]      = "KVMI_VCPU_GET_CPUID",
 	[KVMI_VCPU_GET_INFO]       = "KVMI_VCPU_GET_INFO",
@@ -482,6 +483,17 @@ static int handle_get_cpuid(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, &rpl, sizeof(rpl));
 }
 
+static int handle_vcpu_control_cr(const struct kvmi_vcpu_cmd_job *job,
+				  const struct kvmi_msg_hdr *msg,
+				  const void *req)
+{
+	int ec;
+
+	ec = kvmi_arch_cmd_vcpu_control_cr(job->vcpu, req);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -491,6 +503,7 @@ static int handle_get_cpuid(const struct kvmi_vcpu_cmd_job *job,
 static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 			      const struct kvmi_msg_hdr *, const void *) = {
 	[KVMI_EVENT_REPLY]         = handle_event_reply,
+	[KVMI_VCPU_CONTROL_CR]     = handle_vcpu_control_cr,
 	[KVMI_VCPU_CONTROL_EVENTS] = handle_vcpu_control_events,
 	[KVMI_VCPU_GET_CPUID]      = handle_get_cpuid,
 	[KVMI_VCPU_GET_INFO]       = handle_get_vcpu_info,
@@ -808,9 +821,9 @@ static int kvmi_wait_for_reply(struct kvm_vcpu *vcpu)
 	return err;
 }
 
-static int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
-			   void *ev, size_t ev_size,
-			   void *rpl, size_t rpl_size, int *action)
+int kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
+		    void *ev, size_t ev_size,
+		    void *rpl, size_t rpl_size, int *action)
 {
 	struct kvmi_msg_hdr hdr;
 	struct kvmi_event common;
