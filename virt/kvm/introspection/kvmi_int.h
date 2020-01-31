@@ -96,7 +96,11 @@ int kvmi_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
 				const struct kvm_regs *regs);
 
 /* arch */
-void kvmi_arch_restore_interception(struct kvm_vcpu *vcpu);
+bool kvmi_arch_vcpu_alloc(struct kvm_vcpu *vcpu);
+void kvmi_arch_vcpu_free(struct kvm_vcpu *vcpu);
+bool kvmi_arch_vcpu_introspected(struct kvm_vcpu *vcpu);
+bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu);
+void kvmi_arch_request_restore_interception(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_vcpu_get_info(struct kvm_vcpu *vcpu,
 				struct kvmi_vcpu_get_info_reply *rpl);
 void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev);
