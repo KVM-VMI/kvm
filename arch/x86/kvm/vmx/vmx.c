@@ -7893,6 +7893,13 @@ static bool vmx_spt_fault(struct kvm_vcpu *vcpu)
 	return (vmx->exit_reason == EXIT_REASON_EPT_VIOLATION);
 }
 
+static bool vmx_gpt_translation_fault(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->arch.exit_qualification & EPT_VIOLATION_GVA_TRANSLATED)
+		return false;
+	return true;
+}
+
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -8055,6 +8062,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 
 	.fault_gla = vmx_fault_gla,
 	.spt_fault = vmx_spt_fault,
+	.gpt_translation_fault = vmx_gpt_translation_fault,
 };
 
 static void vmx_cleanup_l1d_flush(void)

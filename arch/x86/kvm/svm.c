@@ -7355,6 +7355,17 @@ static bool svm_spt_fault(struct kvm_vcpu *vcpu)
 	return (vmcb->control.exit_code == SVM_EXIT_NPF);
 }
 
+static bool svm_gpt_translation_fault(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	struct vmcb *vmcb = get_host_vmcb(svm);
+
+	if (vmcb->control.exit_info_1 & PFERR_GUEST_PAGE_MASK)
+		return true;
+
+	return false;
+}
+
 static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = has_svm,
 	.disabled_by_bios = is_disabled,
@@ -7504,6 +7515,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 
 	.fault_gla = svm_fault_gla,
 	.spt_fault = svm_spt_fault,
+	.gpt_translation_fault = svm_gpt_translation_fault,
 };
 
 static int __init svm_init(void)
