@@ -17,27 +17,28 @@ struct kvmi_vcpu_cmd_job {
 };
 
 static const char *const msg_IDs[] = {
-	[KVMI_EVENT_REPLY]           = "KVMI_EVENT_REPLY",
-	[KVMI_GET_VERSION]           = "KVMI_GET_VERSION",
-	[KVMI_VM_CHECK_COMMAND]      = "KVMI_VM_CHECK_COMMAND",
-	[KVMI_VM_CHECK_EVENT]        = "KVMI_VM_CHECK_EVENT",
-	[KVMI_VM_CONTROL_EVENTS]     = "KVMI_VM_CONTROL_EVENTS",
-	[KVMI_VM_GET_INFO]           = "KVMI_VM_GET_INFO",
-	[KVMI_VM_GET_MAX_GFN]        = "KVMI_VM_GET_MAX_GFN",
-	[KVMI_VM_READ_PHYSICAL]      = "KVMI_VM_READ_PHYSICAL",
-	[KVMI_VM_SET_PAGE_ACCESS]    = "KVMI_VM_SET_PAGE_ACCESS",
-	[KVMI_VM_WRITE_PHYSICAL]     = "KVMI_VM_WRITE_PHYSICAL",
-	[KVMI_VCPU_CONTROL_CR]       = "KVMI_VCPU_CONTROL_CR",
-	[KVMI_VCPU_CONTROL_EVENTS]   = "KVMI_VCPU_CONTROL_EVENTS",
-	[KVMI_VCPU_CONTROL_MSR]      = "KVMI_VCPU_CONTROL_MSR",
-	[KVMI_VCPU_GET_CPUID]        = "KVMI_VCPU_GET_CPUID",
-	[KVMI_VCPU_GET_INFO]         = "KVMI_VCPU_GET_INFO",
-	[KVMI_VCPU_GET_MTRR_TYPE]    = "KVMI_VCPU_GET_MTRR_TYPE",
-	[KVMI_VCPU_GET_REGISTERS]    = "KVMI_VCPU_GET_REGISTERS",
-	[KVMI_VCPU_GET_XSAVE]        = "KVMI_VCPU_GET_XSAVE",
-	[KVMI_VCPU_INJECT_EXCEPTION] = "KVMI_VCPU_INJECT_EXCEPTION",
-	[KVMI_VCPU_PAUSE]            = "KVMI_VCPU_PAUSE",
-	[KVMI_VCPU_SET_REGISTERS]    = "KVMI_VCPU_SET_REGISTERS",
+	[KVMI_EVENT_REPLY]             = "KVMI_EVENT_REPLY",
+	[KVMI_GET_VERSION]             = "KVMI_GET_VERSION",
+	[KVMI_VM_CHECK_COMMAND]        = "KVMI_VM_CHECK_COMMAND",
+	[KVMI_VM_CHECK_EVENT]          = "KVMI_VM_CHECK_EVENT",
+	[KVMI_VM_CONTROL_EVENTS]       = "KVMI_VM_CONTROL_EVENTS",
+	[KVMI_VM_GET_INFO]             = "KVMI_VM_GET_INFO",
+	[KVMI_VM_GET_MAX_GFN]          = "KVMI_VM_GET_MAX_GFN",
+	[KVMI_VM_READ_PHYSICAL]        = "KVMI_VM_READ_PHYSICAL",
+	[KVMI_VM_SET_PAGE_ACCESS]      = "KVMI_VM_SET_PAGE_ACCESS",
+	[KVMI_VM_WRITE_PHYSICAL]       = "KVMI_VM_WRITE_PHYSICAL",
+	[KVMI_VCPU_CONTROL_CR]         = "KVMI_VCPU_CONTROL_CR",
+	[KVMI_VCPU_CONTROL_EVENTS]     = "KVMI_VCPU_CONTROL_EVENTS",
+	[KVMI_VCPU_CONTROL_MSR]        = "KVMI_VCPU_CONTROL_MSR",
+	[KVMI_VCPU_CONTROL_SINGLESTEP] = "KVMI_VCPU_CONTROL_SINGLESTEP",
+	[KVMI_VCPU_GET_CPUID]          = "KVMI_VCPU_GET_CPUID",
+	[KVMI_VCPU_GET_INFO]           = "KVMI_VCPU_GET_INFO",
+	[KVMI_VCPU_GET_MTRR_TYPE]      = "KVMI_VCPU_GET_MTRR_TYPE",
+	[KVMI_VCPU_GET_REGISTERS]      = "KVMI_VCPU_GET_REGISTERS",
+	[KVMI_VCPU_GET_XSAVE]          = "KVMI_VCPU_GET_XSAVE",
+	[KVMI_VCPU_INJECT_EXCEPTION]   = "KVMI_VCPU_INJECT_EXCEPTION",
+	[KVMI_VCPU_PAUSE]              = "KVMI_VCPU_PAUSE",
+	[KVMI_VCPU_SET_REGISTERS]      = "KVMI_VCPU_SET_REGISTERS",
 };
 
 static bool is_known_message(u16 id)
@@ -585,6 +586,34 @@ static int handle_vcpu_control_msr(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_control_singlestep(const struct kvmi_vcpu_cmd_job *job,
+					  const struct kvmi_msg_hdr *msg,
+					  const void *_req)
+{
+	const struct kvmi_vcpu_control_singlestep *req = _req;
+	struct kvm_vcpu *vcpu = job->vcpu;
+	int ec = -KVM_EINVAL;
+	bool done;
+	int i;
+
+	for (i = 0; i < sizeof(req->padding); i++)
+		if (req->padding[i])
+			goto reply;
+
+	if (req->enable)
+		done = kvmi_arch_start_singlestep(vcpu);
+	else
+		done = kvmi_arch_stop_singlestep(vcpu);
+
+	if (done) {
+		ec = 0;
+		VCPUI(vcpu)->singlestep.loop = !!req->enable;
+	}
+
+reply:
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -593,17 +622,18 @@ static int handle_vcpu_control_msr(const struct kvmi_vcpu_cmd_job *job,
  */
 static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 			      const struct kvmi_msg_hdr *, const void *) = {
-	[KVMI_EVENT_REPLY]           = handle_event_reply,
-	[KVMI_VCPU_CONTROL_CR]       = handle_vcpu_control_cr,
-	[KVMI_VCPU_CONTROL_EVENTS]   = handle_vcpu_control_events,
-	[KVMI_VCPU_CONTROL_MSR]      = handle_vcpu_control_msr,
-	[KVMI_VCPU_GET_CPUID]        = handle_get_cpuid,
-	[KVMI_VCPU_GET_INFO]         = handle_get_vcpu_info,
-	[KVMI_VCPU_GET_MTRR_TYPE]    = handle_vcpu_get_mtrr_type,
-	[KVMI_VCPU_GET_REGISTERS]    = handle_get_registers,
-	[KVMI_VCPU_GET_XSAVE]        = handle_vcpu_get_xsave,
-	[KVMI_VCPU_INJECT_EXCEPTION] = handle_vcpu_inject_exception,
-	[KVMI_VCPU_SET_REGISTERS]    = handle_set_registers,
+	[KVMI_EVENT_REPLY]             = handle_event_reply,
+	[KVMI_VCPU_CONTROL_CR]         = handle_vcpu_control_cr,
+	[KVMI_VCPU_CONTROL_EVENTS]     = handle_vcpu_control_events,
+	[KVMI_VCPU_CONTROL_MSR]        = handle_vcpu_control_msr,
+	[KVMI_VCPU_CONTROL_SINGLESTEP] = handle_vcpu_control_singlestep,
+	[KVMI_VCPU_GET_CPUID]          = handle_get_cpuid,
+	[KVMI_VCPU_GET_INFO]           = handle_get_vcpu_info,
+	[KVMI_VCPU_GET_MTRR_TYPE]      = handle_vcpu_get_mtrr_type,
+	[KVMI_VCPU_GET_REGISTERS]      = handle_get_registers,
+	[KVMI_VCPU_GET_XSAVE]          = handle_vcpu_get_xsave,
+	[KVMI_VCPU_INJECT_EXCEPTION]   = handle_vcpu_inject_exception,
+	[KVMI_VCPU_SET_REGISTERS]      = handle_set_registers,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)

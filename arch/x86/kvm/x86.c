@@ -7661,6 +7661,13 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool req_int_win)
 {
 	int r;
 
+	if (kvmi_vcpu_running_singlestep(vcpu))
+		/*
+		 * We cannot inject events during single-stepping.
+		 * Try again later.
+		 */
+		return -1;
+
 	/* try to reinject previous events if any */
 
 	if (vcpu->arch.exception.injected)

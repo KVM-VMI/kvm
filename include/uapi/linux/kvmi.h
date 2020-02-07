@@ -43,6 +43,8 @@ enum {
 
 	KVMI_VM_SET_PAGE_ACCESS = 21,
 
+	KVMI_VCPU_CONTROL_SINGLESTEP = 22,
+
 	KVMI_NUM_MESSAGES
 };
 
@@ -166,6 +168,11 @@ struct kvmi_vm_set_page_access {
 	__u16 padding1;
 	__u32 padding2;
 	struct kvmi_page_access_entry entries[0];
+};
+
+struct kvmi_vcpu_control_singlestep {
+	__u8 enable;
+	__u8 padding[7];
 };
 
 struct kvmi_event {

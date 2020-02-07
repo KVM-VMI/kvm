@@ -1212,3 +1212,21 @@ bool kvmi_arch_pf_of_interest(struct kvm_vcpu *vcpu)
 	      !kvm_x86_ops->gpt_translation_fault(vcpu);
 }
 
+bool kvmi_arch_start_singlestep(struct kvm_vcpu *vcpu)
+{
+	if (!kvm_x86_ops->control_singlestep)
+		return false;
+
+	kvm_x86_ops->control_singlestep(vcpu, true);
+	return true;
+}
+
+bool kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu)
+{
+	if (!kvm_x86_ops->control_singlestep)
+		return false;
+
+	kvm_x86_ops->control_singlestep(vcpu, false);
+	return true;
+}
+

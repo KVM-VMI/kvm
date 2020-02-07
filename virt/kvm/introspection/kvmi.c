@@ -360,6 +360,9 @@ static void kvmi_job_release_vcpu(struct kvm_vcpu *vcpu, void *ctx)
 
 	atomic_set(&vcpui->pause_requests, 0);
 	vcpui->waiting_for_reply = false;
+
+	if (vcpui->singlestep.loop)
+		kvmi_arch_stop_singlestep(vcpu);
 }
 
 static void kvmi_release_vcpus(struct kvm *kvm)
@@ -1002,6 +1005,9 @@ bool kvmi_enter_guest(struct kvm_vcpu *vcpu)
 	if (!kvmi)
 		return true;
 
+	if (VCPUI(vcpu)->singlestep.loop)
+		kvmi_arch_start_singlestep(vcpu);
+
 	if (kvmi_inject_pending_exception(vcpu))
 		r = false;
 
@@ -1296,3 +1302,20 @@ static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 	kvmi_put(kvm);
 }
+
+bool kvmi_vcpu_running_singlestep(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi;
+	bool ret;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return false;
+
+	ret = VCPUI(vcpu)->singlestep.loop;
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_vcpu_running_singlestep);
