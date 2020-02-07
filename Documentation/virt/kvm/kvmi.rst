@@ -551,6 +551,7 @@ the following events::
 	KVMI_EVENT_HYPERCALL
 	KVMI_EVENT_MSR
 	KVMI_EVENT_PF
+	KVMI_EVENT_SINGLESTEP
 	KVMI_EVENT_TRAP
 	KVMI_EVENT_XSETBV
 
@@ -1362,3 +1363,30 @@ The *CONTINUE* action will continue the page fault handling via emulation.
 The *RETRY* action is used by the introspection tool to retry the
 execution of the current instruction, usually because it changed the
 instruction pointer or the page restrictions.
+
+11. KVMI_EVENT_SINGLESTEP
+-------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+	struct kvmi_event_singlestep {
+		__u8 failed;
+		__u8 padding[7];
+	};
+
+This event is sent when the current instruction has been executed or the
+singlestep failed and the introspection has been enabled for this event
+(see **KVMI_VCPU_CONTROL_EVENTS**).

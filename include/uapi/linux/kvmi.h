@@ -59,6 +59,7 @@ enum {
 	KVMI_EVENT_DESCRIPTOR = 7,
 	KVMI_EVENT_MSR        = 8,
 	KVMI_EVENT_PF         = 9,
+	KVMI_EVENT_SINGLESTEP = 10,
 
 	KVMI_NUM_EVENTS
 };
@@ -197,6 +198,11 @@ struct kvmi_event_pf {
 	__u8 padding1;
 	__u16 padding2;
 	__u32 padding3;
+};
+
+struct kvmi_event_singlestep {
+	__u8 failed;
+	__u8 padding[7];
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

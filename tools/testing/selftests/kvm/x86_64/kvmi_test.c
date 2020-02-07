@@ -739,6 +739,14 @@ static void stop_vcpu_worker(pthread_t vcpu_thread,
 	wait_vcpu_worker(vcpu_thread);
 }
 
+static int __do_vcpu_command(struct kvm_vm *vm, int cmd_id,
+			     struct kvmi_msg_hdr *req, size_t req_size,
+			     void *rpl, size_t rpl_size)
+{
+	send_message(cmd_id, req, req_size);
+	return receive_cmd_reply(req, rpl, rpl_size);
+}
+
 static int do_vcpu_command(struct kvm_vm *vm, int cmd_id,
 			   struct kvmi_msg_hdr *req, size_t req_size,
 			   void *rpl, size_t rpl_size)
@@ -749,11 +757,22 @@ static int do_vcpu_command(struct kvm_vm *vm, int cmd_id,
 
 	vcpu_thread = start_vcpu_worker(&data);
 
-	send_message(cmd_id, req, req_size);
-	r = receive_cmd_reply(req, rpl, rpl_size);
+	r = __do_vcpu_command(vm, cmd_id, req, req_size, rpl, rpl_size);
 
 	stop_vcpu_worker(vcpu_thread, &data);
 	return r;
+}
+
+static int __do_vcpu0_command(struct kvm_vm *vm, int cmd_id,
+			      struct kvmi_msg_hdr *req, size_t req_size,
+			      void *rpl, size_t rpl_size)
+{
+	struct kvmi_vcpu_hdr *vcpu_hdr = (struct kvmi_vcpu_hdr *)req;
+
+	vcpu_hdr->vcpu = 0;
+
+	send_message(cmd_id, req, req_size);
+	return receive_cmd_reply(req, rpl, rpl_size);
 }
 
 static int do_vcpu0_command(struct kvm_vm *vm, int cmd_id,
@@ -1654,26 +1673,69 @@ static void test_event_pf(struct kvm_vm *vm)
 	test_pf(vm, cbk_test_event_pf);
 }
 
-static void test_cmd_vcpu_control_singlestep(struct kvm_vm *vm)
+static void control_singlestep(struct kvm_vm *vm, bool enable)
 {
 	struct {
 		struct kvmi_msg_hdr hdr;
 		struct kvmi_vcpu_hdr vcpu_hdr;
 		struct kvmi_vcpu_control_singlestep cmd;
 	} req = {};
+	int r;
+
+	req.cmd.enable = enable;
+	r = __do_vcpu0_command(vm, KVMI_VCPU_CONTROL_SINGLESTEP,
+			       &req.hdr, sizeof(req), NULL, 0);
+	TEST_ASSERT(r == 0,
+		"KVMI_VCPU_CONTROL_SINGLESTEP failed, error %d (%s)\n",
+		-r, kvm_strerror(-r));
+}
+
+static void enable_singlestep(struct kvm_vm *vm)
+{
+	control_singlestep(vm, true);
+}
+
+static void disable_singlestep(struct kvm_vm *vm)
+{
+	control_singlestep(vm, false);
+}
+
+static void test_cmd_vcpu_control_singlestep(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = { .vm = vm, .vcpu_id = VCPU_ID };
+	struct {
+		struct kvmi_event common;
+		struct kvmi_event_singlestep singlestep;
+	} ev;
+	__u16 event_id = KVMI_EVENT_SINGLESTEP;
+	struct vcpu_reply rpl = {};
+	struct kvmi_msg_hdr hdr;
+	pthread_t vcpu_thread;
 
 	if (!features.singlestep) {
 		DEBUG("Skip %s()\n", __func__);
 		return;
 	}
 
-	req.cmd.enable = true;
-	test_vcpu0_command(vm, KVMI_VCPU_CONTROL_SINGLESTEP,
-			   &req.hdr, sizeof(req), NULL, 0);
+	enable_vcpu_event(vm, event_id);
 
-	req.cmd.enable = false;
-	test_vcpu0_command(vm, KVMI_VCPU_CONTROL_SINGLESTEP,
-			   &req.hdr, sizeof(req), NULL, 0);
+	vcpu_thread = start_vcpu_worker(&data);
+
+	enable_singlestep(vm);
+
+	receive_event(&hdr, &ev.common, sizeof(ev), event_id);
+
+	DEBUG("SINGLESTEP event, rip 0x%llx success %d\n",
+		ev.common.arch.regs.rip, !ev.singlestep.failed);
+
+	disable_singlestep(vm);
+
+	reply_to_event(&hdr, &ev.common, KVMI_EVENT_ACTION_CONTINUE,
+			&rpl, sizeof(rpl));
+
+	stop_vcpu_worker(vcpu_thread, &data);
+
+	disable_vcpu_event(vm, KVMI_EVENT_SINGLESTEP);
 }
 
 static void test_introspection(struct kvm_vm *vm)
