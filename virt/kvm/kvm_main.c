@@ -90,7 +90,7 @@ unsigned int halt_poll_ns_shrink;
 module_param(halt_poll_ns_shrink, uint, 0644);
 EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
 
-static bool enable_introspection;
+static bool enable_introspection = true;
 module_param_named(introspection, enable_introspection, bool, 0644);
 
 /*
