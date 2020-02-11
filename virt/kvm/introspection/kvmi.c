@@ -1446,6 +1446,59 @@ static void kvmi_singlestep_event(struct kvm_vcpu *vcpu, bool success)
 	}
 }
 
+static int restore_original_page_content(struct kvm_vcpu *vcpu, gva_t gva,
+					 u8 *src, size_t bytes)
+{
+	u8 *ptr_page, *ptr;
+	struct page *page;
+	gpa_t gpa;
+
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
+	if (gpa == UNMAPPED_GVA)
+		return -KVM_EINVAL;
+
+	ptr_page = get_page_ptr(vcpu->kvm, gpa, &page, true);
+	if (!ptr_page)
+		return -KVM_EINVAL;
+
+	ptr = ptr_page + (gpa & ~PAGE_MASK);
+
+	memcpy(ptr, src, bytes);
+
+	put_page_ptr(ptr_page, page, true);
+
+	return 0;
+}
+
+static void restore_original_content(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	size_t bytes = kvmi->singlestep.custom_ro_data.size;
+	gva_t gva = vcpui->custom_ro_data.addr;
+	u8 *backup;
+
+	if (!bytes)
+		return;
+
+	backup = kvmi->singlestep.custom_ro_data.data;
+
+	while (bytes) {
+		size_t offset = gva & ~PAGE_MASK;
+		size_t chunk = min(bytes, PAGE_SIZE - offset);
+
+		if (restore_original_page_content(vcpu, gva, backup, chunk))
+			goto out;
+
+		bytes -= chunk;
+		backup += chunk;
+		gva += chunk;
+	}
+
+out:
+	kvmi->singlestep.custom_ro_data.size = 0;
+}
+
 void kvmi_stop_singlestep_insn(struct kvm_vcpu *vcpu)
 {
 	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
@@ -1461,6 +1514,8 @@ void kvmi_stop_singlestep_insn(struct kvm_vcpu *vcpu)
 				    kvmi->singlestep.backup[l].old_access);
 
 	kvmi->singlestep.level = 0;
+
+	restore_original_content(vcpu);
 
 	atomic_set(&kvmi->singlestep.active, false);
 	/*
@@ -1610,8 +1665,66 @@ static bool kvmi_acquire_singlestep_insn(struct kvm_vcpu *vcpu)
 				  KVM_REQ_INTROSPECTION | KVM_REQUEST_WAIT);
 
 	vcpui->singlestep.owner = true;
+	kvmi->singlestep.custom_ro_data.size = 0;
 
 	return true;
+}
+
+static int write_custom_data_to_page(struct kvm_vcpu *vcpu, gva_t gva,
+				     u8 *backup, size_t bytes)
+{
+	u8 *ptr_page, *ptr;
+	struct page *page;
+	gpa_t gpa;
+
+	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
+	if (gpa == UNMAPPED_GVA)
+		return -KVM_EINVAL;
+
+	ptr_page = get_page_ptr(vcpu->kvm, gpa, &page, true);
+	if (!ptr_page)
+		return -KVM_EINVAL;
+
+	ptr = ptr_page + (gpa & ~PAGE_MASK);
+
+	memcpy(backup, ptr, bytes);
+	use_custom_input(vcpu, gva, ptr, bytes);
+
+	put_page_ptr(ptr_page, page, true);
+
+	return 0;
+}
+
+static int write_custom_data(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	size_t bytes = vcpui->custom_ro_data.size;
+	gva_t gva = vcpui->custom_ro_data.addr;
+	u8 *backup;
+
+	if (kvmi->singlestep.custom_ro_data.size)
+		return 0;
+
+	if (!bytes)
+		return 0;
+
+	backup = kvmi->singlestep.custom_ro_data.data;
+
+	while (bytes) {
+		size_t offset = gva & ~PAGE_MASK;
+		size_t chunk = min(bytes, PAGE_SIZE - offset);
+
+		if (write_custom_data_to_page(vcpu, gva, backup, chunk))
+			return -KVM_EINVAL;
+
+		bytes -= chunk;
+		backup += chunk;
+		gva += chunk;
+		kvmi->singlestep.custom_ro_data.size += chunk;
+	}
+
+	return 0;
 }
 
 static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
@@ -1624,6 +1737,12 @@ static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 	int err;
 
 	kvmi_arch_start_singlestep(vcpu);
+
+	err = write_custom_data(vcpu);
+	if (err) {
+		kvmi_err(kvmi, "writing custom data failed, err %d\n", err);
+		return false;
+	}
 
 	err = kvmi_get_gfn_access(kvmi, gfn, &old_access);
 	/* likely was removed from radix tree due to rwx */

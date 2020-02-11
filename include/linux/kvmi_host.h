@@ -97,6 +97,7 @@ struct kvm_introspection {
 			u8 old_access;
 		} backup[SINGLESTEP_MAX_DEPTH];
 		u8 level;
+		struct kvmi_custom_ro_data custom_ro_data;
 	} singlestep;
 };
 
