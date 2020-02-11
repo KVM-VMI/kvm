@@ -32,11 +32,13 @@ struct kvm_page_track_notifier_node {
 	 * @vcpu: the vcpu where the read access happened.
 	 * @gpa: the physical address read by guest.
 	 * @gva: the virtual address read by guest.
+	 * @new: the data to be used.
 	 * @bytes: the read length.
+	 * @data_ready: set to true if 'new' is filled by the tracker.
 	 * @node: this node.
 	 */
 	bool (*track_preread)(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
-			      int bytes,
+			      u8 *new, int bytes, bool *data_ready,
 			      struct kvm_page_track_notifier_node *node);
 	/*
 	 * It is called when guest is writing the write-tracked page
@@ -124,7 +126,7 @@ void
 kvm_page_track_unregister_notifier(struct kvm *kvm,
 				   struct kvm_page_track_notifier_node *n);
 bool kvm_page_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
-			    int bytes);
+			    u8 *new, int bytes, bool *data_ready);
 bool kvm_page_track_prewrite(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			     const u8 *new, int bytes);
 void kvm_page_track_write(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,

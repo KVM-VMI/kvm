@@ -5399,6 +5399,7 @@ static int kvm_read_guest_virt_helper(gva_t addr, void *val, unsigned int bytes,
 {
 	void *data = val;
 	int r = X86EMUL_CONTINUE;
+	bool data_ready;
 
 	while (bytes) {
 		gpa_t gpa = vcpu->arch.walk_mmu->gva_to_gpa(vcpu, addr, access,
@@ -5409,13 +5410,16 @@ static int kvm_read_guest_virt_helper(gva_t addr, void *val, unsigned int bytes,
 
 		if (gpa == UNMAPPED_GVA)
 			return X86EMUL_PROPAGATE_FAULT;
-		if (!kvm_page_track_preread(vcpu, gpa, addr, toread))
+		if (!kvm_page_track_preread(vcpu, gpa, addr, data, toread,
+					    &data_ready))
 			return X86EMUL_RETRY_INSTR;
-		ret = kvm_vcpu_read_guest_page(vcpu, gpa >> PAGE_SHIFT, data,
-					       offset, toread);
-		if (ret < 0) {
-			r = X86EMUL_IO_NEEDED;
-			goto out;
+		if (!data_ready) {
+			ret = kvm_vcpu_read_guest_page(vcpu, gpa >> PAGE_SHIFT,
+						       data, offset, toread);
+			if (ret < 0) {
+				r = X86EMUL_IO_NEEDED;
+				goto out;
+			}
 		}
 
 		bytes -= toread;
@@ -5638,9 +5642,12 @@ int emulator_write_phys(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 static int emulator_read_phys(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 			      void *val, int bytes)
 {
-	if (!kvm_page_track_preread(vcpu, gpa, gva, bytes))
+	bool data_ready;
+
+	if (!kvm_page_track_preread(vcpu, gpa, gva, val, bytes, &data_ready))
 		return X86EMUL_RETRY_INSTR;
-	if (kvm_vcpu_read_guest(vcpu, gpa, val, bytes) < 0)
+	if (!data_ready &&
+	    kvm_vcpu_read_guest(vcpu, gpa, val, bytes) < 0)
 		return X86EMUL_UNHANDLEABLE;
 	return X86EMUL_CONTINUE;
 }
@@ -6737,6 +6744,7 @@ static bool is_vmware_backdoor_opcode(struct x86_emulate_ctxt *ctxt)
 static bool kvm_page_track_emulation_failure(struct kvm_vcpu *vcpu, gpa_t gpa)
 {
 	u64 error_code = vcpu->arch.error_code;
+	bool data_ready;
 	u8 data = 0;
 	gva_t gva;
 	bool ret;
@@ -6762,7 +6770,8 @@ static bool kvm_page_track_emulation_failure(struct kvm_vcpu *vcpu, gpa_t gpa)
 	if (error_code & PFERR_WRITE_MASK)
 		ret = kvm_page_track_prewrite(vcpu, gpa, gva, &data, 0);
 	else if (error_code & PFERR_USER_MASK)
-		ret = kvm_page_track_preread(vcpu, gpa, gva, 0);
+		ret = kvm_page_track_preread(vcpu, gpa, gva, &data, 0,
+					     &data_ready);
 	else
 		ret = true;
 

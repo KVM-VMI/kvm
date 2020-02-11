@@ -12,7 +12,7 @@
 #define MAX_PAUSE_REQUESTS 1001
 
 static bool kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
-			       int bytes,
+			       u8 *new, int bytes, bool *data_ready,
 			       struct kvm_page_track_notifier_node *node);
 static bool kvmi_track_prewrite(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 				const u8 *new, int bytes,
@@ -1152,16 +1152,86 @@ static bool is_pf_of_interest(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
 	return kvmi_restricted_access(KVMI(kvm), gpa, access);
 }
 
-static bool __kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva)
+/*
+ * The custom input is defined by a virtual address and size, and all reads
+ * must be within this space. Reads that are completely outside should be
+ * satisfyied using guest memory. Overlapping reads are erroneous.
+ */
+static int use_custom_input(struct kvm_vcpu *vcpu, gva_t gva, u8 *new,
+			    int bytes)
 {
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	unsigned int offset;
+
+	if (!vcpui->custom_ro_data.size || !bytes)
+		return 0;
+
+	if (bytes < 0 || bytes > vcpui->custom_ro_data.size) {
+		kvmi_warn_once(KVMI(vcpu->kvm),
+			       "%s: invalid range %d max %lu\n",
+			       __func__, bytes, vcpui->custom_ro_data.size);
+		return 0;
+	}
+
+	if (gva + bytes <= vcpui->custom_ro_data.addr ||
+	    gva >= vcpui->custom_ro_data.addr + vcpui->custom_ro_data.size)
+		return 0;
+
+	if (gva < vcpui->custom_ro_data.addr &&
+	    gva + bytes > vcpui->custom_ro_data.addr) {
+		kvmi_warn_once(KVMI(vcpu->kvm),
+			       "%s: read ranges overlap: 0x%lx:%d, 0x%llx:%lu\n",
+			       __func__, gva, bytes, vcpui->custom_ro_data.addr,
+			       vcpui->custom_ro_data.size);
+		return 0;
+	}
+
+	if (gva + bytes > vcpui->custom_ro_data.addr
+			+ vcpui->custom_ro_data.size) {
+		kvmi_warn_once(KVMI(vcpu->kvm),
+			       "%s: read ranges overlap: 0x%lx:%d, 0x%llx:%lu\n",
+			       __func__, gva, bytes, vcpui->custom_ro_data.addr,
+			       vcpui->custom_ro_data.size);
+		return 0;
+	}
+
+	offset = gva - vcpui->custom_ro_data.addr;
+
+	memcpy(new, vcpui->custom_ro_data.data + offset, bytes);
+
+	return bytes;
+}
+
+static bool __kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+				 u8 *new, int bytes, bool *data_ready)
+{
+	bool ret;
+
 	if (!is_pf_of_interest(vcpu, gpa, KVMI_PAGE_ACCESS_R))
 		return true;
 
-	return kvmi_arch_pf_event(vcpu, gpa, gva, KVMI_PAGE_ACCESS_R);
+	if (use_custom_input(vcpu, gva, new, bytes))
+		goto out_custom;
+
+	ret = kvmi_arch_pf_event(vcpu, gpa, gva, KVMI_PAGE_ACCESS_R);
+
+	if (ret && use_custom_input(vcpu, gva, new, bytes))
+		goto out_custom;
+
+	return ret;
+
+out_custom:
+	if (*data_ready)
+		kvmi_err(KVMI(vcpu->kvm),
+			"Override custom data from another tracker\n");
+
+	*data_ready = true;
+
+	return true;
 }
 
 static bool kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
-			       int bytes,
+			       u8 *new, int bytes, bool *data_ready,
 			       struct kvm_page_track_notifier_node *node)
 {
 	struct kvm_introspection *kvmi;
@@ -1172,7 +1242,8 @@ static bool kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 		return true;
 
 	if (is_event_enabled(vcpu, KVMI_EVENT_PF))
-		ret = __kvmi_track_preread(vcpu, gpa, gva);
+		ret = __kvmi_track_preread(vcpu, gpa, gva, new, bytes,
+					   data_ready);
 
 	kvmi_put(vcpu->kvm);
 
@@ -1422,6 +1493,9 @@ void kvmi_init_emulate(struct kvm_vcpu *vcpu)
 
 	vcpui->rep_complete = false;
 	vcpui->effective_rep_complete = false;
+
+	vcpui->custom_ro_data.size = 0;
+	vcpui->custom_ro_data.addr = 0;
 
 	kvmi_put(vcpu->kvm);
 }

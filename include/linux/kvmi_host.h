@@ -19,6 +19,14 @@ struct kvmi_vcpu_reply {
 	size_t size;
 };
 
+#define KVMI_CTX_DATA_SIZE FIELD_SIZEOF(struct kvmi_event_pf_reply, ctx_data)
+
+struct kvmi_custom_ro_data {
+	u8 data[KVMI_CTX_DATA_SIZE];
+	size_t size;
+	gpa_t addr;
+};
+
 struct kvmi_job {
 	struct list_head link;
 	void *ctx;
@@ -57,6 +65,7 @@ struct kvm_vcpu_introspection {
 
 	bool rep_complete;
 	bool effective_rep_complete;
+	struct kvmi_custom_ro_data custom_ro_data;
 };
 
 struct kvm_introspection {

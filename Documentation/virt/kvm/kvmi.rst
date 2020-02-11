@@ -1376,12 +1376,14 @@ sent to the introspection tool. The *CONTINUE* action will set the ``new_val``.
 		__u8 rep_complete;
 		__u8 padding1;
 		__u16 padding2;
-		__u32 padding3;
+		__u32 ctx_size;
+		__u64 ctx_addr;
+		__u8 ctx_data[256];
 	};
 
 This event is sent when a hypervisor page fault occurs due to a failed
 permission check in the shadow page tables, the introspection has been
-enabled for this event (see *KVMI_VPUC_CONTROL_EVENTS*) and the event was
+enabled for this event (see *KVMI_VCPU_CONTROL_EVENTS*) and the event was
 generated for a page in which the introspection tool has shown interest
 (ie. has previously touched it by adjusting the spte permissions).
 
@@ -1399,6 +1401,11 @@ The *CONTINUE* action will continue the page fault handling via emulation.
 If ``rep_complete`` is 1, the REP prefixed instruction should be emulated
 just once (or at least no other *KVMI_EVENT_PF* event should be sent
 for the current instruction).
+If ``ctx_size`` > 0, the emulation should continue with the custom input
+from ``ctx_data`` starting from the guest virtual address specified with
+``ctx_addr``. The use of custom input is to trick the guest software
+into believing it has read certain data, in order to hide the content
+of certain memory areas (eg. hide injected code from integrity checkers).
 
 The *RETRY* action is used by the introspection tool to retry the
 execution of the current instruction, usually because it changed the

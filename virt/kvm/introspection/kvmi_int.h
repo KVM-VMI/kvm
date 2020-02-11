@@ -94,7 +94,8 @@ u32 kvmi_msg_send_vcpu_pause(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_hypercall(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_bp(struct kvm_vcpu *vcpu, u64 gpa, u8 insn_len);
 u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
-		     bool *rep_complete);
+		     bool *rep_complete,
+		     u64 *ctx_addr, u8 *ctx, u32 *ctx_size);
 
 /* kvmi.c */
 void *kvmi_msg_alloc(void);

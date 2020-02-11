@@ -249,12 +249,14 @@ EXPORT_SYMBOL_GPL(kvm_page_track_unregister_notifier);
  *   will not override that
  */
 bool kvm_page_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
-			    int bytes)
+			    u8 *new, int bytes, bool *data_ready)
 {
 	struct kvm_page_track_notifier_head *head;
 	struct kvm_page_track_notifier_node *n;
 	int idx;
 	bool ret = true;
+
+	*data_ready = false;
 
 	head = &vcpu->kvm->arch.track_notifier_head;
 
@@ -264,7 +266,8 @@ bool kvm_page_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	idx = srcu_read_lock(&head->track_srcu);
 	hlist_for_each_entry_rcu(n, &head->track_notifier_list, node)
 		if (n->track_preread)
-			if (!n->track_preread(vcpu, gpa, gva, bytes, n))
+			if (!n->track_preread(vcpu, gpa, gva, new, bytes,
+					      data_ready, n))
 				ret = false;
 	srcu_read_unlock(&head->track_srcu, idx);
 	return ret;

@@ -1066,8 +1066,10 @@ u32 kvmi_msg_send_bp(struct kvm_vcpu *vcpu, u64 gpa, u8 insn_len)
 }
 
 u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
-		     bool *rep_complete)
+		     bool *rep_complete,
+		     u64 *ctx_addr, u8 *ctx_data, u32 *ctx_size)
 {
+	u32 max_ctx_size = *ctx_size;
 	struct kvmi_event_pf_reply r;
 	struct kvmi_event_pf e;
 	int err, action;
@@ -1078,22 +1080,37 @@ u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
 	e.access = access;
 
 	*rep_complete = false;
+	*ctx_size = 0;
 
 	err = kvmi_send_event(vcpu, KVMI_EVENT_PF, &e, sizeof(e),
 			      &r, sizeof(r), &action);
 	if (err)
 		return KVMI_EVENT_ACTION_CONTINUE;
 
-	if (r.padding1 || r.padding2 || r.padding3) {
+	if (r.padding1 || r.padding2) {
 		struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
 
-		kvmi_err(kvmi, "%s: non zero padding %u,%u,%u\n",
-			__func__, r.padding1, r.padding2, r.padding3);
+		kvmi_err(kvmi, "%s: non zero padding %u,%u\n",
+			__func__, r.padding1, r.padding2);
+		kvmi_sock_shutdown(kvmi);
+		return KVMI_EVENT_ACTION_CONTINUE;
+	}
+
+	if (r.ctx_size > max_ctx_size) {
+		struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+
+		kvmi_err(kvmi, "%s: ctx_size (recv:%u max:%u)\n",
+				__func__, r.ctx_size, max_ctx_size);
 		kvmi_sock_shutdown(kvmi);
 		return KVMI_EVENT_ACTION_CONTINUE;
 	}
 
 	*rep_complete = r.rep_complete == 1;
+
+	*ctx_size = min_t(u32, r.ctx_size, sizeof(r.ctx_data));
+	*ctx_addr = r.ctx_addr;
+	if (*ctx_size)
+		memcpy(ctx_data, r.ctx_data, *ctx_size);
 
 	return action;
 }

@@ -1185,16 +1185,23 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
 	bool ret = false;
+	u32 ctx_size;
+	u64 ctx_addr;
 	u32 action;
 
 	if (vcpui->effective_rep_complete)
 		return true;
 
+	ctx_size = sizeof(vcpui->custom_ro_data.data);
+
 	action = kvmi_msg_send_pf(vcpu, gpa, gva, access,
-				  &vcpui->rep_complete);
+				  &vcpui->rep_complete, &ctx_addr,
+				  vcpui->custom_ro_data.data, &ctx_size);
 
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
+		vcpui->custom_ro_data.size = ctx_size;
+		vcpui->custom_ro_data.addr = ctx_addr;
 		ret = true;
 		break;
 	case KVMI_EVENT_ACTION_RETRY:
