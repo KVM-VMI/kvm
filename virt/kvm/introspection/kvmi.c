@@ -866,6 +866,24 @@ void kvmi_send_pending_event(struct kvm_vcpu *vcpu)
 	}
 }
 
+static int kvmi_wait_singlestep_insn(struct kvm_vcpu *vcpu)
+{
+	struct swait_queue_head *wq = kvm_arch_vcpu_wq(vcpu);
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+	int err = 0;
+
+	while (atomic_read(&kvmi->singlestep.active) && !err) {
+		kvmi_run_jobs(vcpu);
+
+		err = swait_event_killable_exclusive(*wq,
+			!atomic_read(&kvmi->singlestep.active) ||
+			!list_empty(&vcpui->job_list));
+	}
+
+	return err;
+}
+
 void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
@@ -878,6 +896,10 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 	kvmi_send_pending_event(vcpu);
 
 	for (;;) {
+		if (!vcpui->singlestep.owner)
+			if (kvmi_wait_singlestep_insn(vcpu))
+				break;
+
 		kvmi_run_jobs(vcpu);
 
 		if (atomic_read(&vcpui->pause_requests))
@@ -1383,7 +1405,7 @@ bool kvmi_vcpu_running_singlestep(struct kvm_vcpu *vcpu)
 	if (!kvmi)
 		return false;
 
-	ret = VCPUI(vcpu)->singlestep.loop;
+	ret = VCPUI(vcpu)->singlestep.loop || VCPUI(vcpu)->singlestep.owner;
 
 	kvmi_put(vcpu->kvm);
 
@@ -1424,6 +1446,41 @@ static void kvmi_singlestep_event(struct kvm_vcpu *vcpu, bool success)
 	}
 }
 
+void kvmi_stop_singlestep_insn(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+	struct kvm_vcpu_introspection *vcpui;
+	struct kvm *kvm = vcpu->kvm;
+	int l;
+
+	vcpui = VCPUI(vcpu);
+
+	for (l = kvmi->singlestep.level; l--;)
+		kvmi_set_gfn_access(kvm,
+				    kvmi->singlestep.backup[l].gfn,
+				    kvmi->singlestep.backup[l].old_access);
+
+	kvmi->singlestep.level = 0;
+
+	atomic_set(&kvmi->singlestep.active, false);
+	/*
+	 * Make the singlestep.active update visible
+	 * before resuming all the other vCPUs.
+	 */
+	smp_mb__after_atomic();
+	kvm_make_all_cpus_request(kvm, 0);
+
+	vcpui->singlestep.owner = false;
+
+	kvmi_arch_stop_singlestep(vcpu);
+}
+
+/*
+ * This function is called (a) if the introspection tool has set the vCPU
+ * in single-step mode with KVMI_VCPU_CONTROL_SINGLESTEP (singlestep.loop)
+ * or (b) if the vCPU is single-stepped transparently for the introspection
+ * tool due to a unimplemented instruction (singlestep.owner).
+ */
 static void kvmi_handle_singlestep_exit(struct kvm_vcpu *vcpu, bool success)
 {
 	struct kvm_vcpu_introspection *vcpui;
@@ -1438,6 +1495,8 @@ static void kvmi_handle_singlestep_exit(struct kvm_vcpu *vcpu, bool success)
 
 	if (vcpui->singlestep.loop)
 		kvmi_singlestep_event(vcpu, success);
+	else if (vcpui->singlestep.owner)
+		kvmi_stop_singlestep_insn(vcpu);
 
 	kvmi_put(kvm);
 }
@@ -1521,3 +1580,130 @@ void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu)
 	kvmi_put(vcpu->kvm);
 }
 EXPORT_SYMBOL(kvmi_activate_rep_complete);
+
+static u8 kvmi_translate_pf_error_code(u64 error_code)
+{
+	u8 access = 0;
+
+	if (error_code & PFERR_USER_MASK)
+		access |= KVMI_PAGE_ACCESS_R;
+	if (error_code & PFERR_WRITE_MASK)
+		access |= KVMI_PAGE_ACCESS_W;
+	if (error_code & PFERR_FETCH_MASK)
+		access |= KVMI_PAGE_ACCESS_X;
+
+	return access;
+}
+
+static bool kvmi_acquire_singlestep_insn(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+
+	if (vcpui->singlestep.owner)
+		return true;
+
+	if (atomic_cmpxchg(&kvmi->singlestep.active, false, true) != false)
+		return false;
+
+	kvm_make_all_cpus_request(vcpu->kvm,
+				  KVM_REQ_INTROSPECTION | KVM_REQUEST_WAIT);
+
+	vcpui->singlestep.owner = true;
+
+	return true;
+}
+
+static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
+				     u8 access)
+{
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+	u8 l = kvmi->singlestep.level;
+	gfn_t gfn = gpa_to_gfn(gpa);
+	u8 old_access, new_access;
+	int err;
+
+	kvmi_arch_start_singlestep(vcpu);
+
+	err = kvmi_get_gfn_access(kvmi, gfn, &old_access);
+	/* likely was removed from radix tree due to rwx */
+	if (err) {
+		kvmi_warn_once(kvmi,
+				"%s: gfn 0x%llx not found in the radix tree\n",
+				__func__, gfn);
+		return true;
+	}
+
+	if (l == SINGLESTEP_MAX_DEPTH - 1) {
+		kvmi_err(kvmi, "singlestep limit reached\n");
+		return false;
+	}
+
+	kvmi->singlestep.backup[l].gfn = gfn;
+	kvmi->singlestep.backup[l].old_access = old_access;
+	kvmi->singlestep.level++;
+
+	new_access = kvmi_arch_relax_page_access(old_access, access);
+
+	kvmi_set_gfn_access(vcpu->kvm, gfn, new_access);
+
+	return true;
+}
+
+static bool kvmi_start_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
+					u8 access)
+{
+	bool ret = false;
+
+	while (!kvmi_acquire_singlestep_insn(vcpu)) {
+		int err = kvmi_wait_singlestep_insn(vcpu);
+
+		if (err) {
+			kvmi_err(KVMI(vcpu->kvm), "kvmi_wait_singlestep_insn() has failed\n");
+			goto out;
+		}
+	}
+
+	ret = kvmi_run_singlestep_insn(vcpu, gpa, access);
+	if (!ret)
+		kvmi_stop_singlestep_insn(vcpu);
+
+out:
+	return ret;
+}
+
+static bool __kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
+				   int *emulation_type)
+{
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+	u8 allowed_access, pf_access;
+	gfn_t gfn = gpa_to_gfn(gpa);
+	int err;
+
+	if (kvmi_arch_invalid_insn(vcpu, emulation_type))
+		return false;
+
+	err = kvmi_get_gfn_access(kvmi, gfn, &allowed_access);
+	if (err)
+		return false;
+
+	pf_access = kvmi_translate_pf_error_code(vcpu->arch.error_code);
+
+	return kvmi_start_singlestep_insn(vcpu, gpa, pf_access);
+}
+
+bool kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa, int *emulation_type)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = false;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return false;
+
+	ret = __kvmi_singlestep_insn(vcpu, gpa, emulation_type);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}

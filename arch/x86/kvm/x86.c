@@ -6831,6 +6831,8 @@ int x86_emulate_instruction(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 			}
 			if (!kvm_page_track_emulation_failure(vcpu, cr2_or_gpa))
 				return 1;
+			if (kvmi_singlestep_insn(vcpu, cr2_or_gpa, &emulation_type))
+				return 1;
 			if (reexecute_instruction(vcpu, cr2_or_gpa,
 						  write_fault_to_spt,
 						  emulation_type))
@@ -6890,6 +6892,8 @@ restart:
 
 	if (r == EMULATION_FAILED) {
 		if (!kvm_page_track_emulation_failure(vcpu, cr2_or_gpa))
+			return 1;
+		if (kvmi_singlestep_insn(vcpu, cr2_or_gpa, &emulation_type))
 			return 1;
 		if (reexecute_instruction(vcpu, cr2_or_gpa, write_fault_to_spt,
 					emulation_type))

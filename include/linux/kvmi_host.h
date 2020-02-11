@@ -61,12 +61,15 @@ struct kvm_vcpu_introspection {
 
 	struct {
 		bool loop;
+		bool owner;
 	} singlestep;
 
 	bool rep_complete;
 	bool effective_rep_complete;
 	struct kvmi_custom_ro_data custom_ro_data;
 };
+
+#define SINGLESTEP_MAX_DEPTH 8
 
 struct kvm_introspection {
 	struct kvm_arch_introspection arch;
@@ -86,6 +89,15 @@ struct kvm_introspection {
 
 	struct radix_tree_root access_tree;
 	rwlock_t access_tree_lock;
+
+	struct {
+		atomic_t active;
+		struct {
+			gfn_t gfn;
+			u8 old_access;
+		} backup[SINGLESTEP_MAX_DEPTH];
+		u8 level;
+	} singlestep;
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION
@@ -112,6 +124,8 @@ void kvmi_singlestep_failed(struct kvm_vcpu *vcpu);
 bool kvmi_tracked_gfn(struct kvm_vcpu *vcpu, gfn_t gfn);
 void kvmi_init_emulate(struct kvm_vcpu *vcpu);
 void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu);
+bool kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
+			  int *emulation_type);
 
 #else
 
@@ -136,6 +150,9 @@ static inline bool kvmi_tracked_gfn(struct kvm_vcpu *vcpu, gfn_t gfn)
 			{ return false; }
 static inline void kvmi_init_emulate(struct kvm_vcpu *vcpu) { }
 static inline void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu) { }
+static inline bool kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
+					int *emulation_type)
+			{ return false; }
 
 #endif /* CONFIG_KVM_INTROSPECTION */
 

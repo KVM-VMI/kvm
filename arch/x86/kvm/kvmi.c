@@ -1279,3 +1279,42 @@ out:
 
 	return ret;
 }
+
+bool kvmi_arch_invalid_insn(struct kvm_vcpu *vcpu, int *emulation_type)
+{
+	u8 ud2[] = {0x0F, 0x0B};
+	u8 insn_len = vcpu->arch.emulate_ctxt.fetch.ptr -
+		      vcpu->arch.emulate_ctxt.fetch.data;
+
+	if (insn_len != sizeof(ud2))
+		return false;
+
+	if (memcmp(vcpu->arch.emulate_ctxt.fetch.data, ud2, insn_len))
+		return false;
+
+	/*
+	 * Do not reexecute the UD2 instruction, else we might enter to an
+	 * endless emulation loop. Let the emulator fall down through the
+	 * handle_emulation_failure() which shall inject the #UD exception.
+	 */
+	*emulation_type &= ~EMULTYPE_ALLOW_RETRY;
+
+	return true;
+}
+
+u8 kvmi_arch_relax_page_access(u8 old, u8 new)
+{
+	u8 ret = old | new;
+
+	/*
+	 * An SPTE entry with just the -wx bits set can trigger a
+	 * misconfiguration error from the hardware, as it's the case
+	 * for x86 where this access mode is used to mark I/O memory.
+	 * Thus, we make sure that -wx accesses are translated to rwx.
+	 */
+	if ((ret & (KVMI_PAGE_ACCESS_W | KVMI_PAGE_ACCESS_X)) ==
+	    (KVMI_PAGE_ACCESS_W | KVMI_PAGE_ACCESS_X))
+		ret |= KVMI_PAGE_ACCESS_R;
+
+	return ret;
+}

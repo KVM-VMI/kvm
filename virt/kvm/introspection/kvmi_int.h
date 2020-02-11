@@ -175,5 +175,7 @@ void kvmi_arch_features(struct kvmi_features *feat);
 bool kvmi_arch_start_singlestep(struct kvm_vcpu *vcpu);
 bool kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu);
 gpa_t kvmi_arch_cmd_translate_gva(struct kvm_vcpu *vcpu, gva_t gva);
+bool kvmi_arch_invalid_insn(struct kvm_vcpu *vcpu, int *emulation_type);
+u8 kvmi_arch_relax_page_access(u8 old, u8 new);
 
 #endif
