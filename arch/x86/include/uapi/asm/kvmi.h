@@ -12,7 +12,9 @@
 
 struct kvmi_event_arch {
 	__u8 mode;		/* 2, 4 or 8 */
-	__u8 padding[7];
+	__u8 padding1;
+	__u16 view;
+	__u32 padding2;
 	struct kvm_regs regs;
 	struct kvm_sregs sregs;
 	struct {

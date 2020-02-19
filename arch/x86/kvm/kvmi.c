@@ -87,6 +87,7 @@ void kvmi_arch_setup_event(struct kvm_vcpu *vcpu, struct kvmi_event *ev)
 	kvm_arch_vcpu_get_sregs(vcpu, &event->sregs);
 	ev->arch.mode = kvmi_vcpu_mode(vcpu, &event->sregs);
 	kvmi_get_msrs(vcpu, event);
+	event->view = kvm_get_ept_view(vcpu);
 }
 
 int kvmi_arch_cmd_vcpu_get_info(struct kvm_vcpu *vcpu,
