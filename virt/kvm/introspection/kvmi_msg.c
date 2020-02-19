@@ -32,6 +32,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_CONTROL_MSR]        = "KVMI_VCPU_CONTROL_MSR",
 	[KVMI_VCPU_CONTROL_SINGLESTEP] = "KVMI_VCPU_CONTROL_SINGLESTEP",
 	[KVMI_VCPU_GET_CPUID]          = "KVMI_VCPU_GET_CPUID",
+	[KVMI_VCPU_GET_EPT_VIEW]       = "KVMI_VCPU_GET_EPT_VIEW",
 	[KVMI_VCPU_GET_INFO]           = "KVMI_VCPU_GET_INFO",
 	[KVMI_VCPU_GET_MTRR_TYPE]      = "KVMI_VCPU_GET_MTRR_TYPE",
 	[KVMI_VCPU_GET_REGISTERS]      = "KVMI_VCPU_GET_REGISTERS",
@@ -629,6 +630,19 @@ static int handle_vcpu_translate_gva(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, 0, &rpl, sizeof(rpl));
 }
 
+static int handle_vcpu_get_ept_view(const struct kvmi_vcpu_cmd_job *job,
+				    const struct kvmi_msg_hdr *msg,
+				    const void *req)
+{
+	struct kvmi_vcpu_get_ept_view_reply rpl;
+
+	memset(&rpl, 0, sizeof(rpl));
+
+	rpl.view = kvmi_arch_cmd_get_ept_view(job->vcpu);
+
+	return kvmi_msg_vcpu_reply(job, msg, 0, &rpl, sizeof(rpl));
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -643,6 +657,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_CONTROL_MSR]        = handle_vcpu_control_msr,
 	[KVMI_VCPU_CONTROL_SINGLESTEP] = handle_vcpu_control_singlestep,
 	[KVMI_VCPU_GET_CPUID]          = handle_get_cpuid,
+	[KVMI_VCPU_GET_EPT_VIEW]       = handle_vcpu_get_ept_view,
 	[KVMI_VCPU_GET_INFO]           = handle_get_vcpu_info,
 	[KVMI_VCPU_GET_MTRR_TYPE]      = handle_vcpu_get_mtrr_type,
 	[KVMI_VCPU_GET_REGISTERS]      = handle_get_registers,

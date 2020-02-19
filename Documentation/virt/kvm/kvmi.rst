@@ -1004,6 +1004,39 @@ the address cannot be translated.
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 
+22. KVMI_VCPU_GET_EPT_VIEW
+--------------------------
+
+:Architecture: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_vcpu_get_ept_view_reply {
+		__u16 view;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+Returns the EPT ``view`` the provided vCPU operates on.
+
+Before getting EPT views, the introspection tool should use
+*KVMI_GET_VERSION* to check if the hardware has support for VMFUNC and
+EPTP switching mechanism (see **KVMI_GET_VERSION**).  If the hardware
+does not provide support for these features, the returned EPT view will
+be zero.
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
 Events
 ======
 

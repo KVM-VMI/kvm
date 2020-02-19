@@ -1775,6 +1775,31 @@ static void test_cmd_translate_gva(struct kvm_vm *vm)
 		(vm_vaddr_t)-1, (vm_paddr_t)-1);
 }
 
+static __u16 get_ept_view(struct kvm_vm *vm)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+	} req = {};
+	struct kvmi_vcpu_get_ept_view_reply rpl;
+
+	test_vcpu0_command(vm, KVMI_VCPU_GET_EPT_VIEW,
+			   &req.hdr, sizeof(req),
+			   &rpl, sizeof(rpl));
+
+	return rpl.view;
+}
+
+static void test_cmd_vcpu_get_ept_view(struct kvm_vm *vm)
+{
+	if (!features.eptp) {
+		DEBUG("Skip %s()\n", __func__);
+		return;
+	}
+
+	DEBUG("EPT view %u\n", get_ept_view(vm));
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1809,6 +1834,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_event_pf(vm);
 	test_cmd_vcpu_control_singlestep(vm);
 	test_cmd_translate_gva(vm);
+	test_cmd_vcpu_get_ept_view(vm);
 
 	unhook_introspection(vm);
 }

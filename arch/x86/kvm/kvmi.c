@@ -596,6 +596,11 @@ void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 	}
 }
 
+u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu)
+{
+	return kvm_get_ept_view(vcpu);
+}
+
 bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_interception *arch_vcpui = vcpu->arch.kvmi;

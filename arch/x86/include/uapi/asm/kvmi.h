@@ -146,4 +146,10 @@ struct kvmi_features {
 	__u8 padding[5];
 };
 
+struct kvmi_vcpu_get_ept_view_reply {
+	__u16 view;
+	__u16 padding1;
+	__u32 padding2;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

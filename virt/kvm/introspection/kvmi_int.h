@@ -53,6 +53,7 @@
 			| BIT(KVMI_VCPU_CONTROL_MSR) \
 			| BIT(KVMI_VCPU_CONTROL_SINGLESTEP) \
 			| BIT(KVMI_VCPU_GET_CPUID) \
+			| BIT(KVMI_VCPU_GET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_GET_MTRR_TYPE) \
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
 			| BIT(KVMI_VCPU_GET_XSAVE) \
@@ -177,5 +178,6 @@ bool kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu);
 gpa_t kvmi_arch_cmd_translate_gva(struct kvm_vcpu *vcpu, gva_t gva);
 bool kvmi_arch_invalid_insn(struct kvm_vcpu *vcpu, int *emulation_type);
 u8 kvmi_arch_relax_page_access(u8 old, u8 new);
+u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu);
 
 #endif
