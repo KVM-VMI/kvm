@@ -227,6 +227,9 @@ static void free_kvmi(struct kvm *kvm)
 
 	kvmi_clear_mem_access(kvm);
 
+	refcount_set(&kvm->arch.kvmi_refcount,
+			atomic_read(&kvm->online_vcpus));
+
 	kvm_for_each_vcpu(i, vcpu, kvm)
 		free_vcpui(vcpu);
 

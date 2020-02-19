@@ -962,6 +962,8 @@ struct kvm_arch {
 
 	struct kvm_pmu_event_filter *pmu_event_filter;
 	struct task_struct *nx_lpage_recovery_thread;
+
+	refcount_t kvmi_refcount;
 };
 
 struct kvm_vm_stat {

@@ -620,6 +620,25 @@ int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 	return kvm_x86_ops->control_ept_view(vcpu, view, visible);
 }
 
+void kvmi_arch_restore_ept_view(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	u16 view, default_view = 0;
+	bool visible = false;
+
+	if (kvm_get_ept_view(vcpu) != default_view)
+		kvmi_arch_cmd_set_ept_view(vcpu, default_view);
+
+	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+		kvmi_arch_cmd_control_ept_view(vcpu, view, visible);
+
+	if (refcount_dec_and_test(&kvm->arch.kvmi_refcount)) {
+		u16 zap_mask = ~(1 << default_view);
+
+		kvm_mmu_zap_all(vcpu->kvm, zap_mask);
+	}
+}
+
 bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_interception *arch_vcpui = vcpu->arch.kvmi;
@@ -632,6 +651,8 @@ bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
 	kvmi_arch_disable_desc_intercept(vcpu);
 	kvmi_arch_disable_msrw_intercept(vcpu, arch_vcpui->msrw.kvmi_mask.low);
 	kvmi_arch_disable_msrw_intercept(vcpu, arch_vcpui->msrw.kvmi_mask.high);
+
+	kvmi_arch_restore_ept_view(vcpu);
 
 	return true;
 }
