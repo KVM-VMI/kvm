@@ -20,6 +20,8 @@
 #include "linux/kvm_para.h"
 #include "linux/kvmi.h"
 
+#define KVM_MAX_EPT_VIEWS 3
+
 #define VCPU_ID         5
 
 #define X86_FEATURE_XSAVE	(1<<26)
@@ -1800,6 +1802,46 @@ static void test_cmd_vcpu_get_ept_view(struct kvm_vm *vm)
 	DEBUG("EPT view %u\n", get_ept_view(vm));
 }
 
+static void set_ept_view(struct kvm_vm *vm, __u16 view)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_set_ept_view cmd;
+	} req = {};
+
+	req.cmd.view = view;
+
+	test_vcpu0_command(vm, KVMI_VCPU_SET_EPT_VIEW,
+			   &req.hdr, sizeof(req), NULL, 0);
+}
+
+static void test_cmd_vcpu_set_ept_view(struct kvm_vm *vm)
+{
+	__u16 old_view;
+	__u16 new_view;
+	__u16 check_view;
+
+	if (!features.eptp) {
+		DEBUG("Skip %s()\n", __func__);
+		return;
+	}
+
+	old_view = get_ept_view(vm);
+
+	new_view = (old_view + 1) % KVM_MAX_EPT_VIEWS;
+	DEBUG("Change EPT view from %u to %u\n", old_view, new_view);
+	set_ept_view(vm, new_view);
+
+	check_view = get_ept_view(vm);
+	TEST_ASSERT(check_view == new_view,
+			"Switching EPT view failed, found ept view (%u), expected view (%u)\n",
+			check_view, new_view);
+
+	DEBUG("Change EPT view from %u to %u\n", check_view, old_view);
+	set_ept_view(vm, old_view);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1835,6 +1877,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_control_singlestep(vm);
 	test_cmd_translate_gva(vm);
 	test_cmd_vcpu_get_ept_view(vm);
+	test_cmd_vcpu_set_ept_view(vm);
 
 	unhook_introspection(vm);
 }

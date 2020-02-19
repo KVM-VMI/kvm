@@ -1037,6 +1037,42 @@ be zero.
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 
+23. KVMI_VCPU_SET_EPT_VIEW
+--------------------------
+
+:Architecture: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_set_ept_view {
+		__u16 view;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Configures the vCPU to use the provided ``view``.
+
+Before switching EPT views, the introspection tool should use
+*KVMI_GET_VERSION* to check if the hardware has support for VMFUNC and
+EPTP switching mechanism (see **KVMI_GET_VERSION**).
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EINVAL - padding is not zero
+* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
+* -KVM_EINVAL - the selected EPT view is invalid
+
 Events
 ======
 

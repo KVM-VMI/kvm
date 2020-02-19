@@ -58,6 +58,7 @@
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
 			| BIT(KVMI_VCPU_GET_XSAVE) \
 			| BIT(KVMI_VCPU_INJECT_EXCEPTION) \
+			| BIT(KVMI_VCPU_SET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_SET_REGISTERS) \
 			| BIT(KVMI_VCPU_TRANSLATE_GVA) \
 		)
@@ -80,6 +81,11 @@ static inline bool is_vm_event_enabled(struct kvm_introspection *kvmi,
 static inline bool is_event_enabled(struct kvm_vcpu *vcpu, int event)
 {
 	return test_bit(event, VCPUI(vcpu)->ev_mask);
+}
+
+static inline bool is_valid_view(unsigned short view)
+{
+	return (view < KVM_MAX_EPT_VIEWS);
 }
 
 /* kvmi_msg.c */
@@ -179,5 +185,6 @@ gpa_t kvmi_arch_cmd_translate_gva(struct kvm_vcpu *vcpu, gva_t gva);
 bool kvmi_arch_invalid_insn(struct kvm_vcpu *vcpu, int *emulation_type);
 u8 kvmi_arch_relax_page_access(u8 old, u8 new);
 u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu);
+int kvmi_arch_cmd_set_ept_view(struct kvm_vcpu *vcpu, u16 view);
 
 #endif
