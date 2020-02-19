@@ -10570,6 +10570,15 @@ bool kvm_arch_no_poll(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(kvm_arch_no_poll);
 
+u16 kvm_get_ept_view(struct kvm_vcpu *vcpu)
+{
+	if (!kvm_x86_ops->get_ept_view)
+		return 0;
+
+	return kvm_x86_ops->get_ept_view(vcpu);
+}
+EXPORT_SYMBOL(kvm_get_ept_view);
+
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);

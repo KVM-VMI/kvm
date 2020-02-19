@@ -7994,6 +7994,13 @@ static bool vmx_get_eptp_switching_status(void)
 	return kvm_eptp_switching_supported;
 }
 
+static u16 vmx_get_ept_view(struct kvm_vcpu *vcpu)
+{
+	const struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	return vmx->view;
+}
+
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -8160,6 +8167,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.control_singlestep = vmx_control_singlestep,
 	.get_vmfunc_status = vmx_get_vmfunc_status,
 	.get_eptp_switching_status = vmx_get_eptp_switching_status,
+	.get_ept_view = vmx_get_ept_view,
 };
 
 static void vmx_cleanup_l1d_flush(void)
