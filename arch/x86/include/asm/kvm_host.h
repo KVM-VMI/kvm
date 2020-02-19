@@ -1249,6 +1249,7 @@ struct kvm_x86_ops {
 	bool (*gpt_translation_fault)(struct kvm_vcpu *vcpu);
 	void (*control_singlestep)(struct kvm_vcpu *vcpu, bool enable);
 	bool (*get_vmfunc_status)(void);
+	bool (*get_eptp_switching_status)(void);
 };
 
 struct kvm_arch_async_pf {
@@ -1347,6 +1348,7 @@ extern u64  kvm_max_tsc_scaling_ratio;
 extern u64  kvm_default_tsc_scaling_ratio;
 
 extern u64 kvm_mce_cap_supported;
+extern bool kvm_eptp_switching_supported;
 
 /*
  * EMULTYPE_NO_DECODE - Set when re-emulating an instruction (after completing

@@ -217,6 +217,14 @@ static inline bool cpu_has_vmx_vmfunc(void)
 		SECONDARY_EXEC_ENABLE_VMFUNC;
 }
 
+static inline bool cpu_has_vmx_eptp_switching(void)
+{
+	u64 vmx_msr;
+
+	rdmsrl(MSR_IA32_VMX_VMFUNC, vmx_msr);
+	return vmx_msr & VMX_VMFUNC_EPTP_SWITCHING;
+}
+
 static inline bool cpu_has_vmx_shadow_vmcs(void)
 {
 	u64 vmx_msr;
