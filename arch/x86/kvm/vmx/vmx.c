@@ -3044,8 +3044,11 @@ static void vmx_construct_eptp_with_index(struct kvm_vcpu *vcpu,
 	if (!eptp_list)
 		return;
 
-	eptp_list[view] = construct_eptp(vcpu,
+	if (test_bit(view, &vmx->allowed_views))
+		eptp_list[view] = construct_eptp(vcpu,
 				vcpu->arch.mmu->root_hpa_altviews[view]);
+	else
+		eptp_list[view] = (~0ULL);
 }
 
 static void vmx_construct_eptp_list(struct kvm_vcpu *vcpu)
@@ -4273,6 +4276,18 @@ static int vmx_set_ept_view(struct kvm_vcpu *vcpu, u16 view)
 		r = kvm_mmu_reload(vcpu);
 		WARN_ON_ONCE(r);
 	}
+
+	return 0;
+}
+
+static int vmx_control_ept_view(struct kvm_vcpu *vcpu, u16 view, u8 visible)
+{
+	if (visible)
+		set_bit(view, &to_vmx(vcpu)->allowed_views);
+	else
+		clear_bit(view, &to_vmx(vcpu)->allowed_views);
+
+	vmx_construct_eptp_with_index(vcpu, view);
 
 	return 0;
 }
@@ -8299,6 +8314,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.get_eptp_switching_status = vmx_get_eptp_switching_status,
 	.get_ept_view = vmx_get_ept_view,
 	.set_ept_view = vmx_set_ept_view,
+	.control_ept_view = vmx_control_ept_view,
 };
 
 static void vmx_cleanup_l1d_flush(void)

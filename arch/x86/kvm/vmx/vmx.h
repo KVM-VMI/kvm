@@ -284,6 +284,8 @@ struct vcpu_vmx {
 	struct page *eptp_list_pg;
 	/* The view this vcpu operates on. */
 	u16 view;
+	/* Visible EPT views bitmap for in-guest VMFUNC. */
+	unsigned long allowed_views;
 };
 
 enum ept_pointers_status {
