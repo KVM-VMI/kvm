@@ -611,6 +611,15 @@ int kvmi_arch_cmd_set_ept_view(struct kvm_vcpu *vcpu, u16 view)
 	return kvm_x86_ops->set_ept_view(vcpu, view);
 }
 
+int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
+				   bool visible)
+{
+	if (!kvm_x86_ops->control_ept_view)
+		return -EINVAL;
+
+	return kvm_x86_ops->control_ept_view(vcpu, view, visible);
+}
+
 bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_interception *arch_vcpui = vcpu->arch.kvmi;

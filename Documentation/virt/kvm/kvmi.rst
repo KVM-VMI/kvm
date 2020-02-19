@@ -1073,6 +1073,43 @@ EPTP switching mechanism (see **KVMI_GET_VERSION**).
 * -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EINVAL - the selected EPT view is invalid
 
+24. KVMI_VCPU_CONTROL_EPT_VIEW
+------------------------------
+
+:Architecture: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_control_ept_view {
+		__u16 view;
+		__u8  visible;
+		__u8  padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Controls the capability of the guest to successfully change EPT views
+through VMFUNC instruction without triggering a vm-exit. If ``visible``
+is true, the guest will be capable to change EPT views through VMFUNC(0,
+``view``). If ``visible`` is false, VMFUNC(0, ``view``) triggers a
+vm-exit, a #UD exception is injected to guest and the guest application
+is terminated.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EINVAL - padding is not zero
+* -KVM_EINVAL - the selected EPT view is not valid
+
 Events
 ======
 

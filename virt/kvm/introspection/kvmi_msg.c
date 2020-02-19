@@ -28,6 +28,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_SET_PAGE_ACCESS]      = "KVMI_VM_SET_PAGE_ACCESS",
 	[KVMI_VM_WRITE_PHYSICAL]       = "KVMI_VM_WRITE_PHYSICAL",
 	[KVMI_VCPU_CONTROL_CR]         = "KVMI_VCPU_CONTROL_CR",
+	[KVMI_VCPU_CONTROL_EPT_VIEW]   = "KVMI_VCPU_CONTROL_EPT_VIEW",
 	[KVMI_VCPU_CONTROL_EVENTS]     = "KVMI_VCPU_CONTROL_EVENTS",
 	[KVMI_VCPU_CONTROL_MSR]        = "KVMI_VCPU_CONTROL_MSR",
 	[KVMI_VCPU_CONTROL_SINGLESTEP] = "KVMI_VCPU_CONTROL_SINGLESTEP",
@@ -663,6 +664,24 @@ static int handle_vcpu_set_ept_view(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_control_ept_view(const struct kvmi_vcpu_cmd_job *job,
+					const struct kvmi_msg_hdr *msg,
+					const void *_req)
+{
+	const struct kvmi_vcpu_control_ept_view *req = _req;
+	int ec;
+
+	if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (!is_valid_view(req->view))
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_arch_cmd_control_ept_view(job->vcpu, req->view,
+						    req->visible);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -673,6 +692,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 			      const struct kvmi_msg_hdr *, const void *) = {
 	[KVMI_EVENT_REPLY]             = handle_event_reply,
 	[KVMI_VCPU_CONTROL_CR]         = handle_vcpu_control_cr,
+	[KVMI_VCPU_CONTROL_EPT_VIEW]   = handle_vcpu_control_ept_view,
 	[KVMI_VCPU_CONTROL_EVENTS]     = handle_vcpu_control_events,
 	[KVMI_VCPU_CONTROL_MSR]        = handle_vcpu_control_msr,
 	[KVMI_VCPU_CONTROL_SINGLESTEP] = handle_vcpu_control_singlestep,

@@ -49,6 +49,7 @@
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
 			| BIT(KVMI_VCPU_CONTROL_CR) \
+			| BIT(KVMI_VCPU_CONTROL_EPT_VIEW) \
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
 			| BIT(KVMI_VCPU_CONTROL_MSR) \
 			| BIT(KVMI_VCPU_CONTROL_SINGLESTEP) \
@@ -186,5 +187,7 @@ bool kvmi_arch_invalid_insn(struct kvm_vcpu *vcpu, int *emulation_type);
 u8 kvmi_arch_relax_page_access(u8 old, u8 new);
 u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_set_ept_view(struct kvm_vcpu *vcpu, u16 view);
+int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
+				   bool visible);
 
 #endif
