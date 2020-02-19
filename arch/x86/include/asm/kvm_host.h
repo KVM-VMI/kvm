@@ -410,6 +410,8 @@ struct kvm_mmu {
 	void (*update_pte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			   u64 *spte, const void *pte);
 	hpa_t root_hpa;
+	hpa_t root_hpa_altviews[KVM_MAX_EPT_VIEWS];
+
 	gpa_t root_cr3;
 	union kvm_mmu_role mmu_role;
 	u8 root_level;

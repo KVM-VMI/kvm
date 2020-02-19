@@ -281,6 +281,7 @@ struct vcpu_vmx {
 
 	struct pt_desc pt_desc;
 
+	struct page *eptp_list_pg;
 	/* The view this vcpu operates on. */
 	u16 view;
 };
