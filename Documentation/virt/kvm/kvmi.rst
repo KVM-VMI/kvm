@@ -894,8 +894,8 @@ to control events for any other register will fail with -KVM_EINVAL::
 
 	struct kvmi_vm_set_page_access {
 		__u16 count;
-		__u16 padding1;
-		__u32 padding2;
+		__u16 view;
+		__u32 padding;
 		struct kvmi_page_access_entry entries[0];
 	};
 
@@ -917,7 +917,7 @@ where::
 	struct kvmi_error_code
 
 Sets the spte access bits (rwx) for an array of ``count`` guest physical
-addresses.
+addresses, for the selecte EPT view.
 
 The valid access bits are::
 
@@ -937,8 +937,10 @@ In order to 'forget' an address, all the access bits ('rwx') must be set.
 :Errors:
 
 * -KVM_EINVAL - the specified access bits combination is invalid
+* -KVM_EINVAL - the selected SPT view is invalid
 * -KVM_EINVAL - padding is not zero
 * -KVM_EINVAL - the message size is invalid
+* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
 

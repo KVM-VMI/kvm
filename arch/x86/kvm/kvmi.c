@@ -1178,11 +1178,17 @@ int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 			    | KVMI_PAGE_ACCESS_X);
 	int ec = 0;
 
-	if (req->padding1 || req->padding2)
+	if (req->padding)
 		return -KVM_EINVAL;
 
 	if (msg->size < struct_size(req, entries, req->count))
 		return -KVM_EINVAL;
+
+	if (!is_valid_view(req->view))
+		return -KVM_EINVAL;
+
+	if (req->view != 0 && !kvm_eptp_switching_supported)
+		return -KVM_EOPNOTSUPP;
 
 	for (; entry < end; entry++) {
 		int r;
@@ -1192,7 +1198,7 @@ int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 			r = -KVM_EINVAL;
 		else
 			r = kvmi_cmd_set_page_access(kvmi, entry->gpa,
-						      entry->access, 0);
+						      entry->access, req->view);
 		if (r) {
 			kvmi_warn(kvmi, "%s: %llx %x padding %x,%x,%x",
 				  __func__, entry->gpa, entry->access,

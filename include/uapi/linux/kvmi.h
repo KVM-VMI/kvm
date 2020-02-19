@@ -170,8 +170,8 @@ struct kvmi_page_access_entry {
 
 struct kvmi_vm_set_page_access {
 	__u16 count;
-	__u16 padding1;
-	__u32 padding2;
+	__u16 view;
+	__u32 padding;
 	struct kvmi_page_access_entry entries[0];
 };
 
