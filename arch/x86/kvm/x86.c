@@ -10149,7 +10149,9 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)
 {
-	kvm_mmu_zap_all(kvm);
+	u16 ept_views_to_keep = 0;
+
+	kvm_mmu_zap_all(kvm, ~ept_views_to_keep);
 }
 
 void kvm_arch_flush_shadow_memslot(struct kvm *kvm,

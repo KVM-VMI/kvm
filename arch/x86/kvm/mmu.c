@@ -6274,7 +6274,7 @@ void kvm_mmu_slot_set_dirty(struct kvm *kvm,
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_slot_set_dirty);
 
-void kvm_mmu_zap_all(struct kvm *kvm)
+void kvm_mmu_zap_all(struct kvm *kvm, u16 view_mask)
 {
 	struct kvm_mmu_page *sp, *node;
 	LIST_HEAD(invalid_list);
@@ -6283,6 +6283,8 @@ void kvm_mmu_zap_all(struct kvm *kvm)
 	spin_lock(&kvm->mmu_lock);
 restart:
 	list_for_each_entry_safe(sp, node, &kvm->arch.active_mmu_pages, link) {
+		if (!test_bit(sp->view, (unsigned long *)&view_mask))
+			continue;
 		if (sp->role.invalid && sp->root_count)
 			continue;
 		if (__kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list, &ign))

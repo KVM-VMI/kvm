@@ -1318,7 +1318,7 @@ void kvm_mmu_slot_set_dirty(struct kvm *kvm,
 void kvm_mmu_clear_dirty_pt_masked(struct kvm *kvm,
 				   struct kvm_memory_slot *slot,
 				   gfn_t gfn_offset, unsigned long mask);
-void kvm_mmu_zap_all(struct kvm *kvm);
+void kvm_mmu_zap_all(struct kvm *kvm, u16 view_mask);
 void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen);
 unsigned long kvm_mmu_calculate_default_mmu_pages(struct kvm *kvm);
 void kvm_mmu_change_mmu_pages(struct kvm *kvm, unsigned long kvm_nr_mmu_pages);
