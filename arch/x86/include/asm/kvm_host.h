@@ -1248,6 +1248,7 @@ struct kvm_x86_ops {
 	bool (*spt_fault)(struct kvm_vcpu *vcpu);
 	bool (*gpt_translation_fault)(struct kvm_vcpu *vcpu);
 	void (*control_singlestep)(struct kvm_vcpu *vcpu, bool enable);
+	bool (*get_vmfunc_status)(void);
 };
 
 struct kvm_arch_async_pf {
