@@ -1156,11 +1156,13 @@ void kvmi_arch_update_page_tracking(struct kvm *kvm,
 		if (m->access & allow_bit) {
 			if (slot_tracked) {
 				kvm_slot_page_track_remove_page(kvm, slot,
-								m->gfn, mode);
+								m->gfn, mode,
+								0);
 				clear_bit(slot->id, arch->active[mode]);
 			}
 		} else if (!slot_tracked) {
-			kvm_slot_page_track_add_page(kvm, slot, m->gfn, mode);
+			kvm_slot_page_track_add_page(kvm, slot, m->gfn, mode,
+						     0);
 			set_bit(slot->id, arch->active[mode]);
 		}
 	}

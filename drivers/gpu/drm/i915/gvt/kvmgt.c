@@ -1656,7 +1656,8 @@ static int kvmgt_page_track_add(unsigned long handle, u64 gfn)
 	if (kvmgt_gfn_is_write_protected(info, gfn))
 		goto out;
 
-	kvm_slot_page_track_add_page(kvm, slot, gfn, KVM_PAGE_TRACK_WRITE);
+	kvm_slot_page_track_add_page(kvm, slot, gfn,
+				     KVM_PAGE_TRACK_WRITE, 0);
 	kvmgt_protect_table_add(info, gfn);
 
 out:
@@ -1690,7 +1691,8 @@ static int kvmgt_page_track_remove(unsigned long handle, u64 gfn)
 	if (!kvmgt_gfn_is_write_protected(info, gfn))
 		goto out;
 
-	kvm_slot_page_track_remove_page(kvm, slot, gfn, KVM_PAGE_TRACK_WRITE);
+	kvm_slot_page_track_remove_page(kvm, slot, gfn,
+					KVM_PAGE_TRACK_WRITE, 0);
 	kvmgt_protect_table_del(info, gfn);
 
 out:
@@ -1725,7 +1727,7 @@ static void kvmgt_page_track_flush_slot(struct kvm *kvm,
 		gfn = slot->base_gfn + i;
 		if (kvmgt_gfn_is_write_protected(info, gfn)) {
 			kvm_slot_page_track_remove_page(kvm, slot, gfn,
-						KVM_PAGE_TRACK_WRITE);
+						KVM_PAGE_TRACK_WRITE, 0);
 			kvmgt_protect_table_del(info, gfn);
 		}
 	}

@@ -22,14 +22,15 @@
 void kvm_page_track_free_memslot(struct kvm_memory_slot *free,
 				 struct kvm_memory_slot *dont)
 {
-	int i;
+	int i, view;
 
-	for (i = 0; i < KVM_PAGE_TRACK_MAX; i++)
-		if (!dont || free->arch.gfn_track[i] !=
-		      dont->arch.gfn_track[i]) {
-			kvfree(free->arch.gfn_track[i]);
-			free->arch.gfn_track[i] = NULL;
-		}
+	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+		for (i = 0; i < KVM_PAGE_TRACK_MAX; i++)
+			if (!dont || free->arch.gfn_track[view][i] !=
+			      dont->arch.gfn_track[view][i]) {
+				kvfree(free->arch.gfn_track[view][i]);
+				free->arch.gfn_track[view][i] = NULL;
+			}
 }
 
 int kvm_page_track_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
@@ -37,16 +38,17 @@ int kvm_page_track_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 {
 	struct kvm_page_track_notifier_head *head;
 	struct kvm_page_track_notifier_node *n;
-	int idx;
-	int  i;
+	int view, idx, i;
 
-	for (i = 0; i < KVM_PAGE_TRACK_MAX; i++) {
-		slot->arch.gfn_track[i] =
-			kvcalloc(npages, sizeof(*slot->arch.gfn_track[i]),
-				 GFP_KERNEL_ACCOUNT);
-		if (!slot->arch.gfn_track[i])
-			goto track_free;
-	}
+	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+		for (i = 0; i < KVM_PAGE_TRACK_MAX; i++) {
+			slot->arch.gfn_track[view][i] =
+				kvcalloc(npages,
+					 sizeof(*slot->arch.gfn_track[view][i]),
+					 GFP_KERNEL_ACCOUNT);
+			if (!slot->arch.gfn_track[view][i])
+				goto track_free;
+		}
 
 	head = &kvm->arch.track_notifier_head;
 
@@ -75,18 +77,19 @@ static inline bool page_track_mode_is_valid(enum kvm_page_track_mode mode)
 }
 
 static void update_gfn_track(struct kvm_memory_slot *slot, gfn_t gfn,
-			     enum kvm_page_track_mode mode, short count)
+			     enum kvm_page_track_mode mode, short count,
+			     u16 view)
 {
 	int index, val;
 
 	index = gfn_to_index(gfn, slot->base_gfn, PT_PAGE_TABLE_LEVEL);
 
-	val = slot->arch.gfn_track[mode][index];
+	val = slot->arch.gfn_track[view][mode][index];
 
 	if (WARN_ON(val + count < 0 || val + count > USHRT_MAX))
 		return;
 
-	slot->arch.gfn_track[mode][index] += count;
+	slot->arch.gfn_track[view][mode][index] += count;
 }
 
 /*
@@ -103,13 +106,13 @@ static void update_gfn_track(struct kvm_memory_slot *slot, gfn_t gfn,
  */
 void kvm_slot_page_track_add_page(struct kvm *kvm,
 				  struct kvm_memory_slot *slot, gfn_t gfn,
-				  enum kvm_page_track_mode mode)
+				  enum kvm_page_track_mode mode, u16 view)
 {
 
 	if (WARN_ON(!page_track_mode_is_valid(mode)))
 		return;
 
-	update_gfn_track(slot, gfn, mode, 1);
+	update_gfn_track(slot, gfn, mode, 1, view);
 
 	/*
 	 * new track stops large page mapping for the
@@ -118,13 +121,13 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
 	kvm_mmu_gfn_disallow_lpage(slot, gfn);
 
 	if (mode == KVM_PAGE_TRACK_PREWRITE || mode == KVM_PAGE_TRACK_WRITE) {
-		if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn))
+		if (kvm_mmu_slot_gfn_write_protect(kvm, slot, gfn, view))
 			kvm_flush_remote_tlbs(kvm);
 	} else if (mode == KVM_PAGE_TRACK_PREREAD) {
-		if (kvm_mmu_slot_gfn_read_protect(kvm, slot, gfn))
+		if (kvm_mmu_slot_gfn_read_protect(kvm, slot, gfn, view))
 			kvm_flush_remote_tlbs(kvm);
 	} else if (mode == KVM_PAGE_TRACK_PREEXEC) {
-		if (kvm_mmu_slot_gfn_exec_protect(kvm, slot, gfn))
+		if (kvm_mmu_slot_gfn_exec_protect(kvm, slot, gfn, view))
 			kvm_flush_remote_tlbs(kvm);
 	}
 }
@@ -145,12 +148,12 @@ EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
  */
 void kvm_slot_page_track_remove_page(struct kvm *kvm,
 				     struct kvm_memory_slot *slot, gfn_t gfn,
-				     enum kvm_page_track_mode mode)
+				     enum kvm_page_track_mode mode, u16 view)
 {
 	if (WARN_ON(!page_track_mode_is_valid(mode)))
 		return;
 
-	update_gfn_track(slot, gfn, mode, -1);
+	update_gfn_track(slot, gfn, mode, -1, view);
 
 	/*
 	 * allow large page mapping for the tracked page
@@ -167,7 +170,7 @@ bool kvm_page_track_is_active(struct kvm_vcpu *vcpu, gfn_t gfn,
 			      enum kvm_page_track_mode mode)
 {
 	struct kvm_memory_slot *slot;
-	int index;
+	int index, view;
 
 	if (WARN_ON(!page_track_mode_is_valid(mode)))
 		return false;
@@ -177,7 +180,8 @@ bool kvm_page_track_is_active(struct kvm_vcpu *vcpu, gfn_t gfn,
 		return false;
 
 	index = gfn_to_index(gfn, slot->base_gfn, PT_PAGE_TABLE_LEVEL);
-	return !!READ_ONCE(slot->arch.gfn_track[mode][index]);
+	view = kvm_get_ept_view(vcpu);
+	return !!READ_ONCE(slot->arch.gfn_track[view][mode][index]);
 }
 
 void kvm_page_track_cleanup(struct kvm *kvm)
