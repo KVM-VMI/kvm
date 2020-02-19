@@ -141,7 +141,9 @@ struct kvmi_event_msr_reply {
 
 struct kvmi_features {
 	__u8 singlestep;
-	__u8 padding[7];
+	__u8 vmfunc;
+	__u8 eptp;
+	__u8 padding[5];
 };
 
 #endif /* _UAPI_ASM_X86_KVMI_H */

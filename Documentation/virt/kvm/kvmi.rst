@@ -265,11 +265,13 @@ For x86
 
 	struct kvmi_features {
 		__u8 singlestep;
-		__u8 padding[7];
+		__u8 vmfunc;
+		__u8 eptp;
+		__u8 padding[5];
 	};
 
 Returns the introspection API version and some of the features supported
-by the hardware.
+by the hardware (eg. alternate EPT views).
 
 This command is always allowed and successful (if the introspection is
 built in kernel).

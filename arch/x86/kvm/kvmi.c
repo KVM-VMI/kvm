@@ -1216,6 +1216,10 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 void kvmi_arch_features(struct kvmi_features *feat)
 {
 	feat->singlestep = !!kvm_x86_ops->control_singlestep;
+	feat->vmfunc = kvm_x86_ops->get_vmfunc_status &&
+			kvm_x86_ops->get_vmfunc_status();
+	feat->eptp = kvm_x86_ops->get_eptp_switching_status &&
+			kvm_x86_ops->get_eptp_switching_status();
 }
 
 bool kvmi_arch_pf_of_interest(struct kvm_vcpu *vcpu)

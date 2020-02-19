@@ -383,6 +383,8 @@ static void test_cmd_get_version(void)
 
 	DEBUG("KVMI version: %u\n", rpl.version);
 	DEBUG("\tsinglestep: %u\n", features.singlestep);
+	DEBUG("\tvmfunc: %u\n", features.vmfunc);
+	DEBUG("\teptp: %u\n", features.eptp);
 }
 
 static int cmd_check_command(__u16 id)
