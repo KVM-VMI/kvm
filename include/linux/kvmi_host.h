@@ -87,7 +87,7 @@ struct kvm_introspection {
 
 	atomic_t ev_seq;
 
-	struct radix_tree_root access_tree;
+	struct radix_tree_root access_tree[KVMI_MAX_ACCESS_TREES];
 	rwlock_t access_tree_lock;
 
 	struct {

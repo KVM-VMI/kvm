@@ -8,6 +8,7 @@ struct msr_data;
 
 #define KVMI_NUM_CR 5
 #define KVMI_NUM_MSR 0x2000
+#define KVMI_MAX_ACCESS_TREES KVM_MAX_EPT_VIEWS
 
 struct kvmi_monitor_interception {
 	bool kvmi_intercepted;

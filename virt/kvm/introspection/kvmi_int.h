@@ -134,7 +134,7 @@ int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait);
 int kvmi_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
 				const struct kvm_regs *regs);
 int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa,
-			     u8 access);
+			     u8 access, u16 view);
 
 /* arch */
 bool kvmi_arch_vcpu_alloc(struct kvm_vcpu *vcpu);
@@ -172,7 +172,7 @@ int kvmi_arch_cmd_vcpu_control_msr(struct kvm_vcpu *vcpu,
 				   const struct kvmi_vcpu_control_msr *req);
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
 				    struct kvm_memory_slot *slot,
-				    struct kvmi_mem_access *m);
+				    struct kvmi_mem_access *m, u16 view);
 int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 				  const struct kvmi_msg_hdr *msg,
 				  const struct kvmi_vm_set_page_access *req);

@@ -1137,7 +1137,7 @@ static const struct {
 
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
 				    struct kvm_memory_slot *slot,
-				    struct kvmi_mem_access *m)
+				    struct kvmi_mem_access *m, u16 view)
 {
 	struct kvmi_arch_mem_access *arch = &m->arch;
 	int i;
@@ -1157,12 +1157,12 @@ void kvmi_arch_update_page_tracking(struct kvm *kvm,
 			if (slot_tracked) {
 				kvm_slot_page_track_remove_page(kvm, slot,
 								m->gfn, mode,
-								0);
+								view);
 				clear_bit(slot->id, arch->active[mode]);
 			}
 		} else if (!slot_tracked) {
 			kvm_slot_page_track_add_page(kvm, slot, m->gfn, mode,
-						     0);
+						     view);
 			set_bit(slot->id, arch->active[mode]);
 		}
 	}
@@ -1192,7 +1192,7 @@ int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 			r = -KVM_EINVAL;
 		else
 			r = kvmi_cmd_set_page_access(kvmi, entry->gpa,
-						      entry->access);
+						      entry->access, 0);
 		if (r) {
 			kvmi_warn(kvmi, "%s: %llx %x padding %x,%x,%x",
 				  __func__, entry->gpa, entry->access,
