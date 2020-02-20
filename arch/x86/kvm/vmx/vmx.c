@@ -4255,6 +4255,28 @@ static int vmx_alloc_eptp_list_page(struct vcpu_vmx *vmx)
 	return 0;
 }
 
+static int vmx_set_ept_view(struct kvm_vcpu *vcpu, u16 view)
+{
+	if (view >= KVM_MAX_EPT_VIEWS)
+		return -EINVAL;
+
+	if (to_vmx(vcpu)->eptp_list_pg) {
+		int r;
+
+		to_vmx(vcpu)->view = view;
+
+		/*
+		 * Reload mmu and make sure vmx_set_cr3() is called so that
+		 * VMCS::EPT_POINTER is updated accordingly
+		 */
+		kvm_mmu_unload(vcpu);
+		r = kvm_mmu_reload(vcpu);
+		WARN_ON_ONCE(r);
+	}
+
+	return 0;
+}
+
 #define VMX_XSS_EXIT_BITMAP 0
 
 /*
@@ -4359,9 +4381,15 @@ static void vmx_vcpu_setup(struct vcpu_vmx *vmx)
 	if (cpu_has_vmx_encls_vmexit())
 		vmcs_write64(ENCLS_EXITING_BITMAP, -1ull);
 
-	if (vmx->eptp_list_pg)
+	if (vmx->eptp_list_pg != NULL) {
+		u64 vm_function_control;
+
 		vmcs_write64(EPTP_LIST_ADDRESS,
 				page_to_phys(vmx->eptp_list_pg));
+		vm_function_control = vmcs_read64(VM_FUNCTION_CONTROL);
+		vm_function_control |= VMX_VMFUNC_EPTP_SWITCHING;
+		vmcs_write64(VM_FUNCTION_CONTROL, vm_function_control);
+	}
 
 	if (pt_mode == PT_MODE_HOST_GUEST) {
 		memset(&vmx->pt_desc, 0, sizeof(vmx->pt_desc));
@@ -5848,6 +5876,10 @@ static void dump_eptp_list(void)
 		return;
 
 	eptp_list = phys_to_virt(eptp_list_phys);
+
+	pr_err("VMFunctionControl=%08x VMFunctionControlHigh=%08x\n",
+	       vmcs_read32(VM_FUNCTION_CONTROL),
+	       vmcs_read32(VM_FUNCTION_CONTROL_HIGH));
 
 	pr_err("*** EPTP Switching ***\n");
 	pr_err("EPTP List Address: %p (phys %p)\n",
@@ -8266,6 +8298,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.get_vmfunc_status = vmx_get_vmfunc_status,
 	.get_eptp_switching_status = vmx_get_eptp_switching_status,
 	.get_ept_view = vmx_get_ept_view,
+	.set_ept_view = vmx_set_ept_view,
 };
 
 static void vmx_cleanup_l1d_flush(void)

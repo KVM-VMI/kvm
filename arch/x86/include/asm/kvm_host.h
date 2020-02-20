@@ -1258,6 +1258,7 @@ struct kvm_x86_ops {
 	bool (*get_vmfunc_status)(void);
 	bool (*get_eptp_switching_status)(void);
 	u16 (*get_ept_view)(struct kvm_vcpu *vcpu);
+	int (*set_ept_view)(struct kvm_vcpu *vcpu, u16 view);
 };
 
 struct kvm_arch_async_pf {
