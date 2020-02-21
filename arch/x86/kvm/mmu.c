@@ -2649,6 +2649,7 @@ static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
 	bool flush = false;
 	int collisions = 0;
 	LIST_HEAD(invalid_list);
+	unsigned int pg_hash;
 
 	role = vcpu->arch.mmu->mmu_role.base;
 	role.level = level;
@@ -2699,8 +2700,9 @@ static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
 
 	sp->gfn = gfn;
 	sp->role = role;
+	pg_hash = kvm_page_table_hashfn(gfn);
 	hlist_add_head(&sp->hash_link,
-		&vcpu->kvm->arch.mmu_page_hash[kvm_page_table_hashfn(gfn)]);
+		&vcpu->kvm->arch.mmu_page_hash[pg_hash]);
 	if (!direct) {
 		/*
 		 * we should do write protection before syncing pages
