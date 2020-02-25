@@ -42,6 +42,11 @@ struct vcpu_reply {
 	struct kvmi_event_reply reply;
 };
 
+struct pf_ev {
+	struct kvmi_event common;
+	struct kvmi_event_pf pf;
+};
+
 struct vcpu_worker_data {
 	struct kvm_vm *vm;
 	int vcpu_id;
@@ -51,6 +56,10 @@ struct vcpu_worker_data {
 	bool restart_on_shutdown;
 };
 
+typedef void (*fct_pf_event)(struct kvm_vm *vm, struct kvmi_msg_hdr *hdr,
+				struct pf_ev *ev,
+				struct vcpu_reply *rpl);
+
 enum {
 	GUEST_TEST_NOOP = 0,
 	GUEST_TEST_BP,
@@ -58,6 +67,7 @@ enum {
 	GUEST_TEST_DESCRIPTOR,
 	GUEST_TEST_HYPERCALL,
 	GUEST_TEST_MSR,
+	GUEST_TEST_PF,
 	GUEST_TEST_XSETBV,
 };
 
@@ -105,6 +115,11 @@ static void guest_msr_test(void)
 	msr = rdmsr(MSR_MISC_FEATURES_ENABLES);
 	msr |= 1; /* MSR_MISC_FEATURES_ENABLES_CPUID_FAULT */
 	wrmsr(MSR_MISC_FEATURES_ENABLES, msr);
+}
+
+static void guest_pf_test(void)
+{
+	*((uint8_t *)test_gva) = READ_ONCE(test_write_pattern);
 }
 
 /* from fpu/internal.h */
@@ -166,6 +181,9 @@ static void guest_code(void)
 			break;
 		case GUEST_TEST_MSR:
 			guest_msr_test();
+			break;
+		case GUEST_TEST_PF:
+			guest_pf_test();
 			break;
 		case GUEST_TEST_XSETBV:
 			guest_xsetbv_test();
@@ -1576,6 +1594,61 @@ static void test_cmd_vm_set_page_access(struct kvm_vm *vm)
 	set_page_access(gpa, full_access);
 }
 
+static void test_pf(struct kvm_vm *vm, fct_pf_event cbk)
+{
+	__u16 event_id = KVMI_EVENT_PF;
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.test_id = GUEST_TEST_PF,
+	};
+	struct kvmi_msg_hdr hdr;
+	struct vcpu_reply rpl = {};
+	pthread_t vcpu_thread;
+	struct pf_ev ev;
+
+	set_page_access(test_gpa, KVMI_PAGE_ACCESS_R);
+
+	enable_vcpu_event(vm, event_id);
+
+	new_test_write_pattern(vm);
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_event(&hdr, &ev.common, sizeof(ev), event_id);
+
+	DEBUG("PF event, gpa 0x%llx, gva 0x%llx, access 0x%x\n",
+		ev.pf.gpa, ev.pf.gva, ev.pf.access);
+
+	TEST_ASSERT(ev.pf.gpa == test_gpa && ev.pf.gva == test_gva,
+		"Unexpected #PF event, gpa 0x%llx (expended 0x%llx), gva 0x%llx (expected 0x%llx)\n",
+		ev.pf.gpa, test_gpa, ev.pf.gva, test_gva);
+
+	cbk(vm, &hdr, &ev, &rpl);
+
+	stop_vcpu_worker(vcpu_thread, &data);
+
+	TEST_ASSERT(*((uint8_t *)test_hva) == test_write_pattern,
+		"Write failed, expected 0x%x, result 0x%x\n",
+		test_write_pattern, *((uint8_t *)test_hva));
+
+	disable_vcpu_event(vm, event_id);
+}
+
+static void cbk_test_event_pf(struct kvm_vm *vm, struct kvmi_msg_hdr *hdr,
+				struct pf_ev *ev, struct vcpu_reply *rpl)
+{
+	set_page_access(test_gpa, KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_W);
+
+	reply_to_event(hdr, &ev->common, KVMI_EVENT_ACTION_RETRY,
+			rpl, sizeof(*rpl));
+}
+
+static void test_event_pf(struct kvm_vm *vm)
+{
+	test_pf(vm, cbk_test_event_pf);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1607,6 +1680,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_event_descriptor(vm);
 	test_cmd_vcpu_control_msr(vm);
 	test_cmd_vm_set_page_access(vm);
+	test_event_pf(vm);
 
 	unhook_introspection(vm);
 }

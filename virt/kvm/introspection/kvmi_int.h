@@ -29,6 +29,7 @@
 			  | BIT(KVMI_EVENT_MSR) \
 			  | BIT(KVMI_EVENT_TRAP) \
 			  | BIT(KVMI_EVENT_PAUSE_VCPU) \
+			  | BIT(KVMI_EVENT_PF) \
 			  | BIT(KVMI_EVENT_XSETBV) \
 		)
 
@@ -89,6 +90,7 @@ int kvmi_msg_send_unhook(struct kvm_introspection *kvmi);
 u32 kvmi_msg_send_vcpu_pause(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_hypercall(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_bp(struct kvm_vcpu *vcpu, u64 gpa, u8 insn_len);
+u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access);
 
 /* kvmi.c */
 void *kvmi_msg_alloc(void);
@@ -161,5 +163,8 @@ void kvmi_arch_update_page_tracking(struct kvm *kvm,
 int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 				  const struct kvmi_msg_hdr *msg,
 				  const struct kvmi_vm_set_page_access *req);
+bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+			u8 access);
+bool kvmi_arch_pf_of_interest(struct kvm_vcpu *vcpu);
 
 #endif

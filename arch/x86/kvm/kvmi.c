@@ -1180,3 +1180,30 @@ int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 	return ec;
 }
 
+bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
+			u8 access)
+{
+	bool ret = false;
+	u32 action;
+
+	action = kvmi_msg_send_pf(vcpu, gpa, gva, access);
+
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ret = true;
+		break;
+	case KVMI_EVENT_ACTION_RETRY:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu->kvm, action, "PF");
+	}
+
+	return ret;
+}
+
+bool kvmi_arch_pf_of_interest(struct kvm_vcpu *vcpu)
+{
+	return kvm_x86_ops->spt_fault(vcpu) &&
+	      !kvm_x86_ops->gpt_translation_fault(vcpu);
+}
+

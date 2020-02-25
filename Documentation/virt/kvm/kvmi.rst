@@ -539,6 +539,7 @@ the following events::
 	KVMI_EVENT_DESCRIPTOR
 	KVMI_EVENT_HYPERCALL
 	KVMI_EVENT_MSR
+	KVMI_EVENT_PF
 	KVMI_EVENT_TRAP
 	KVMI_EVENT_XSETBV
 
@@ -1270,3 +1271,52 @@ register (see **KVMI_VCPU_CONTROL_EVENTS**).
 
 ``kvmi_event``, the MSR number, the old value and the new value are
 sent to the introspection tool. The *CONTINUE* action will set the ``new_val``.
+
+10. KVMI_EVENT_PF
+-----------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH, RETRY
+:Parameters:
+
+::
+
+	struct kvmi_event;
+	struct kvmi_event_pf {
+		__u64 gva;
+		__u64 gpa;
+		__u8 access;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 padding3;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent when a hypervisor page fault occurs due to a failed
+permission check in the shadow page tables, the introspection has been
+enabled for this event (see *KVMI_VPUC_CONTROL_EVENTS*) and the event was
+generated for a page in which the introspection tool has shown interest
+(ie. has previously touched it by adjusting the spte permissions).
+
+The shadow page tables can be used by the introspection tool to guarantee
+the purpose of code areas inside the guest (code, rodata, stack, heap
+etc.) Each attempt at an operation unfitting for a certain memory
+range (eg. execute code in heap) triggers a page fault and gives the
+introspection tool the chance to audit the code attempting the operation.
+
+``kvmi_event``, guest virtual address (or 0xffffffff/UNMAPPED_GVA),
+guest physical address and the access flags (eg. KVMI_PAGE_ACCESS_R)
+are sent to the introspection tool.
+
+The *CONTINUE* action will continue the page fault handling via emulation.
+
+The *RETRY* action is used by the introspection tool to retry the
+execution of the current instruction, usually because it changed the
+instruction pointer or the page restrictions.
