@@ -39,6 +39,15 @@ static vm_vaddr_t test_ve_info_gva;
 static void *test_ve_info_hva;
 static vm_paddr_t test_ve_info_gpa;
 
+struct vcpu_ve_info {
+	u32 exit_reason;
+	u32 unused;
+	u64 exit_qualification;
+	u64 gva;
+	u64 gpa;
+	u16 eptp_index;
+};
+
 static uint8_t test_write_pattern;
 static int page_size;
 
@@ -58,6 +67,11 @@ struct pf_ev_reply {
 	struct kvmi_event_pf_reply pf;
 };
 
+struct exception {
+	uint32_t exception;
+	uint32_t error_code;
+};
+
 struct vcpu_worker_data {
 	struct kvm_vm *vm;
 	int vcpu_id;
@@ -66,6 +80,8 @@ struct vcpu_worker_data {
 	bool shutdown;
 	bool restart_on_shutdown;
 	bool run_guest_once;
+	bool expect_exception;
+	struct exception ex;
 };
 
 static struct kvmi_features features;
@@ -721,7 +737,9 @@ static void *vcpu_worker(void *data)
 
 		TEST_ASSERT(run->exit_reason == KVM_EXIT_IO
 			|| (run->exit_reason == KVM_EXIT_SHUTDOWN
-				&& ctx->shutdown),
+				&& ctx->shutdown)
+			|| (run->exit_reason == KVM_EXIT_EXCEPTION
+				&& ctx->expect_exception),
 			"vcpu_run() failed, test_id %d, exit reason %u (%s)\n",
 			ctx->test_id, run->exit_reason,
 			exit_reason_str(run->exit_reason));
@@ -729,6 +747,12 @@ static void *vcpu_worker(void *data)
 		if (run->exit_reason == KVM_EXIT_SHUTDOWN) {
 			if (ctx->restart_on_shutdown)
 				continue;
+			break;
+		}
+
+		if (run->exit_reason == KVM_EXIT_EXCEPTION) {
+			ctx->ex.exception = run->ex.exception;
+			ctx->ex.error_code = run->ex.error_code;
 			break;
 		}
 
@@ -1991,17 +2015,86 @@ static void disable_ve(struct kvm_vm *vm)
 				sizeof(req), NULL, 0);
 }
 
+static void set_page_sve(__u64 gpa, bool sve)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_set_page_sve cmd;
+	} req = {};
+
+	req.cmd.gpa = gpa;
+	req.cmd.suppress = sve;
+
+	test_vm_command(KVMI_VM_SET_PAGE_SVE, &req.hdr, sizeof(req),
+			NULL, 0);
+}
+
 static void test_virtualization_exceptions(struct kvm_vm *vm)
 {
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.test_id = GUEST_TEST_PF,
+		.expect_exception = true,
+	};
+	pthread_t vcpu_thread;
+	struct vcpu_ve_info *ve_info;
+
 	if (!features.ve) {
 		DEBUG("Skip %s()\n", __func__);
 		return;
 	}
 
+	set_page_access(test_gpa, KVMI_PAGE_ACCESS_R);
+	set_page_sve(test_gpa, false);
+
+	new_test_write_pattern(vm);
+
 	/* Enable #VE */
 	set_ve_info_page(vm);
 
+	vcpu_thread = start_vcpu_worker(&data);
+
+	wait_vcpu_worker(vcpu_thread);
+
+	TEST_ASSERT(data.ex.exception == VE_VECTOR &&
+		    data.ex.error_code == 0,
+			"Unexpected exception, vector %u (expected %u), error code %u (expected 0)\n",
+			data.ex.exception, VE_VECTOR, data.ex.error_code);
+
+	ve_info = (struct vcpu_ve_info *)test_ve_info_hva;
+
+	TEST_ASSERT(ve_info->exit_reason == 48 && /* EPT violation */
+			ve_info->exit_qualification == 0x18a &&
+			ve_info->gva == test_gva &&
+			ve_info->gpa == test_gpa &&
+			ve_info->eptp_index == 0,
+			"Unexpected #VE info page fields: "
+			"exit_reason %lu (expected 48), "
+			"exit qualification 0x%llx (expected 0x18a), "
+			"gva %llx (expected %llx), "
+			"gpa %llx (expected %llx), "
+			"ept index %u (expected 0)\n",
+			ve_info->exit_reason,
+			ve_info->exit_qualification,
+			ve_info->gva, test_gva,
+			ve_info->gpa, test_gpa,
+			ve_info->eptp_index);
+
+	/* When vcpu_run() is called next, guest will re-execute the
+	 * last instruction that triggered a #VE, so the guest
+	 * remains in a clean state before executing other tests.
+	 * But not before adding write access to test_gpa.
+	 */
+	set_page_access(test_gpa, KVMI_PAGE_ACCESS_R |
+					KVMI_PAGE_ACCESS_W);
+
+	/* Disable #VE and and check that a #PF is triggered
+	 * instead of a #VE, even though test_gpa is convertible;
+	 * here vcpu_run() is called as well.
+	 */
 	disable_ve(vm);
+	test_event_pf(vm);
 }
 
 static void test_introspection(struct kvm_vm *vm)

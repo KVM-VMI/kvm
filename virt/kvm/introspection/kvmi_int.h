@@ -45,6 +45,7 @@
 			| BIT(KVMI_VM_GET_MAX_GFN) \
 			| BIT(KVMI_VM_READ_PHYSICAL) \
 			| BIT(KVMI_VM_SET_PAGE_ACCESS) \
+			| BIT(KVMI_VM_SET_PAGE_SVE) \
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
@@ -137,6 +138,7 @@ int kvmi_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
 				const struct kvm_regs *regs);
 int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa,
 			     u8 access, u16 view);
+int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress);
 
 /* arch */
 bool kvmi_arch_vcpu_alloc(struct kvm_vcpu *vcpu);

@@ -35,7 +35,7 @@ static const u8 rwx_access = KVMI_PAGE_ACCESS_R |
 			     KVMI_PAGE_ACCESS_X;
 static const u8 full_access = KVMI_PAGE_ACCESS_R |
 			     KVMI_PAGE_ACCESS_W |
-			     KVMI_PAGE_ACCESS_X;
+			     KVMI_PAGE_ACCESS_X | KVMI_PAGE_SVE;
 
 void *kvmi_msg_alloc(void)
 {
@@ -1099,8 +1099,7 @@ static void kvmi_set_mem_access(struct kvm *kvm, struct kvmi_mem_access *m,
 		kvmi_update_mem_access(kvm, found, view);
 	} else {
 		m->access |= full_access & ~mask;
-		if (kvmi_insert_mem_access(kvm, m, view))
-			*done = true;
+		*done = kvmi_insert_mem_access(kvm, m, view);
 	}
 
 	write_unlock(&kvmi->access_tree_lock);
@@ -1861,4 +1860,32 @@ bool kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa, int *emulation_type)
 	kvmi_put(vcpu->kvm);
 
 	return ret;
+}
+
+int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress)
+{
+	struct kvmi_mem_access *m;
+	u8 mask = KVMI_PAGE_SVE;
+	bool done = false;
+	int err = 0;
+
+	m = kmem_cache_zalloc(radix_cache, GFP_KERNEL);
+	if (!m)
+		return -KVM_ENOMEM;
+
+	m->gfn = gpa_to_gfn(gpa);
+	m->access = suppress ? KVMI_PAGE_SVE : 0;
+	m->write_bitmap = default_write_bitmap;
+
+	if (radix_tree_preload(GFP_KERNEL))
+		err = -KVM_ENOMEM;
+	else
+		kvmi_set_mem_access(kvm, m, mask, view, &done);
+
+	radix_tree_preload_end();
+
+	if (!done)
+		kmem_cache_free(radix_cache, m);
+
+	return err;
 }

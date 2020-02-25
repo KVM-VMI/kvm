@@ -176,4 +176,12 @@ struct kvmi_vcpu_set_ve_info {
 	__u32 padding3;
 };
 
+struct kvmi_vm_set_page_sve {
+	__u16 view;
+	__u8 suppress;
+	__u8 padding1;
+	__u32 padding2;
+	__u64 gpa;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

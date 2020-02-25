@@ -26,6 +26,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_GET_MAX_GFN]          = "KVMI_VM_GET_MAX_GFN",
 	[KVMI_VM_READ_PHYSICAL]        = "KVMI_VM_READ_PHYSICAL",
 	[KVMI_VM_SET_PAGE_ACCESS]      = "KVMI_VM_SET_PAGE_ACCESS",
+	[KVMI_VM_SET_PAGE_SVE]         = "KVMI_VM_SET_PAGE_SVE",
 	[KVMI_VM_WRITE_PHYSICAL]       = "KVMI_VM_WRITE_PHYSICAL",
 	[KVMI_VCPU_CONTROL_CR]         = "KVMI_VCPU_CONTROL_CR",
 	[KVMI_VCPU_CONTROL_EPT_VIEW]   = "KVMI_VCPU_CONTROL_EPT_VIEW",
@@ -373,6 +374,28 @@ static int handle_set_page_access(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_set_page_sve(struct kvm_introspection *kvmi,
+			       const struct kvmi_msg_hdr *msg,
+			       const void *_req)
+{
+	const struct kvmi_vm_set_page_sve *req = _req;
+	int ec;
+
+	if (!is_valid_view(req->view))
+		ec = -KVM_EINVAL;
+	else if (req->suppress > 1)
+		ec = -KVM_EINVAL;
+	else if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (req->view != 0 && !kvm_eptp_switching_supported)
+		ec = -KVM_EOPNOTSUPP;
+	else
+		ec = kvmi_cmd_set_page_sve(kvmi->kvm, req->gpa, req->view,
+					   req->suppress == 1);
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
@@ -386,6 +409,7 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_GET_MAX_GFN]     = handle_vm_get_max_gfn,
 	[KVMI_VM_READ_PHYSICAL]   = handle_read_physical,
 	[KVMI_VM_SET_PAGE_ACCESS] = handle_set_page_access,
+	[KVMI_VM_SET_PAGE_SVE]    = handle_set_page_sve,
 	[KVMI_VM_WRITE_PHYSICAL]  = handle_write_physical,
 	[KVMI_VCPU_PAUSE]         = handle_pause_vcpu,
 };
