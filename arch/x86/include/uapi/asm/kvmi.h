@@ -168,4 +168,12 @@ struct kvmi_vcpu_control_ept_view {
 	__u32 padding2;
 };
 
+struct kvmi_vcpu_set_ve_info {
+	__u64 gpa;
+	__u8 trigger_vmexit;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

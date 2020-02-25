@@ -1377,3 +1377,22 @@ u8 kvmi_arch_relax_page_access(u8 old, u8 new)
 
 	return ret;
 }
+
+int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
+			      bool trigger_vmexit)
+{
+	unsigned long ve_info = (unsigned long) gpa;
+
+	if (!kvm_x86_ops->set_ve_info)
+		return -KVM_EINVAL;
+
+	return kvm_x86_ops->set_ve_info(vcpu, ve_info, trigger_vmexit);
+}
+
+int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu)
+{
+	if (!kvm_x86_ops->disable_ve)
+		return 0;
+
+	return kvm_x86_ops->disable_ve(vcpu);
+}

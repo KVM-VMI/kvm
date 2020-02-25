@@ -1113,6 +1113,69 @@ is terminated.
 * -KVM_EINVAL - padding is not zero
 * -KVM_EINVAL - the selected EPT view is not valid
 
+25. KVMI_VCPU_SET_VE_INFO
+-------------------------
+
+:Architecture: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_set_ve_info {
+		__u64 gpa;
+		__u8 trigger_vmexit;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 padding3;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Configures the guest physical address for the #VE info page and enables
+the #VE mechanism. If ``trigger_vmexit`` is true, any virtualization
+exception will trigger a vm-exit. Otherwise, the exception is delivered
+using gate descriptor 20 from the Interrupt Descriptor Table (IDT).
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - one of the specified GPAs is invalid
+* -KVM_EOPNOTSUPP - the hardware does not support #VE
+* -KVM_EINVAL - padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
+26. KVMI_VCPU_DISABLE_VE
+------------------------
+
+:Architecture: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Disables the #VE mechanism. All EPT violations will trigger a vm-exit,
+regardless of the corresponding spte 63rd bit (SVE) for the GPA that
+triggered the EPT violation within a specific EPT view.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
 Events
 ======
 

@@ -32,6 +32,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_CONTROL_EVENTS]     = "KVMI_VCPU_CONTROL_EVENTS",
 	[KVMI_VCPU_CONTROL_MSR]        = "KVMI_VCPU_CONTROL_MSR",
 	[KVMI_VCPU_CONTROL_SINGLESTEP] = "KVMI_VCPU_CONTROL_SINGLESTEP",
+	[KVMI_VCPU_DISABLE_VE]         = "KVMI_VCPU_DISABLE_VE",
 	[KVMI_VCPU_GET_CPUID]          = "KVMI_VCPU_GET_CPUID",
 	[KVMI_VCPU_GET_EPT_VIEW]       = "KVMI_VCPU_GET_EPT_VIEW",
 	[KVMI_VCPU_GET_INFO]           = "KVMI_VCPU_GET_INFO",
@@ -42,6 +43,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_PAUSE]              = "KVMI_VCPU_PAUSE",
 	[KVMI_VCPU_SET_EPT_VIEW]       = "KVMI_VCPU_SET_EPT_VIEW",
 	[KVMI_VCPU_SET_REGISTERS]      = "KVMI_VCPU_SET_REGISTERS",
+	[KVMI_VCPU_SET_VE_INFO]        = "KVMI_VCPU_SET_VE_INFO",
 	[KVMI_VCPU_TRANSLATE_GVA]      = "KVMI_VCPU_TRANSLATE_GVA",
 };
 
@@ -682,6 +684,34 @@ static int handle_vcpu_control_ept_view(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_set_ve_info(const struct kvmi_vcpu_cmd_job *job,
+				   const struct kvmi_msg_hdr *msg,
+				   const void *_req)
+{
+	const struct kvmi_vcpu_set_ve_info *req = _req;
+	bool trigger_vmexit = !!req->trigger_vmexit;
+	int ec;
+
+	if (req->padding1 || req->padding2 || req->padding3)
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_arch_cmd_set_ve_info(job->vcpu, req->gpa,
+						trigger_vmexit);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
+static int handle_disable_ve(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg,
+				const void *req)
+{
+	int ec;
+
+	ec = kvmi_arch_cmd_disable_ve(job->vcpu);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -696,6 +726,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_CONTROL_EVENTS]     = handle_vcpu_control_events,
 	[KVMI_VCPU_CONTROL_MSR]        = handle_vcpu_control_msr,
 	[KVMI_VCPU_CONTROL_SINGLESTEP] = handle_vcpu_control_singlestep,
+	[KVMI_VCPU_DISABLE_VE]         = handle_disable_ve,
 	[KVMI_VCPU_GET_CPUID]          = handle_get_cpuid,
 	[KVMI_VCPU_GET_EPT_VIEW]       = handle_vcpu_get_ept_view,
 	[KVMI_VCPU_GET_INFO]           = handle_get_vcpu_info,
@@ -705,6 +736,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_INJECT_EXCEPTION]   = handle_vcpu_inject_exception,
 	[KVMI_VCPU_SET_EPT_VIEW]       = handle_vcpu_set_ept_view,
 	[KVMI_VCPU_SET_REGISTERS]      = handle_set_registers,
+	[KVMI_VCPU_SET_VE_INFO]        = handle_set_ve_info,
 	[KVMI_VCPU_TRANSLATE_GVA]      = handle_vcpu_translate_gva,
 };
 

@@ -35,6 +35,10 @@ static vm_vaddr_t test_gva;
 static void *test_hva;
 static vm_paddr_t test_gpa;
 
+static vm_vaddr_t test_ve_info_gva;
+static void *test_ve_info_hva;
+static vm_paddr_t test_ve_info_gpa;
+
 static uint8_t test_write_pattern;
 static int page_size;
 
@@ -1961,6 +1965,45 @@ static void test_cmd_vcpu_vmfunc(struct kvm_vm *vm)
 	test_guest_switch_to_visible_view(vm);
 }
 
+static void set_ve_info_page(struct kvm_vm *vm)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_set_ve_info cmd;
+	} req = {};
+
+	req.cmd.gpa = test_ve_info_gpa;
+	req.cmd.trigger_vmexit = 1;
+
+	test_vcpu0_command(vm, KVMI_VCPU_SET_VE_INFO, &req.hdr,
+				sizeof(req), NULL, 0);
+}
+
+static void disable_ve(struct kvm_vm *vm)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+	} req = {};
+
+	test_vcpu0_command(vm, KVMI_VCPU_DISABLE_VE, &req.hdr,
+				sizeof(req), NULL, 0);
+}
+
+static void test_virtualization_exceptions(struct kvm_vm *vm)
+{
+	if (!features.ve) {
+		DEBUG("Skip %s()\n", __func__);
+		return;
+	}
+
+	/* Enable #VE */
+	set_ve_info_page(vm);
+
+	disable_ve(vm);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1998,6 +2041,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_get_ept_view(vm);
 	test_cmd_vcpu_set_ept_view(vm);
 	test_cmd_vcpu_vmfunc(vm);
+	test_virtualization_exceptions(vm);
 
 	unhook_introspection(vm);
 }
@@ -2012,6 +2056,16 @@ static void setup_test_pages(struct kvm_vm *vm)
 	memset(test_hva, 0, page_size);
 
 	test_gpa = addr_gva2gpa(vm, test_gva);
+
+	/* Allocate #VE info page */
+	test_ve_info_gva = vm_vaddr_alloc(vm, page_size, KVM_UTIL_MIN_VADDR,
+					  0, 0);
+	sync_global_to_guest(vm, test_ve_info_gva);
+
+	test_ve_info_hva = addr_gva2hva(vm, test_ve_info_gva);
+	memset(test_ve_info_hva, 0, page_size);
+
+	test_ve_info_gpa = addr_gva2gpa(vm, test_ve_info_gva);
 }
 
 int main(int argc, char *argv[])

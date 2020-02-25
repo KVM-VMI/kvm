@@ -53,6 +53,7 @@
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
 			| BIT(KVMI_VCPU_CONTROL_MSR) \
 			| BIT(KVMI_VCPU_CONTROL_SINGLESTEP) \
+			| BIT(KVMI_VCPU_DISABLE_VE) \
 			| BIT(KVMI_VCPU_GET_CPUID) \
 			| BIT(KVMI_VCPU_GET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_GET_MTRR_TYPE) \
@@ -61,6 +62,7 @@
 			| BIT(KVMI_VCPU_INJECT_EXCEPTION) \
 			| BIT(KVMI_VCPU_SET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_SET_REGISTERS) \
+			| BIT(KVMI_VCPU_SET_VE_INFO) \
 			| BIT(KVMI_VCPU_TRANSLATE_GVA) \
 		)
 
@@ -189,5 +191,8 @@ u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_set_ept_view(struct kvm_vcpu *vcpu, u16 view);
 int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 				   bool visible);
+int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
+			      bool trigger_vmexit);
+int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu);
 
 #endif
