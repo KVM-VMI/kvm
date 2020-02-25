@@ -267,11 +267,12 @@ For x86
 		__u8 singlestep;
 		__u8 vmfunc;
 		__u8 eptp;
-		__u8 padding[5];
+		__u8 ve;
+		__u8 padding[4];
 	};
 
 Returns the introspection API version and some of the features supported
-by the hardware (eg. alternate EPT views).
+by the hardware (eg. alternate EPT views, virtualization exception).
 
 This command is always allowed and successful (if the introspection is
 built in kernel).

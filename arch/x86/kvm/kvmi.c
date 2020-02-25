@@ -1273,6 +1273,8 @@ void kvmi_arch_features(struct kvmi_features *feat)
 			kvm_x86_ops->get_vmfunc_status();
 	feat->eptp = kvm_x86_ops->get_eptp_switching_status &&
 			kvm_x86_ops->get_eptp_switching_status();
+	feat->ve = kvm_x86_ops->get_ve_status &&
+			kvm_x86_ops->get_ve_status();
 }
 
 bool kvmi_arch_pf_of_interest(struct kvm_vcpu *vcpu)

@@ -145,7 +145,8 @@ struct kvmi_features {
 	__u8 singlestep;
 	__u8 vmfunc;
 	__u8 eptp;
-	__u8 padding[5];
+	__u8 ve;
+	__u8 padding[4];
 };
 
 struct kvmi_vcpu_get_ept_view_reply {

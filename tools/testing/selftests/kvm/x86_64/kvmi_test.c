@@ -399,6 +399,7 @@ static void test_cmd_get_version(void)
 	DEBUG("\tsinglestep: %u\n", features.singlestep);
 	DEBUG("\tvmfunc: %u\n", features.vmfunc);
 	DEBUG("\teptp: %u\n", features.eptp);
+	DEBUG("\tve: %u\n", features.ve);
 }
 
 static int cmd_check_command(__u16 id)
