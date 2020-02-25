@@ -1673,7 +1673,13 @@ static bool spte_write_protect(u64 *sptep, bool pt_protect)
 static bool spte_read_protect(u64 *sptep)
 {
 	u64 spte = *sptep;
-	bool exec_only_supported = (shadow_present_mask == 0ull);
+	bool exec_only_supported;
+
+	if (kvm_ve_supported)
+		exec_only_supported =
+		    (shadow_present_mask == VMX_EPT_SUPPRESS_VE_BIT);
+	else
+		exec_only_supported = (shadow_present_mask == 0ull);
 
 	rmap_printk("rmap_read_protect: spte %p %llx\n", sptep, *sptep);
 
