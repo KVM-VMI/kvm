@@ -7612,6 +7612,7 @@ static struct kvm_x86_ops svm_x86_ops __ro_after_init = {
 	.fault_gla = svm_fault_gla,
 	.spt_fault = svm_spt_fault,
 	.gpt_translation_fault = svm_gpt_translation_fault,
+	.clear_page = clear_page,
 };
 
 static int __init svm_init(void)
