@@ -4309,6 +4309,45 @@ static int vmx_control_ept_view(struct kvm_vcpu *vcpu, u16 view, u8 visible)
 	return 0;
 }
 
+static int vmx_set_ve_info(struct kvm_vcpu *vcpu, unsigned long ve_info,
+				bool trigger_vmexit)
+{
+	struct page *ve_info_pg;
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	int idx;
+	u32 eb;
+
+	if (!kvm_ve_supported)
+		return -KVM_EOPNOTSUPP;
+
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	ve_info_pg = kvm_vcpu_gpa_to_page(vcpu, ve_info);
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+
+	if (is_error_page(ve_info_pg))
+		return -KVM_EINVAL;
+
+	vmcs_write64(VE_INFO_ADDRESS, page_to_phys(ve_info_pg));
+
+	/* Make sure EPTP_INDEX is up-to-date before enabling #VE */
+	vmcs_write16(EPTP_INDEX, vmx->view);
+
+	/* Enable #VE mechanism */
+	secondary_exec_controls_setbit(vmx, SECONDARY_EXEC_EPT_VE);
+
+	/* Decide if #VE exception should trigger a VM exit */
+	eb = vmcs_read32(EXCEPTION_BITMAP);
+
+	if (trigger_vmexit)
+		eb |= (1u << VE_VECTOR);
+	else
+		eb &= ~(1u << VE_VECTOR);
+
+	vmcs_write32(EXCEPTION_BITMAP, eb);
+
+	return 0;
+}
+
 #define VMX_XSS_EXIT_BITMAP 0
 
 /*
@@ -8373,6 +8412,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.set_ept_view = vmx_set_ept_view,
 	.control_ept_view = vmx_control_ept_view,
 	.get_ve_status = vmx_get_ve_status,
+	.set_ve_info = vmx_set_ve_info,
 };
 
 static void vmx_cleanup_l1d_flush(void)
