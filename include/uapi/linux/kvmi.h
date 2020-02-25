@@ -41,6 +41,8 @@ enum {
 	KVMI_VCPU_GET_MTRR_TYPE = 19,
 	KVMI_VCPU_CONTROL_MSR   = 20,
 
+	KVMI_VM_SET_PAGE_ACCESS = 21,
+
 	KVMI_NUM_MESSAGES
 };
 
@@ -62,6 +64,12 @@ enum {
 	KVMI_EVENT_ACTION_CONTINUE = 0,
 	KVMI_EVENT_ACTION_RETRY    = 1,
 	KVMI_EVENT_ACTION_CRASH    = 2,
+};
+
+enum {
+	KVMI_PAGE_ACCESS_R = 1 << 0,
+	KVMI_PAGE_ACCESS_W = 1 << 1,
+	KVMI_PAGE_ACCESS_X = 1 << 2,
 };
 
 struct kvmi_msg_hdr {
@@ -141,6 +149,21 @@ struct kvmi_vcpu_control_events {
 
 struct kvmi_vm_get_max_gfn_reply {
 	__u64 gfn;
+};
+
+struct kvmi_page_access_entry {
+	__u64 gpa;
+	__u8 access;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
+};
+
+struct kvmi_vm_set_page_access {
+	__u16 count;
+	__u16 padding1;
+	__u32 padding2;
+	struct kvmi_page_access_entry entries[0];
 };
 
 struct kvmi_event {

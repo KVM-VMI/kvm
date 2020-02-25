@@ -67,6 +67,9 @@ struct kvm_introspection {
 	DECLARE_BITMAP(vm_event_enable_mask, KVMI_NUM_EVENTS);
 
 	atomic_t ev_seq;
+
+	struct radix_tree_root access_tree;
+	rwlock_t access_tree_lock;
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION

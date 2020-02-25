@@ -2,6 +2,8 @@
 #ifndef _ASM_X86_KVMI_HOST_H
 #define _ASM_X86_KVMI_HOST_H
 
+#include <asm/kvm_page_track.h>
+
 struct msr_data;
 
 #define KVMI_NUM_CR 5
@@ -37,6 +39,12 @@ struct kvm_vcpu_arch_introspection {
 };
 
 struct kvm_arch_introspection {
+};
+
+#define SLOTS_SIZE BITS_TO_LONGS(KVM_MEM_SLOTS_NUM)
+
+struct kvmi_arch_mem_access {
+	unsigned long active[KVM_PAGE_TRACK_MAX][SLOTS_SIZE];
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION

@@ -13,6 +13,11 @@
 
 static struct kmem_cache *msg_cache;
 static struct kmem_cache *job_cache;
+static struct kmem_cache *radix_cache;
+
+static const u8 full_access  =	KVMI_PAGE_ACCESS_R |
+				KVMI_PAGE_ACCESS_W |
+				KVMI_PAGE_ACCESS_X;
 
 void *kvmi_msg_alloc(void)
 {
@@ -38,6 +43,8 @@ static void kvmi_cache_destroy(void)
 	msg_cache = NULL;
 	kmem_cache_destroy(job_cache);
 	job_cache = NULL;
+	kmem_cache_destroy(radix_cache);
+	radix_cache = NULL;
 }
 
 static int kvmi_cache_create(void)
@@ -47,8 +54,11 @@ static int kvmi_cache_create(void)
 	job_cache = kmem_cache_create("kvmi_job",
 				      sizeof(struct kvmi_job),
 				      0, SLAB_ACCOUNT, NULL);
+	radix_cache = kmem_cache_create("kvmi_radix_tree",
+					sizeof(struct kvmi_mem_access),
+					0, SLAB_ACCOUNT, NULL);
 
-	if (!msg_cache || !job_cache) {
+	if (!msg_cache || !job_cache || !radix_cache) {
 		kvmi_cache_destroy();
 
 		return -1;
@@ -168,10 +178,36 @@ static void free_vcpui(struct kvm_vcpu *vcpu)
 	kvmi_make_request(vcpu, false);
 }
 
+static void kvmi_clear_mem_access(struct kvm *kvm)
+{
+	struct kvm_introspection *kvmi = KVMI(kvm);
+	struct radix_tree_iter iter;
+	void **slot;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+
+	radix_tree_for_each_slot(slot, &kvmi->access_tree, &iter, 0) {
+		struct kvmi_mem_access *m = *slot;
+
+		m->access = full_access;
+		kvmi_arch_update_page_tracking(kvm, NULL, m);
+
+		radix_tree_iter_delete(&kvmi->access_tree, &iter, slot);
+		kmem_cache_free(radix_cache, m);
+	}
+
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+}
+
 static void free_kvmi(struct kvm *kvm)
 {
 	struct kvm_vcpu *vcpu;
 	int i;
+
+	kvmi_clear_mem_access(kvm);
 
 	kvm_for_each_vcpu(i, vcpu, kvm)
 		free_vcpui(vcpu);
@@ -207,6 +243,10 @@ alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 	set_bit(KVMI_VM_CHECK_EVENT, kvmi->cmd_allow_mask);
 
 	atomic_set(&kvmi->ev_seq, 0);
+
+	INIT_RADIX_TREE(&kvmi->access_tree,
+			GFP_KERNEL & ~__GFP_DIRECT_RECLAIM);
+	rwlock_init(&kvmi->access_tree_lock);
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		int err = create_vcpui(vcpu);
@@ -943,3 +983,96 @@ bool kvmi_enter_guest(struct kvm_vcpu *vcpu)
 	kvmi_put(vcpu->kvm);
 	return r;
 }
+
+static struct kvmi_mem_access *
+__kvmi_get_gfn_access(struct kvm_introspection *kvmi, const gfn_t gfn)
+{
+	return radix_tree_lookup(&kvmi->access_tree, gfn);
+}
+
+static void kvmi_update_mem_access(struct kvm *kvm, struct kvmi_mem_access *m)
+{
+	struct kvm_introspection *kvmi = KVMI(kvm);
+
+	kvmi_arch_update_page_tracking(kvm, NULL, m);
+
+	if (m->access == full_access) {
+		radix_tree_delete(&kvmi->access_tree, m->gfn);
+		kmem_cache_free(radix_cache, m);
+	}
+}
+
+static bool kvmi_insert_mem_access(struct kvm *kvm, struct kvmi_mem_access *m)
+{
+	struct kvm_introspection *kvmi = KVMI(kvm);
+
+	if (!kvm_is_visible_gfn(kvm, m->gfn))
+		return false;
+
+	if (m->access == full_access)
+		return false;
+
+	radix_tree_insert(&kvmi->access_tree, m->gfn, m);
+	kvmi_arch_update_page_tracking(kvm, NULL, m);
+
+	return true;
+}
+
+static void kvmi_set_mem_access(struct kvm *kvm, struct kvmi_mem_access *m,
+				bool *done)
+{
+	struct kvm_introspection *kvmi = KVMI(kvm);
+	struct kvmi_mem_access *found;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+	write_lock(&kvmi->access_tree_lock);
+
+	found = __kvmi_get_gfn_access(kvmi, m->gfn);
+	if (found) {
+		found->access = m->access;
+		kvmi_update_mem_access(kvm, found);
+	} else {
+		if (kvmi_insert_mem_access(kvm, m))
+			*done = true;
+	}
+
+	write_unlock(&kvmi->access_tree_lock);
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+}
+
+static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access)
+{
+	struct kvmi_mem_access *m;
+	bool done = false;
+	int err = 0;
+
+	m = kmem_cache_zalloc(radix_cache, GFP_KERNEL);
+	if (!m)
+		return -KVM_ENOMEM;
+
+	m->gfn = gfn;
+	m->access = access;
+
+	if (radix_tree_preload(GFP_KERNEL))
+		err = -KVM_ENOMEM;
+	else
+		kvmi_set_mem_access(kvm, m, &done);
+
+	radix_tree_preload_end();
+
+	if (!done)
+		kmem_cache_free(radix_cache, m);
+
+	return err;
+}
+
+int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa, u8 access)
+{
+	gfn_t gfn = gpa_to_gfn(gpa);
+
+	return kvmi_set_gfn_access(kvmi->kvm, gfn, access);
+}
+

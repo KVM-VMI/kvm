@@ -42,6 +42,7 @@
 			| BIT(KVMI_VM_GET_INFO) \
 			| BIT(KVMI_VM_GET_MAX_GFN) \
 			| BIT(KVMI_VM_READ_PHYSICAL) \
+			| BIT(KVMI_VM_SET_PAGE_ACCESS) \
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
@@ -58,6 +59,12 @@
 
 #define KVMI(kvm) ((struct kvm_introspection *)((kvm)->kvmi))
 #define VCPUI(vcpu) ((struct kvm_vcpu_introspection *)((vcpu)->kvmi))
+
+struct kvmi_mem_access {
+	gfn_t gfn;
+	u8 access;
+	struct kvmi_arch_mem_access arch;
+};
 
 static inline bool is_vm_event_enabled(struct kvm_introspection *kvmi,
 					int event)
@@ -111,6 +118,8 @@ int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size,
 int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait);
 int kvmi_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
 				const struct kvm_regs *regs);
+int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa,
+			     u8 access);
 
 /* arch */
 bool kvmi_arch_vcpu_alloc(struct kvm_vcpu *vcpu);
@@ -146,5 +155,11 @@ int kvmi_arch_cmd_vcpu_get_xsave(struct kvm_vcpu *vcpu,
 int kvmi_arch_cmd_vcpu_get_mtrr_type(struct kvm_vcpu *vcpu, u64 gpa, u8 *type);
 int kvmi_arch_cmd_vcpu_control_msr(struct kvm_vcpu *vcpu,
 				   const struct kvmi_vcpu_control_msr *req);
+void kvmi_arch_update_page_tracking(struct kvm *kvm,
+				    struct kvm_memory_slot *slot,
+				    struct kvmi_mem_access *m);
+int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
+				  const struct kvmi_msg_hdr *msg,
+				  const struct kvmi_vm_set_page_access *req);
 
 #endif

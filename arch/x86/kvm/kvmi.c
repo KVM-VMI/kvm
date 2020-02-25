@@ -1101,3 +1101,82 @@ bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
 
 	return ret;
 }
+
+static const struct {
+	unsigned int allow_bit;
+	enum kvm_page_track_mode track_mode;
+} track_modes[] = {
+	{ KVMI_PAGE_ACCESS_R, KVM_PAGE_TRACK_PREREAD },
+	{ KVMI_PAGE_ACCESS_W, KVM_PAGE_TRACK_PREWRITE },
+	{ KVMI_PAGE_ACCESS_X, KVM_PAGE_TRACK_PREEXEC },
+};
+
+void kvmi_arch_update_page_tracking(struct kvm *kvm,
+				    struct kvm_memory_slot *slot,
+				    struct kvmi_mem_access *m)
+{
+	struct kvmi_arch_mem_access *arch = &m->arch;
+	int i;
+
+	if (!slot) {
+		slot = gfn_to_memslot(kvm, m->gfn);
+		if (!slot)
+			return;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(track_modes); i++) {
+		unsigned int allow_bit = track_modes[i].allow_bit;
+		enum kvm_page_track_mode mode = track_modes[i].track_mode;
+		bool slot_tracked = test_bit(slot->id, arch->active[mode]);
+
+		if (m->access & allow_bit) {
+			if (slot_tracked) {
+				kvm_slot_page_track_remove_page(kvm, slot,
+								m->gfn, mode);
+				clear_bit(slot->id, arch->active[mode]);
+			}
+		} else if (!slot_tracked) {
+			kvm_slot_page_track_add_page(kvm, slot, m->gfn, mode);
+			set_bit(slot->id, arch->active[mode]);
+		}
+	}
+}
+
+int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
+				  const struct kvmi_msg_hdr *msg,
+				  const struct kvmi_vm_set_page_access *req)
+{
+	const struct kvmi_page_access_entry *entry = req->entries;
+	const struct kvmi_page_access_entry *end = req->entries + req->count;
+	u8 unknown_bits = ~(KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_W
+			    | KVMI_PAGE_ACCESS_X);
+	int ec = 0;
+
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	if (msg->size < struct_size(req, entries, req->count))
+		return -KVM_EINVAL;
+
+	for (; entry < end; entry++) {
+		int r;
+
+		if ((entry->access & unknown_bits) || entry->padding1
+				|| entry->padding2 || entry->padding3)
+			r = -KVM_EINVAL;
+		else
+			r = kvmi_cmd_set_page_access(kvmi, entry->gpa,
+						      entry->access);
+		if (r) {
+			kvmi_warn(kvmi, "%s: %llx %x padding %x,%x,%x",
+				  __func__, entry->gpa, entry->access,
+				  entry->padding1, entry->padding2,
+				  entry->padding3);
+			if (!ec)
+				ec = r;
+		}
+	}
+
+	return ec;
+}
+
