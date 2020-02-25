@@ -1263,6 +1263,7 @@ struct kvm_x86_ops {
 	u16 (*get_ept_view)(struct kvm_vcpu *vcpu);
 	int (*set_ept_view)(struct kvm_vcpu *vcpu, u16 view);
 	int (*control_ept_view)(struct kvm_vcpu *vcpu, u16 view, u8 visible);
+	bool (*get_ve_status)(void);
 };
 
 struct kvm_arch_async_pf {

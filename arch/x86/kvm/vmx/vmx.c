@@ -8197,6 +8197,11 @@ static u16 vmx_get_ept_view(struct kvm_vcpu *vcpu)
 	return vmx->view;
 }
 
+static bool vmx_get_ve_status(void)
+{
+	return kvm_ve_supported;
+}
+
 static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -8367,6 +8372,7 @@ static struct kvm_x86_ops vmx_x86_ops __ro_after_init = {
 	.get_ept_view = vmx_get_ept_view,
 	.set_ept_view = vmx_set_ept_view,
 	.control_ept_view = vmx_control_ept_view,
+	.get_ve_status = vmx_get_ve_status,
 };
 
 static void vmx_cleanup_l1d_flush(void)
