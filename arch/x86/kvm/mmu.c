@@ -1962,6 +1962,41 @@ bool kvm_mmu_slot_gfn_exec_protect(struct kvm *kvm,
 	return exec_protected;
 }
 
+static bool spte_suppress_ve(u64 *sptep, bool suppress)
+{
+	u64 spte = *sptep;
+
+	if (suppress)
+		spte |= VMX_EPT_SUPPRESS_VE_BIT;
+	else
+		spte &= ~VMX_EPT_SUPPRESS_VE_BIT;
+
+	return mmu_spte_update(sptep, spte);
+}
+
+bool kvm_mmu_set_ept_page_sve(struct kvm *kvm, struct kvm_memory_slot *slot,
+			      gfn_t gfn, u16 index, bool suppress)
+{
+	struct kvm_rmap_head *rmap_head;
+	struct rmap_iterator iter;
+	struct kvm_mmu_page *sp;
+	bool flush = false;
+	u64 *sptep;
+	int i;
+
+	for (i = PT_PAGE_TABLE_LEVEL; i <= PT_MAX_HUGEPAGE_LEVEL; i++) {
+		rmap_head = __gfn_to_rmap(gfn, i, slot);
+		for_each_rmap_spte(rmap_head, &iter, sptep) {
+			sp = page_header(__pa(sptep));
+			if (index == 0 || (index > 0 && index == sp->view))
+				flush |= spte_suppress_ve(sptep, suppress);
+		}
+	}
+
+	return flush;
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_set_ept_page_sve);
+
 static bool rmap_write_protect(struct kvm_vcpu *vcpu, u64 gfn)
 {
 	struct kvm_memory_slot *slot;
@@ -3227,6 +3262,9 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 		spte |= shadow_me_mask;
 
 	spte |= (u64)pfn << PAGE_SHIFT;
+
+	if (kvm_page_track_is_active(vcpu, gfn, KVM_PAGE_TRACK_SVE))
+		spte &= ~VMX_EPT_SUPPRESS_VE_BIT;
 
 	if (pte_access & ACC_WRITE_MASK) {
 

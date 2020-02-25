@@ -129,6 +129,9 @@ void kvm_slot_page_track_add_page(struct kvm *kvm,
 	} else if (mode == KVM_PAGE_TRACK_PREEXEC) {
 		if (kvm_mmu_slot_gfn_exec_protect(kvm, slot, gfn, view))
 			kvm_flush_remote_tlbs(kvm);
+	} else if (mode == KVM_PAGE_TRACK_SVE) {
+		if (kvm_mmu_set_ept_page_sve(kvm, slot, gfn, view, false))
+			kvm_flush_remote_tlbs(kvm);
 	}
 }
 EXPORT_SYMBOL_GPL(kvm_slot_page_track_add_page);
@@ -154,6 +157,10 @@ void kvm_slot_page_track_remove_page(struct kvm *kvm,
 		return;
 
 	update_gfn_track(slot, gfn, mode, -1, view);
+
+	if (mode == KVM_PAGE_TRACK_SVE)
+		if (kvm_mmu_set_ept_page_sve(kvm, slot, gfn, view, true))
+			kvm_flush_remote_tlbs(kvm);
 
 	/*
 	 * allow large page mapping for the tracked page
