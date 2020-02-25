@@ -2390,6 +2390,7 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 			SECONDARY_EXEC_RDSEED_EXITING |
 			SECONDARY_EXEC_RDRAND_EXITING |
 			SECONDARY_EXEC_ENABLE_PML |
+			SECONDARY_EXEC_EPT_VE |
 			SECONDARY_EXEC_TSC_SCALING |
 			SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE |
 			SECONDARY_EXEC_PT_USE_GPA |
@@ -4131,6 +4132,12 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 	*/
 	exec_control &= ~SECONDARY_EXEC_SHADOW_VMCS;
 
+	/* #VE must be disabled by default.
+	 * Once enabled, all EPT violations on pages missing the SVE bit
+	 * will be delivered to the guest.
+	 */
+	exec_control &= ~SECONDARY_EXEC_EPT_VE;
+
 	if (!enable_pml)
 		exec_control &= ~SECONDARY_EXEC_ENABLE_PML;
 
@@ -4396,7 +4403,7 @@ static void vmx_vcpu_setup(struct vcpu_vmx *vmx)
 	if (cpu_has_vmx_encls_vmexit())
 		vmcs_write64(ENCLS_EXITING_BITMAP, -1ull);
 
-	if (vmx->eptp_list_pg != NULL) {
+	if (vmx->eptp_list_pg) {
 		u64 vm_function_control;
 
 		vmcs_write64(EPTP_LIST_ADDRESS,
@@ -5903,6 +5910,28 @@ static void dump_eptp_list(void)
 		pr_err("%d: %016llx\n", i, *(eptp_list + i));
 }
 
+static void dump_ve_info(void)
+{
+	phys_addr_t ve_info_phys;
+	struct vcpu_ve_info *ve_info = NULL;
+
+	if (!cpu_has_vmx_ve())
+		return;
+
+	ve_info_phys = (phys_addr_t)vmcs_read64(VE_INFO_ADDRESS);
+	if (!ve_info_phys)
+		return;
+
+	ve_info = (struct vcpu_ve_info *)phys_to_virt(ve_info_phys);
+
+	pr_err("*** Virtualization Exception Info ***\n");
+	pr_err("ExitReason: %x\n", ve_info->exit_reason);
+	pr_err("ExitQualification: %llx\n", ve_info->exit_qualification);
+	pr_err("GVA: %llx\n", ve_info->gva);
+	pr_err("GPA: %llx\n", ve_info->gpa);
+	pr_err("EPTPIndex: %x\n", ve_info->eptp_index);
+}
+
 void dump_vmcs(void)
 {
 	u32 vmentry_ctl, vmexit_ctl;
@@ -6062,6 +6091,7 @@ void dump_vmcs(void)
 		       vmcs_read16(VIRTUAL_PROCESSOR_ID));
 
 	dump_eptp_list();
+	dump_ve_info();
 }
 
 static unsigned int update_ept_view(struct vcpu_vmx *vmx)
@@ -7928,6 +7958,7 @@ static __init int hardware_setup(void)
 		enable_ept = 0;
 
 	kvm_eptp_switching_supported = cpu_has_vmx_eptp_switching();
+	kvm_ve_supported = cpu_has_vmx_ve();
 
 	if (!cpu_has_vmx_ept_ad_bits() || !enable_ept)
 		enable_ept_ad_bits = 0;

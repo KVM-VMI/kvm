@@ -162,6 +162,9 @@ module_param(pi_inject_timer, bint, S_IRUGO | S_IWUSR);
 bool __read_mostly kvm_eptp_switching_supported;
 EXPORT_SYMBOL_GPL(kvm_eptp_switching_supported);
 
+bool __read_mostly kvm_ve_supported;
+EXPORT_SYMBOL_GPL(kvm_ve_supported);
+
 #define KVM_NR_SHARED_MSRS 16
 
 struct kvm_shared_msrs_global {
