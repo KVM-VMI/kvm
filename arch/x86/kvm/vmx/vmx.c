@@ -6164,15 +6164,21 @@ void dump_vmcs(void)
 
 static unsigned int update_ept_view(struct vcpu_vmx *vmx)
 {
-	u64 *eptp_list = phys_to_virt(page_to_phys(vmx->eptp_list_pg));
-	u64 eptp = vmcs_read64(EPT_POINTER);
-	unsigned int view;
+	/* if #VE support is active, read the EPT index from VMCS */
+	if (kvm_ve_supported &&
+	    secondary_exec_controls_get(vmx) & SECONDARY_EXEC_EPT_VE) {
+		vmx->view = vmcs_read16(EPTP_INDEX);
+	} else {
+		u64 *eptp_list = phys_to_virt(page_to_phys(vmx->eptp_list_pg));
+		u64 eptp = vmcs_read64(EPT_POINTER);
+		unsigned int view;
 
-	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
-		if (eptp_list[view] == eptp) {
-			vmx->view = view;
-			break;
-		}
+		for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+			if (eptp_list[view] == eptp) {
+				vmx->view = view;
+				break;
+			}
+	}
 
 	return vmx->view;
 }
