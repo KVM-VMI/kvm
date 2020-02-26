@@ -4248,12 +4248,22 @@ static void vmx_compute_secondary_exec_control(struct vcpu_vmx *vmx)
 
 static void ept_set_mmio_spte_mask(void)
 {
+	u64 mmio_mask = VMX_EPT_RWX_MASK;
+	u64 mmio_value = VMX_EPT_MISCONFIG_WX_VALUE;
+
+	/* All sptes, including mmio sptes should trigger vm-exits by
+	 * default, instead of #VE (when supported)
+	 */
+	if (kvm_ve_supported) {
+		mmio_mask |= VMX_EPT_SUPPRESS_VE_BIT;
+		mmio_value |= VMX_EPT_SUPPRESS_VE_BIT;
+	}
+
 	/*
 	 * EPT Misconfigurations can be generated if the value of bits 2:0
 	 * of an EPT paging-structure entry is 110b (write/execute).
 	 */
-	kvm_mmu_set_mmio_spte_mask(VMX_EPT_RWX_MASK,
-				   VMX_EPT_MISCONFIG_WX_VALUE, 0);
+	kvm_mmu_set_mmio_spte_mask(mmio_mask, mmio_value, 0);
 }
 
 static int vmx_alloc_eptp_list_page(struct vcpu_vmx *vmx)
