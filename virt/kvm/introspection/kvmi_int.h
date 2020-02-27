@@ -42,6 +42,7 @@
 			| BIT(KVMI_VM_CHECK_EVENT) \
 			| BIT(KVMI_VM_CONTROL_EVENTS) \
 			| BIT(KVMI_VM_GET_INFO) \
+			| BIT(KVMI_VM_GET_MAP_TOKEN) \
 			| BIT(KVMI_VM_GET_MAX_GFN) \
 			| BIT(KVMI_VM_READ_PHYSICAL) \
 			| BIT(KVMI_VM_SET_PAGE_ACCESS) \
@@ -139,6 +140,8 @@ int kvmi_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
 int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa,
 			     u8 access, u16 view);
 int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress);
+int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token);
+unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn);
 
 /* arch */
 bool kvmi_arch_vcpu_alloc(struct kvm_vcpu *vcpu);
@@ -196,5 +199,11 @@ int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
 			      bool trigger_vmexit);
 int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu);
+
+/* kvmi_mem.c */
+void kvmi_mem_init(void);
+void kvmi_mem_exit(void);
+int kvmi_mem_generate_token(struct kvm *kvm, struct kvmi_map_mem_token *token);
+void kvmi_clear_vm_tokens(struct kvm *kvm);
 
 #endif

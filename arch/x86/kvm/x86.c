@@ -7675,6 +7675,12 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		if (!kvmi_hypercall_event(vcpu))
 			ret = -KVM_ENOSYS;
 		break;
+	case KVM_HC_MEM_MAP:
+		ret = kvmi_host_mem_map(vcpu, (gva_t)a0, (gpa_t)a1, (gpa_t)a2);
+		break;
+	case KVM_HC_MEM_UNMAP:
+		ret = kvmi_host_mem_unmap(vcpu, (gpa_t)a0);
+		break;
 #endif /* CONFIG_KVM_INTROSPECTION */
 	default:
 		ret = -KVM_ENOSYS;

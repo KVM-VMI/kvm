@@ -1218,6 +1218,45 @@ mechanism (see **KVMI_GET_VERSION**).
 * -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EINVAL - the selected EPT view is not valid
 
+25. KVMI_VM_GET_MAP_TOKEN
+-------------------------
+
+:Architecture: all
+:Versions: >= 1
+:Parameters: none
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_vm_get_map_token_reply {
+		struct kvmi_map_mem_token token;
+	};
+
+Where::
+
+	struct kvmi_map_mem_token {
+		__u64 token[4];
+	};
+
+Requests a token for a memory map operation.
+
+On this command, the host generates a random token to be used (once)
+to map a physical page from the introspected guest. The introspector
+could use the token with the KVM_INTRO_MEM_MAP ioctl (on /dev/kvmmem)
+to map a guest physical page to one of its memory pages. The ioctl,
+in turn, will use the KVM_HC_MEM_MAP hypercall (see hypercalls.txt).
+
+The guest kernel exposing /dev/kvmmem keeps a list with all the mappings
+(to all the guests introspected by the tool) in order to unmap them
+(using the KVM_HC_MEM_UNMAP hypercall) when /dev/kvmmem is closed or on
+demand (using the KVM_INTRO_MEM_UNMAP ioctl).
+
+:Errors:
+
+* -KVM_EAGAIN - too many tokens have accumulated
+* -KVM_ENOMEM - not enough memory to allocate a new token
+
 Events
 ======
 

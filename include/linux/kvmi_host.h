@@ -99,6 +99,8 @@ struct kvm_introspection {
 		u8 level;
 		struct kvmi_custom_ro_data custom_ro_data;
 	} singlestep;
+
+	atomic_t num_tokens;
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION
@@ -127,6 +129,9 @@ void kvmi_init_emulate(struct kvm_vcpu *vcpu);
 void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu);
 bool kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 			  int *emulation_type);
+int kvmi_host_mem_map(struct kvm_vcpu *vcpu, gva_t tkn_gva,
+			     gpa_t req_gpa, gpa_t map_gpa);
+int kvmi_host_mem_unmap(struct kvm_vcpu *vcpu, gpa_t map_gpa);
 
 #else
 

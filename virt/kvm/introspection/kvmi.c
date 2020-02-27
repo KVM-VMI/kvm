@@ -8,6 +8,7 @@
 #include <linux/mmu_context.h>
 #include "kvmi_int.h"
 #include <linux/kthread.h>
+#include <linux/remote_mapping.h>
 
 #define MAX_PAUSE_REQUESTS 1001
 
@@ -87,11 +88,13 @@ static int kvmi_cache_create(void)
 
 int kvmi_init(void)
 {
+	kvmi_mem_init();
 	return kvmi_cache_create();
 }
 
 void kvmi_uninit(void)
 {
+	kvmi_mem_exit();
 	kvmi_cache_destroy();
 }
 
@@ -229,6 +232,7 @@ static void free_kvmi(struct kvm *kvm)
 	int i;
 
 	kvmi_clear_mem_access(kvm);
+	kvmi_clear_vm_tokens(kvm);
 
 	refcount_set(&kvm->arch.kvmi_refcount,
 			atomic_read(&kvm->online_vcpus));
@@ -313,6 +317,7 @@ static void __kvmi_unhook(struct kvm *kvm)
 
 	kvm_page_track_unregister_notifier(kvm, &kvmi->arch.kptn_node);
 	kvmi_sock_put(kvmi);
+	mm_remote_reset();
 }
 
 static void kvmi_unhook(struct kvm *kvm)
@@ -654,7 +659,7 @@ int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
 	return kvmi_arch_cmd_control_intercept(vcpu, event_id, enable);
 }
 
-static unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn)
+unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn)
 {
 	unsigned long hva;
 	int srcu_idx;
@@ -1888,4 +1893,9 @@ int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress)
 		kmem_cache_free(radix_cache, m);
 
 	return err;
+}
+
+int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token)
+{
+	return kvmi_mem_generate_token(kvm, token);
 }

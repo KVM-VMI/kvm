@@ -23,6 +23,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_CHECK_EVENT]          = "KVMI_VM_CHECK_EVENT",
 	[KVMI_VM_CONTROL_EVENTS]       = "KVMI_VM_CONTROL_EVENTS",
 	[KVMI_VM_GET_INFO]             = "KVMI_VM_GET_INFO",
+	[KVMI_VM_GET_MAP_TOKEN]        = "KVMI_VM_GET_MAP_TOKEN",
 	[KVMI_VM_GET_MAX_GFN]          = "KVMI_VM_GET_MAX_GFN",
 	[KVMI_VM_READ_PHYSICAL]        = "KVMI_VM_READ_PHYSICAL",
 	[KVMI_VM_SET_PAGE_ACCESS]      = "KVMI_VM_SET_PAGE_ACCESS",
@@ -396,6 +397,19 @@ static int handle_set_page_sve(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_get_map_token(struct kvm_introspection *kvmi,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	struct kvmi_vm_get_map_token_reply rpl;
+	int ec;
+
+	memset(&rpl, 0, sizeof(rpl));
+	ec = kvmi_cmd_alloc_token(kvmi->kvm, &rpl.token);
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, &rpl, sizeof(rpl));
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
@@ -406,6 +420,7 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_CHECK_EVENT]     = handle_check_event,
 	[KVMI_VM_CONTROL_EVENTS]  = handle_vm_control_events,
 	[KVMI_VM_GET_INFO]        = handle_get_info,
+	[KVMI_VM_GET_MAP_TOKEN]   = handle_get_map_token,
 	[KVMI_VM_GET_MAX_GFN]     = handle_vm_get_max_gfn,
 	[KVMI_VM_READ_PHYSICAL]   = handle_read_physical,
 	[KVMI_VM_SET_PAGE_ACCESS] = handle_set_page_access,

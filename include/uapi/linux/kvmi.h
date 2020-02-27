@@ -53,6 +53,8 @@ enum {
 
 	KVMI_VM_SET_PAGE_SVE = 29,
 
+	KVMI_VM_GET_MAP_TOKEN = 30,
+
 	KVMI_NUM_MESSAGES
 };
 
@@ -239,6 +241,10 @@ struct kvmi_mem_map {
 	struct kvmi_map_mem_token token;
 	__u64 gpa;
 	__u64 gva;
+};
+
+struct kvmi_vm_get_map_token_reply {
+	struct kvmi_map_mem_token token;
 };
 
 /*
