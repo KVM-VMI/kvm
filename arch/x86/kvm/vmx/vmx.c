@@ -4292,6 +4292,13 @@ static int vmx_set_ept_view(struct kvm_vcpu *vcpu, u16 view)
 		kvm_mmu_unload(vcpu);
 		r = kvm_mmu_reload(vcpu);
 		WARN_ON_ONCE(r);
+
+		/* When #VE happens, current EPT index will be saved
+		 * by the logical processor into VE information area,
+		 * see chapter 24.6.18 and 25.5.6.2 from Intel SDM.
+		 */
+		if (kvm_ve_supported)
+			vmcs_write16(EPTP_INDEX, view);
 	}
 
 	return 0;
