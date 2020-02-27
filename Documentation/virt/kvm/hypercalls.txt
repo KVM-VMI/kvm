@@ -184,3 +184,37 @@ The following registers are clobbered:
 In particular, for KVM_HC_XEN_HVM_OP_GUEST_REQUEST_VM_EVENT, the last two
 registers can be poisoned deliberately and cannot be used for passing
 information.
+
+10. KVM_HC_MEM_MAP
+------------------
+
+Architecture: x86
+Status: active
+Purpose: Map a guest physical page to another VM (the introspector).
+Usage:
+
+a0: pointer to a token obtained with a KVMI_GET_MAP_TOKEN command (see kvmi.rst)
+	struct kvmi_map_mem_token {
+		__u64 token[4];
+	};
+
+a1: guest physical address to be mapped
+
+a2: guest physical address from introspector that will be replaced
+
+Both guest physical addresses will end up poiting to the same physical page.
+
+Returns any error that the memory manager can return.
+
+11. KVM_HC_MEM_UNMAP
+--------------------
+
+Architecture: x86
+Status: active
+Purpose: Unmap a previously mapped page.
+Usage:
+
+a0: guest physical address from introspector
+
+The address will stop pointing to the introspected page and a new physical
+page is allocated for this gpa.
