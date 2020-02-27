@@ -4321,7 +4321,8 @@ int page_evictable(struct page *page)
 
 	/* Prevent address_space of inode and swap cache from being freed */
 	rcu_read_lock();
-	ret = !mapping_unevictable(page_mapping(page)) && !PageMlocked(page);
+	ret = !mapping_unevictable(page_mapping(page)) &&
+		!PageMlocked(page) && !PageRemote(page);
 	rcu_read_unlock();
 	return ret;
 }
