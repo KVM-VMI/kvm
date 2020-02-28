@@ -382,6 +382,7 @@ Returns the number of online vCPUs.
 Enables/disables VM introspection events. This command can be used with
 the following events::
 
+	KVMI_EVENT_CREATE_VCPU
 	KVMI_EVENT_UNHOOK
 
 :Errors:
@@ -512,6 +513,11 @@ The vCPU will handle the pending commands/events and send the
 *KVMI_EVENT_PAUSE_VCPU* event (one for every successful *KVMI_VCPU_PAUSE*
 command) before returning to guest.
 
+Please note that new vCPUs might by created at any time.
+The introspection tool should use *KVMI_VM_CONTROL_EVENTS* to enable the
+*KVMI_EVENT_CREATE_VCPU* event in order to stop these new vCPUs as well
+(by delaying the event reply).
+
 The socket will be closed if the *KVMI_EVENT_PAUSE_VCPU* event is disallowed.
 Use *KVMI_VM_CHECK_EVENT* first.
 
@@ -564,7 +570,7 @@ must reply with: continue, retry, crash, etc. (see **Events** below).
 The *KVMI_EVENT_PAUSE_VCPU* event is always allowed,
 because it is triggered by the *KVMI_VCPU_PAUSE* command.
 
-The *KVMI_EVENT_UNHOOK* event is controlled
+The *KVMI_EVENT_CREATE_VCPU* and *KVMI_EVENT_UNHOOK* events are controlled
 by the *KVMI_VM_CONTROL_EVENTS* command.
 
 :Errors:
@@ -1692,3 +1698,25 @@ instruction pointer or the page restrictions.
 This event is sent when the current instruction has been executed or the
 singlestep failed and the introspection has been enabled for this event
 (see **KVMI_VCPU_CONTROL_EVENTS**).
+
+12. KVMI_EVENT_CREATE_VCPU
+--------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent when a new vCPU is created and the introspection has
+been enabled for this event (see *KVMI_VM_CONTROL_EVENTS*).

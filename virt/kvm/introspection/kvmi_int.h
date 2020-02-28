@@ -19,6 +19,7 @@
 #define KVMI_MSG_SIZE_ALLOC (sizeof(struct kvmi_msg_hdr) + KVMI_MSG_SIZE)
 
 #define KVMI_KNOWN_VM_EVENTS ( \
+			  BIT(KVMI_EVENT_CREATE_VCPU) | \
 			  BIT(KVMI_EVENT_UNHOOK) \
 		)
 #define KVMI_KNOWN_VCPU_EVENTS ( \
@@ -108,6 +109,7 @@ u32 kvmi_msg_send_bp(struct kvm_vcpu *vcpu, u64 gpa, u8 insn_len);
 u32 kvmi_msg_send_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access,
 		     bool *rep_complete,
 		     u64 *ctx_addr, u8 *ctx, u32 *ctx_size);
+u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu);
 
 /* kvmi.c */
 void *kvmi_msg_alloc(void);

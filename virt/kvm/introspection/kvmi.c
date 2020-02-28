@@ -26,6 +26,7 @@ static void kvmi_track_create_slot(struct kvm *kvm,
 				   struct kvm_page_track_notifier_node *node);
 static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
 				  struct kvm_page_track_notifier_node *node);
+static void kvmi_create_vcpu_event(struct kvm_vcpu *vcpu);
 
 static struct kmem_cache *msg_cache;
 static struct kmem_cache *job_cache;
@@ -169,9 +170,18 @@ static bool alloc_vcpui(struct kvm_vcpu *vcpu)
 	return kvmi_arch_vcpu_alloc(vcpu);
 }
 
+static void kvmi_job_create_vcpu(struct kvm_vcpu *vcpu, void *ctx)
+{
+	if (is_vm_event_enabled(KVMI(vcpu->kvm), KVMI_EVENT_CREATE_VCPU))
+		kvmi_create_vcpu_event(vcpu);
+}
+
 static int create_vcpui(struct kvm_vcpu *vcpu)
 {
 	if (!alloc_vcpui(vcpu))
+		return -ENOMEM;
+
+	if (kvmi_add_job(vcpu, kvmi_job_create_vcpu, NULL, NULL))
 		return -ENOMEM;
 
 	return 0;
@@ -242,6 +252,25 @@ static void free_kvmi(struct kvm *kvm)
 
 	kfree(kvm->kvmi);
 	kvm->kvmi = NULL;
+}
+
+int kvmi_vcpu_init(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi;
+	int r = 0;
+
+	mutex_lock(&vcpu->kvm->kvmi_lock);
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		goto out;
+
+	r = create_vcpui(vcpu);
+
+	kvmi_put(vcpu->kvm);
+out:
+	mutex_unlock(&vcpu->kvm->kvmi_lock);
+	return r;
 }
 
 void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu)
@@ -1898,4 +1927,18 @@ int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress)
 int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token)
 {
 	return kvmi_mem_generate_token(kvm, token);
+}
+
+static void kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
+{
+	u32 action;
+
+	action = kvmi_msg_send_create_vcpu(vcpu);
+
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu->kvm, action, "CREATE");
+	}
 }

@@ -23,6 +23,7 @@
 #define KVM_MAX_EPT_VIEWS 3
 
 #define VCPU_ID         5
+#define VCPU_ID_HOTPLUG (VCPU_ID + 1)
 
 #define X86_FEATURE_XSAVE	(1<<26)
 
@@ -466,8 +467,14 @@ static int cmd_check_event(__u16 id)
 
 static void test_cmd_check_event(void)
 {
+	__u16 valid_id = KVMI_EVENT_CREATE_VCPU;
 	__u16 invalid_id = 0xffff;
 	int r;
+
+	r = cmd_check_event(valid_id);
+	TEST_ASSERT(r == 0,
+		"KVMI_VM_CHECK_EVENT failed, error %d (%s)\n",
+		-r, kvm_strerror(-r));
 
 	r = cmd_check_event(invalid_id);
 	TEST_ASSERT(r == -KVM_EINVAL,
@@ -2097,6 +2104,31 @@ static void test_virtualization_exceptions(struct kvm_vm *vm)
 	test_event_pf(vm);
 }
 
+static void test_event_create_vcpu(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {.vm = vm, .vcpu_id = VCPU_ID_HOTPLUG };
+	__u16 id = KVMI_EVENT_CREATE_VCPU;
+	struct vcpu_reply rpl = { };
+	struct kvmi_msg_hdr hdr;
+	pthread_t vcpu_thread;
+	struct kvmi_event ev;
+
+	enable_vm_event(id);
+
+	vm_vcpu_add_default(vm, data.vcpu_id, guest_code);
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_event(&hdr, &ev, sizeof(ev), id);
+
+	reply_to_event(&hdr, &ev, KVMI_EVENT_ACTION_CONTINUE,
+		       &rpl, sizeof(rpl));
+
+	disable_vm_event(id);
+
+	stop_vcpu_worker(vcpu_thread, &data);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -2135,6 +2167,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_set_ept_view(vm);
 	test_cmd_vcpu_vmfunc(vm);
 	test_virtualization_exceptions(vm);
+	test_event_create_vcpu(vm);
 
 	unhook_introspection(vm);
 }
