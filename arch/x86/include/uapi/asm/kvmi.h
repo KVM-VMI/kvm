@@ -185,4 +185,11 @@ struct kvmi_vm_set_page_sve {
 	__u64 gpa;
 };
 
+struct kvmi_vm_control_spp {
+	__u8 enable;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

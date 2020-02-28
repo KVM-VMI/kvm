@@ -1410,3 +1410,9 @@ int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu)
 
 	return kvm_x86_ops->disable_ve(vcpu);
 }
+
+int kvmi_arch_cmd_control_spp(struct kvm *kvm)
+{
+	return spp_init(kvm);
+}
+

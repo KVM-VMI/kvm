@@ -1335,6 +1335,39 @@ When the command reply is disabled, the socket will be closed:
   the introspection tool disables the command replies with the LSB from
   `flag` set to 1
 
+27. KVMI_VM_CONTROL_SPP
+-----------------------
+
+:Architectures: x86/intel
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_control_spp {
+		__u8 enable;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 padding3;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Enables/disables subpage protection (SPP) for the current VM.
+
+If SPP is not enabled, the *KVMI_VM_SET_PAGE_WRITE_BITMAP* command
+will fail.
+
+:Errors:
+
+* -KVM_EINVAL - padding is not zero
+* -KVM_EOPNOTSUPP - the hardware doesn't support SPP
+* -KVM_EOPNOTSUPP - the current implementation can't disable SPP
+
 Events
 ======
 

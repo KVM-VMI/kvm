@@ -45,6 +45,7 @@
 			| BIT(KVMI_VM_CHECK_EVENT) \
 			| BIT(KVMI_VM_CONTROL_CMD_RESPONSE) \
 			| BIT(KVMI_VM_CONTROL_EVENTS) \
+			| BIT(KVMI_VM_CONTROL_SPP) \
 			| BIT(KVMI_VM_GET_INFO) \
 			| BIT(KVMI_VM_GET_MAP_TOKEN) \
 			| BIT(KVMI_VM_GET_MAX_GFN) \
@@ -204,6 +205,7 @@ int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
 			      bool trigger_vmexit);
 int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu);
+int kvmi_arch_cmd_control_spp(struct kvm *kvm);
 
 /* kvmi_mem.c */
 void kvmi_mem_init(void);

@@ -28,6 +28,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_CHECK_EVENT]          = "KVMI_VM_CHECK_EVENT",
 	[KVMI_VM_CONTROL_CMD_RESPONSE] = "KVMI_VM_CONTROL_CMD_RESPONSE",
 	[KVMI_VM_CONTROL_EVENTS]       = "KVMI_VM_CONTROL_EVENTS",
+	[KVMI_VM_CONTROL_SPP]          = "KVMI_VM_CONTROL_SPP",
 	[KVMI_VM_GET_INFO]             = "KVMI_VM_GET_INFO",
 	[KVMI_VM_GET_MAP_TOKEN]        = "KVMI_VM_GET_MAP_TOKEN",
 	[KVMI_VM_GET_MAX_GFN]          = "KVMI_VM_GET_MAX_GFN",
@@ -484,6 +485,37 @@ static int handle_control_cmd_response(struct kvm_introspection *kvmi,
 	return err;
 }
 
+static bool enable_spp(struct kvm_introspection *kvmi)
+{
+	if (!kvmi->arch.spp.initialized) {
+		int err = kvmi_arch_cmd_control_spp(kvmi->kvm);
+
+		kvmi->arch.spp.initialized = true;
+
+		if (!err)
+			WRITE_ONCE(kvmi->arch.spp.enabled, true);
+	}
+
+	return kvmi->arch.spp.enabled;
+}
+
+static int handle_control_spp(struct kvm_introspection *kvmi,
+			      const struct kvmi_msg_hdr *msg,
+			      const void *_req)
+{
+	const struct kvmi_vm_control_spp *req = _req;
+	int ec;
+
+	if (req->padding1 || req->padding2 || req->padding3)
+		ec = -KVM_EINVAL;
+	else if (req->enable && enable_spp(kvmi))
+		ec = 0;
+	else
+		ec = -KVM_EOPNOTSUPP;
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
@@ -494,6 +526,7 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_CHECK_EVENT]          = handle_check_event,
 	[KVMI_VM_CONTROL_CMD_RESPONSE] = handle_control_cmd_response,
 	[KVMI_VM_CONTROL_EVENTS]       = handle_vm_control_events,
+	[KVMI_VM_CONTROL_SPP]          = handle_control_spp,
 	[KVMI_VM_GET_INFO]             = handle_get_info,
 	[KVMI_VM_GET_MAP_TOKEN]        = handle_get_map_token,
 	[KVMI_VM_GET_MAX_GFN]          = handle_vm_get_max_gfn,
