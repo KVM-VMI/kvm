@@ -101,6 +101,9 @@ struct kvm_introspection {
 	} singlestep;
 
 	atomic_t num_tokens;
+
+	bool cmd_reply_disabled;
+	bool cmd_reply_with_event;
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION

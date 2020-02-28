@@ -2129,6 +2129,74 @@ static void test_event_create_vcpu(struct kvm_vm *vm)
 	stop_vcpu_worker(vcpu_thread, &data);
 }
 
+static void do_invalid_vm_command_no_reply(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {.vm = vm, .vcpu_id = VCPU_ID };
+	__u32 cmd_size = sizeof(struct kvmi_vm_check_command);
+	int invalid_msg_id = 0xffff;
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_check_command cmd;
+	} req = {
+		{ .id = KVMI_VM_CHECK_COMMAND, .seq = new_seq(),
+			.size = cmd_size, },
+		{ .id = invalid_msg_id, }
+	};
+	struct kvmi_msg_hdr ev_hdr;
+	struct {
+		struct kvmi_event common;
+		struct kvmi_event_cmd_error cmd;
+	} ev;
+	pthread_t vcpu_thread;
+	ssize_t r;
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	r = send(Userspace_socket, &req.hdr, sizeof(req), 0);
+	TEST_ASSERT(r == sizeof(req),
+		"send() failed, sending %d, result %d, errno %d (%s)\n",
+		sizeof(req), r, errno, strerror(errno));
+
+	receive_event(&ev_hdr, &ev.common, sizeof(ev), KVMI_EVENT_CMD_ERROR);
+	TEST_ASSERT(ev.cmd.msg_id == req.hdr.id &&
+			ev.cmd.msg_seq == req.hdr.seq &&
+			ev.cmd.err == -KVM_EINVAL,
+		"Invalid KVMI_EVENT_CMD_ERROR received (%u,%u,%d) instead of (%u,%u,%d)\n",
+		ev.cmd.msg_id, ev.cmd.msg_seq, ev.cmd.err,
+		req.hdr.id, req.hdr.seq, -KVM_EINVAL);
+
+	stop_vcpu_worker(vcpu_thread, &data);
+}
+
+static void test_cmd_control_cmd_response(struct kvm_vm *vm)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_control_cmd_response cmd;
+	} req = {};
+	int r;
+
+	req.cmd.now = 1;
+
+	req.cmd.enable = 0; /* disable command reply */
+	req.cmd.flags |= 1; /* force KVMI_EVENT_CMD_ERROR */
+	send_message(KVMI_VM_CONTROL_CMD_RESPONSE, &req.hdr, sizeof(req));
+
+	do_invalid_vm_command_no_reply(vm);
+
+	req.cmd.enable = 1; /* enable command reply */
+	send_message(KVMI_VM_CONTROL_CMD_RESPONSE, &req.hdr, sizeof(req));
+
+	/*
+	 * we should get the reply for the last command,
+	 * matching its sequence number
+	 */
+	r = receive_cmd_reply(&req.hdr, NULL, 0);
+	TEST_ASSERT(r == 0,
+		"KVMI_VM_CONTROL_CMD_RESPONSE failed, error %d (%s)\n",
+		-r, kvm_strerror(-r));
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -2168,6 +2236,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_vmfunc(vm);
 	test_virtualization_exceptions(vm);
 	test_event_create_vcpu(vm);
+	test_cmd_control_cmd_response(vm);
 
 	unhook_introspection(vm);
 }

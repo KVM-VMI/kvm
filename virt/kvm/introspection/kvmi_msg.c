@@ -8,12 +8,17 @@
 #include <linux/net.h>
 #include "kvmi_int.h"
 
+static int kvmi_msg_send_cmd_error(struct kvm_introspection *kvmi,
+				   const struct kvmi_msg_hdr *msg,
+				   int ec);
 struct kvmi_vcpu_cmd_job {
 	struct {
 		struct kvmi_msg_hdr hdr;
 		struct kvmi_vcpu_hdr cmd;
 	} *msg;
 	struct kvm_vcpu *vcpu;
+	bool cmd_reply_disabled;
+	bool cmd_reply_with_event;
 };
 
 static const char *const msg_IDs[] = {
@@ -21,6 +26,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_GET_VERSION]             = "KVMI_GET_VERSION",
 	[KVMI_VM_CHECK_COMMAND]        = "KVMI_VM_CHECK_COMMAND",
 	[KVMI_VM_CHECK_EVENT]          = "KVMI_VM_CHECK_EVENT",
+	[KVMI_VM_CONTROL_CMD_RESPONSE] = "KVMI_VM_CONTROL_CMD_RESPONSE",
 	[KVMI_VM_CONTROL_EVENTS]       = "KVMI_VM_CONTROL_EVENTS",
 	[KVMI_VM_GET_INFO]             = "KVMI_VM_GET_INFO",
 	[KVMI_VM_GET_MAP_TOKEN]        = "KVMI_VM_GET_MAP_TOKEN",
@@ -141,11 +147,37 @@ static int kvmi_msg_reply(struct kvm_introspection *kvmi,
 	return kvmi_sock_write(kvmi, vec, n, size);
 }
 
+static bool kvmi_validate_no_reply(struct kvm_introspection *kvmi,
+				   const struct kvmi_msg_hdr *msg,
+				   size_t rpl_size, int err)
+{
+	if (rpl_size) {
+		kvmi_err(kvmi, "The reply to command %d cannot be discared. Closing the socket...",
+			 msg->id);
+		kvmi_sock_shutdown(kvmi);
+		return false;
+	}
+
+	if (err)
+		kvmi_err(kvmi, "Error code %d discarded for message id %d\n",
+			 err, msg->id);
+
+	return true;
+}
+
 static int kvmi_msg_vm_reply(struct kvm_introspection *kvmi,
 			     const struct kvmi_msg_hdr *msg,
 			     int err, const void *rpl,
 			     size_t rpl_size)
 {
+	if (kvmi->cmd_reply_disabled) {
+		if (!kvmi_validate_no_reply(kvmi, msg, rpl_size, err))
+			return -KVM_EINVAL;
+		if (err && kvmi->cmd_reply_with_event)
+			return kvmi_msg_send_cmd_error(kvmi, msg, err);
+		return 0;
+	}
+
 	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
 }
 
@@ -154,6 +186,14 @@ static int kvmi_msg_vcpu_reply(const struct kvmi_vcpu_cmd_job *job,
 				const void *rpl, size_t rpl_size)
 {
 	struct kvm_introspection *kvmi = KVMI(job->vcpu->kvm);
+
+	if (job->cmd_reply_disabled) {
+		if (!kvmi_validate_no_reply(kvmi, msg, rpl_size, err))
+			return -KVM_EINVAL;
+		if (err && job->cmd_reply_with_event)
+			return kvmi_msg_send_cmd_error(kvmi, msg, err);
+		return 0;
+	}
 
 	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
 }
@@ -410,23 +450,58 @@ static int handle_get_map_token(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, &rpl, sizeof(rpl));
 }
 
+static int handle_control_cmd_response(struct kvm_introspection *kvmi,
+					const struct kvmi_msg_hdr *msg,
+					const void *_req)
+{
+	const struct kvmi_vm_control_cmd_response *req = _req;
+	bool disabled, now, with_event;
+	int err;
+
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	disabled = !req->enable;
+	now = (req->now == 1);
+	with_event = (disabled && req->flags & 1);
+
+	if (disabled && with_event &&
+			!is_event_allowed(kvmi, KVMI_EVENT_CMD_ERROR))
+		return -KVM_EPERM;
+
+	if (now) {
+		kvmi->cmd_reply_disabled = disabled;
+		kvmi->cmd_reply_with_event = with_event;
+	}
+
+	err = kvmi_msg_vm_reply(kvmi, msg, 0, NULL, 0);
+
+	if (!now) {
+		kvmi->cmd_reply_disabled = disabled;
+		kvmi->cmd_reply_with_event = with_event;
+	}
+
+	return err;
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
 static int(*const msg_vm[])(struct kvm_introspection *,
 			    const struct kvmi_msg_hdr *, const void *) = {
-	[KVMI_GET_VERSION]        = handle_get_version,
-	[KVMI_VM_CHECK_COMMAND]   = handle_check_command,
-	[KVMI_VM_CHECK_EVENT]     = handle_check_event,
-	[KVMI_VM_CONTROL_EVENTS]  = handle_vm_control_events,
-	[KVMI_VM_GET_INFO]        = handle_get_info,
-	[KVMI_VM_GET_MAP_TOKEN]   = handle_get_map_token,
-	[KVMI_VM_GET_MAX_GFN]     = handle_vm_get_max_gfn,
-	[KVMI_VM_READ_PHYSICAL]   = handle_read_physical,
-	[KVMI_VM_SET_PAGE_ACCESS] = handle_set_page_access,
-	[KVMI_VM_SET_PAGE_SVE]    = handle_set_page_sve,
-	[KVMI_VM_WRITE_PHYSICAL]  = handle_write_physical,
-	[KVMI_VCPU_PAUSE]         = handle_pause_vcpu,
+	[KVMI_GET_VERSION]             = handle_get_version,
+	[KVMI_VM_CHECK_COMMAND]        = handle_check_command,
+	[KVMI_VM_CHECK_EVENT]          = handle_check_event,
+	[KVMI_VM_CONTROL_CMD_RESPONSE] = handle_control_cmd_response,
+	[KVMI_VM_CONTROL_EVENTS]       = handle_vm_control_events,
+	[KVMI_VM_GET_INFO]             = handle_get_info,
+	[KVMI_VM_GET_MAP_TOKEN]        = handle_get_map_token,
+	[KVMI_VM_GET_MAX_GFN]          = handle_vm_get_max_gfn,
+	[KVMI_VM_READ_PHYSICAL]        = handle_read_physical,
+	[KVMI_VM_SET_PAGE_ACCESS]      = handle_set_page_access,
+	[KVMI_VM_SET_PAGE_SVE]         = handle_set_page_sve,
+	[KVMI_VM_WRITE_PHYSICAL]       = handle_write_physical,
+	[KVMI_VCPU_PAUSE]              = handle_pause_vcpu,
 };
 
 static int handle_get_vcpu_info(const struct kvmi_vcpu_cmd_job *job,
@@ -953,6 +1028,9 @@ static int kvmi_msg_dispatch_vcpu_cmd(struct kvm_introspection *kvmi,
 	if (!job_cmd)
 		return -KVM_ENOMEM;
 
+	job_cmd->cmd_reply_disabled = kvmi->cmd_reply_disabled;
+	job_cmd->cmd_reply_with_event = kvmi->cmd_reply_with_event;
+
 	job_cmd->msg = (void *)msg;
 
 	err = kvmi_msg_dispatch_vcpu_job(kvmi, job_cmd, queued);
@@ -994,6 +1072,9 @@ static bool is_message_allowed(struct kvm_introspection *kvmi, __u16 id)
 static int kvmi_msg_vm_reply_ec(struct kvm_introspection *kvmi,
 				const struct kvmi_msg_hdr *msg, int ec)
 {
+	if (kvmi->cmd_reply_disabled)
+		return ec;
+
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
@@ -1252,4 +1333,34 @@ u32 kvmi_msg_send_create_vcpu(struct kvm_vcpu *vcpu)
 		return KVMI_EVENT_ACTION_CONTINUE;
 
 	return action;
+}
+
+static int kvmi_msg_send_cmd_error(struct kvm_introspection *kvmi,
+				   const struct kvmi_msg_hdr *msg,
+				   int ec)
+{
+	struct kvmi_msg_hdr hdr;
+	struct {
+		struct kvmi_event common;
+		struct kvmi_event_cmd_error cmd_error;
+	} ev;
+	struct kvec vec[] = {
+		{.iov_base = &hdr, .iov_len = sizeof(hdr)},
+		{.iov_base = &ev,  .iov_len = sizeof(ev) },
+	};
+	size_t msg_size = sizeof(hdr) + sizeof(ev);
+	size_t n = ARRAY_SIZE(vec);
+
+	memset(&hdr, 0, sizeof(hdr));
+	hdr.id = KVMI_EVENT;
+	hdr.seq = new_seq(kvmi);
+	hdr.size = msg_size - sizeof(hdr);
+
+	memset(&ev, 0, sizeof(ev));
+	kvmi_setup_event_common(&ev.common, KVMI_EVENT_CMD_ERROR, 0);
+	ev.cmd_error.msg_id = msg->id;
+	ev.cmd_error.msg_seq = msg->seq;
+	ev.cmd_error.err = ec;
+
+	return kvmi_sock_write(kvmi, vec, n, msg_size);
 }

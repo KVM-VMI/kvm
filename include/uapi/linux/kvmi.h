@@ -54,6 +54,7 @@ enum {
 	KVMI_VM_SET_PAGE_SVE = 29,
 
 	KVMI_VM_GET_MAP_TOKEN = 30,
+	KVMI_VM_CONTROL_CMD_RESPONSE = 31,
 
 	KVMI_NUM_MESSAGES
 };
@@ -71,6 +72,7 @@ enum {
 	KVMI_EVENT_PF          = 9,
 	KVMI_EVENT_SINGLESTEP  = 10,
 	KVMI_EVENT_CREATE_VCPU = 11,
+	KVMI_EVENT_CMD_ERROR   = 12,
 
 	KVMI_NUM_EVENTS
 };
@@ -246,6 +248,21 @@ struct kvmi_mem_map {
 
 struct kvmi_vm_get_map_token_reply {
 	struct kvmi_map_mem_token token;
+};
+
+struct kvmi_vm_control_cmd_response {
+	__u8 enable;
+	__u8 now;
+	__u8 flags;
+	__u8 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_event_cmd_error {
+	__s32 err;
+	__u32 msg_seq;
+	__u16 msg_id;
+	__u16 padding[3];
 };
 
 /*

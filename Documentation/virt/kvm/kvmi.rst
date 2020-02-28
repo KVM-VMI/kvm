@@ -1263,6 +1263,76 @@ demand (using the KVM_INTRO_MEM_UNMAP ioctl).
 * -KVM_EAGAIN - too many tokens have accumulated
 * -KVM_ENOMEM - not enough memory to allocate a new token
 
+26. KVMI_VM_CONTROL_CMD_RESPONSE
+--------------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_control_cmd_response {
+		__u8 enable;
+		__u8 now;
+		__u8 flags;
+		__u8 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables or disables the command replies.
+
+By default, a reply is sent for any introspection commands (`enable=1`).
+
+If `now` is 1, the command reply is enabled/disabled (according to
+`enable`) starting with the current command. For example, `enable=0` and
+`now=1` means that the reply is disabled for this command too, while
+`enable=0` and `now=0` means that the reply is disabled starting with
+the next command.
+
+This command is used by the introspection tool to disable the replies
+for commands returning an error code only (eg. *KVMI_VCPU_SET_REGISTERS*)
+when an error is less likely to happen. For example, the following
+commands can be used to reply to an event with a single `write()` call
+and without waiting for a reply:
+
+	KVMI_VM_CONTROL_CMD_RESPONSE enable=0 now=1
+	KVMI_VCPU_SET_REGISTERS vcpu=N
+	KVMI_EVENT_REPLY        vcpu=N
+	KVMI_VM_CONTROL_CMD_RESPONSE enable=1 now=0
+
+The following commands can be used to pause all vCPUs:
+
+	KVMI_VM_CONTROL_CMD_RESPONSE enable=0 now=1
+	KVMI_VCPU_PAUSE vcpu=0
+	KVMI_VCPU_PAUSE_VCPU vcpu=1
+	...
+	KVMI_VM_CONTROL_CMD_RESPONSE enable=1 now=1
+
+Waiting a reply for the last *KVMI_VM_CONTROL_CMD_RESPONSE* guarantees
+that all vCPUs are kicked out of guest once the reply is received.
+
+If `flags` has the LSB set to `1` and the command reply is disabled
+(`enable=0`), an *KVMI_EVENT_CMD_ERROR* event will be sent when a
+command fails.
+
+When the command reply is disabled, the socket will be closed:
+
+* on any command for which the reply should contain more than just an
+  error code (eg. *KVMI_VCPU_GET_REGISTERS*)
+
+* on any unsupported/unknown or disallowed commands
+
+* if the *KVMI_EVENT_CMD_ERROR* event is disallowed by userspace and
+  the introspection tool disables the command replies with the LSB from
+  `flag` set to 1
+
 Events
 ======
 
@@ -1271,8 +1341,9 @@ using the *KVMI_EVENT* message id. No event will be sent unless
 it is explicitly enabled (see *KVMI_VM_CONTROL_EVENTS* and *KVMI_VCPU_CONTROL_EVENTS*)
 or requested (eg. *KVMI_EVENT_PAUSE_VCPU*).
 
-The *KVMI_EVENT_UNHOOK* event doesn't have a reply and share the kvmi_event
-structure, for consistency with the vCPU events.
+There are two VM events (*KVMI_EVENT_UNHOOK*, *KVMI_EVENT_CMD_ERROR*),
+which doesn't have a reply, but share the kvmi_event structure, for
+consistency with the vCPU events.
 
 The message data begins with a common structure, having the size of the
 structure, the vCPU index and the event id::
@@ -1720,3 +1791,27 @@ singlestep failed and the introspection has been enabled for this event
 
 This event is sent when a new vCPU is created and the introspection has
 been enabled for this event (see *KVMI_VM_CONTROL_EVENTS*).
+
+13. KVMI_EVENT_CMD_ERROR
+------------------------
+
+:Architecture: all
+:Versions: >= 1
+:Actions: none
+:Parameters:
+
+::
+
+	struct kvmi_event;
+	struct kvmi_event_cmd_error {
+		__s32 err;
+		__u32 msg_seq;
+		__u16 msg_id;
+		__u16 padding[3];
+	};
+
+:Returns: none
+
+This event is sent when the an introspection command fails while the
+replies are disabled, but the introspection tool requested to be
+notified on failures (see `flag` from *KVMI_VM_CONTROL_CMD_RESPONSE*).
