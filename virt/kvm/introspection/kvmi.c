@@ -27,6 +27,8 @@ static void kvmi_track_create_slot(struct kvm *kvm,
 static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
 				  struct kvm_page_track_notifier_node *node);
 static void kvmi_create_vcpu_event(struct kvm_vcpu *vcpu);
+static int kvmi_get_gfn_access(struct kvm_introspection *kvmi, const gfn_t gfn,
+			       u8 *access, u32 *write_bitmap, u16 view);
 
 static struct kmem_cache *msg_cache;
 static struct kmem_cache *job_cache;
@@ -38,6 +40,7 @@ static const u8 rwx_access = KVMI_PAGE_ACCESS_R |
 static const u8 full_access = KVMI_PAGE_ACCESS_R |
 			     KVMI_PAGE_ACCESS_W |
 			     KVMI_PAGE_ACCESS_X | KVMI_PAGE_SVE;
+static const u32 default_write_bitmap;
 
 void *kvmi_msg_alloc(void)
 {
@@ -1129,6 +1132,7 @@ static void kvmi_set_mem_access(struct kvm *kvm, struct kvmi_mem_access *m,
 
 	found = __kvmi_get_gfn_access(kvmi, m->gfn, view);
 	if (found) {
+		found->write_bitmap = m->write_bitmap;
 		found->access = (m->access & mask) | (found->access & ~mask);
 		kvmi_update_mem_access(kvm, found, view);
 	} else {
@@ -1142,7 +1146,7 @@ static void kvmi_set_mem_access(struct kvm *kvm, struct kvmi_mem_access *m,
 }
 
 static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access,
-			       u16 view)
+			       u32 write_bitmap, u16 view)
 {
 	struct kvmi_mem_access *m;
 	bool done = false;
@@ -1154,6 +1158,7 @@ static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access,
 
 	m->gfn = gfn;
 	m->access = access;
+	m->write_bitmap = write_bitmap;
 
 	if (radix_tree_preload(GFP_KERNEL))
 		err = -KVM_ENOMEM;
@@ -1171,22 +1176,29 @@ static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access,
 int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa, u8 access,
 			     u16 view)
 {
+	u32 write_bitmap = default_write_bitmap;
 	gfn_t gfn = gpa_to_gfn(gpa);
+	u8 ignored_access;
 
-	return kvmi_set_gfn_access(kvmi->kvm, gfn, access, view);
+	kvmi_get_gfn_access(kvmi, gfn, &ignored_access, &write_bitmap, view);
+
+	return kvmi_set_gfn_access(kvmi->kvm, gfn, access, write_bitmap, view);
 }
 
 static int kvmi_get_gfn_access(struct kvm_introspection *kvmi, const gfn_t gfn,
-			       u8 *access, u16 view)
+			       u8 *access, u32 *write_bitmap, u16 view)
 {
 	struct kvmi_mem_access *m;
 	u8 allowed = rwx_access;
+	u32 bitmap;
 	bool restricted;
 
 	read_lock(&kvmi->access_tree_lock);
 	m = __kvmi_get_gfn_access(kvmi, gfn, view);
-	if (m)
+	if (m) {
 		allowed = m->access;
+		bitmap = m->write_bitmap;
+	}
 	read_unlock(&kvmi->access_tree_lock);
 
 	restricted = (allowed & rwx_access) != rwx_access;
@@ -1195,16 +1207,28 @@ static int kvmi_get_gfn_access(struct kvm_introspection *kvmi, const gfn_t gfn,
 		return -1;
 
 	*access = allowed;
+	*write_bitmap = bitmap;
+
 	return 0;
+}
+
+static bool spp_access_allowed(gpa_t gpa, unsigned long bitmap)
+{
+	u32 off = (gpa & ~PAGE_MASK);
+	u32 spp = off / 128;
+
+	return test_bit(spp, &bitmap);
 }
 
 static bool kvmi_restricted_access(struct kvm_introspection *kvmi, gpa_t gpa,
 				   u8 access, u16 view)
 {
+	u32 allowed_bitmap;
 	u8 allowed_access;
 	int err;
 
-	err = kvmi_get_gfn_access(kvmi, gpa_to_gfn(gpa), &allowed_access, view);
+	err = kvmi_get_gfn_access(kvmi, gpa_to_gfn(gpa), &allowed_access,
+				  &allowed_bitmap, view);
 
 	if (err)
 		return false;
@@ -1213,8 +1237,14 @@ static bool kvmi_restricted_access(struct kvm_introspection *kvmi, gpa_t gpa,
 	 * We want to be notified only for violations involving access
 	 * bits that we've specifically cleared
 	 */
-	if (access & (~allowed_access))
+	if ((~allowed_access) & access) {
+		bool write_access = (access & KVMI_PAGE_ACCESS_W);
+
+		if (write_access && spp_access_allowed(gpa, allowed_bitmap))
+			return false;
+
 		return true;
+	}
 
 	return false;
 }
@@ -1576,6 +1606,7 @@ void kvmi_stop_singlestep_insn(struct kvm_vcpu *vcpu)
 		kvmi_set_gfn_access(kvm,
 				    kvmi->singlestep.backup[l].gfn,
 				    kvmi->singlestep.backup[l].old_access,
+				    kvmi->singlestep.backup[l].old_write_bitmap,
 				    kvm_get_ept_view(vcpu));
 
 	kvmi->singlestep.level = 0;
@@ -1636,10 +1667,12 @@ EXPORT_SYMBOL(kvmi_singlestep_failed);
 static bool __kvmi_tracked_gfn(struct kvm_introspection *kvmi, gfn_t gfn,
 			       u16 view)
 {
+	u32 ignored_write_bitmap;
 	u8 ignored_access;
 	int err;
 
-	err = kvmi_get_gfn_access(kvmi, gfn, &ignored_access, view);
+	err = kvmi_get_gfn_access(kvmi, gfn, &ignored_access,
+				  &ignored_write_bitmap, view);
 
 	return !err;
 }
@@ -1800,6 +1833,7 @@ static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 	u8 l = kvmi->singlestep.level;
 	gfn_t gfn = gpa_to_gfn(gpa);
 	u8 old_access, new_access;
+	u32 old_write_bitmap;
 	u16 view;
 	int err;
 
@@ -1812,7 +1846,8 @@ static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 	}
 
 	view = kvm_get_ept_view(vcpu);
-	err = kvmi_get_gfn_access(kvmi, gfn, &old_access, view);
+	err = kvmi_get_gfn_access(kvmi, gfn, &old_access, &old_write_bitmap,
+				  view);
 	/* likely was removed from radix tree due to rwx */
 	if (err) {
 		kvmi_warn_once(kvmi,
@@ -1828,11 +1863,13 @@ static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 
 	kvmi->singlestep.backup[l].gfn = gfn;
 	kvmi->singlestep.backup[l].old_access = old_access;
+	kvmi->singlestep.backup[l].old_write_bitmap = old_write_bitmap;
 	kvmi->singlestep.level++;
 
 	new_access = kvmi_arch_relax_page_access(old_access, access);
 
-	kvmi_set_gfn_access(vcpu->kvm, gfn, new_access, view);
+	kvmi_set_gfn_access(vcpu->kvm, gfn, new_access, default_write_bitmap,
+			    view);
 
 	return true;
 }
@@ -1864,6 +1901,7 @@ static bool __kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 {
 	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
 	u8 allowed_access, pf_access;
+	u32 ignored_write_bitmap;
 	gfn_t gfn = gpa_to_gfn(gpa);
 	int err;
 
@@ -1871,6 +1909,7 @@ static bool __kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 		return false;
 
 	err = kvmi_get_gfn_access(kvmi, gfn, &allowed_access,
+				  &ignored_write_bitmap,
 				  kvm_get_ept_view(vcpu));
 	if (err)
 		return false;

@@ -95,6 +95,7 @@ struct kvm_introspection {
 		struct {
 			gfn_t gfn;
 			u8 old_access;
+			u32 old_write_bitmap;
 		} backup[SINGLESTEP_MAX_DEPTH];
 		u8 level;
 		struct kvmi_custom_ro_data custom_ro_data;

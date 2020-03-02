@@ -79,6 +79,7 @@
 struct kvmi_mem_access {
 	gfn_t gfn;
 	u8 access;
+	u32 write_bitmap;
 	struct kvmi_arch_mem_access arch;
 };
 
