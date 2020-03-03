@@ -1210,7 +1210,8 @@ int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 	if (!is_valid_view(req->view))
 		return -KVM_EINVAL;
 
-	if (req->view != 0 && !kvm_eptp_switching_supported)
+	if (req->view != 0 &&
+	   (!kvm_eptp_switching_supported || kvmi_spp_enabled(kvmi)))
 		return -KVM_EOPNOTSUPP;
 
 	for (; entry < end; entry++) {
@@ -1411,8 +1412,24 @@ int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu)
 	return kvm_x86_ops->disable_ve(vcpu);
 }
 
+/* TODO: we should return false if any vCPU has a non-zero EPT view visible */
+static bool all_vcpus_on_view_zero(struct kvm *kvm)
+{
+	struct kvm_vcpu *vcpu;
+	int i;
+
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		if (kvm_get_ept_view(vcpu) != 0)
+			return false;
+
+	return true;
+}
+
 int kvmi_arch_cmd_control_spp(struct kvm *kvm)
 {
+	if (!all_vcpus_on_view_zero(kvm))
+		return -1;
+
 	return spp_init(kvm);
 }
 

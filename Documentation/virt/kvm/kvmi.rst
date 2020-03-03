@@ -950,6 +950,7 @@ In order to 'forget' an address, all the access bits ('rwx') must be set.
 * -KVM_EINVAL - padding is not zero
 * -KVM_EINVAL - the message size is invalid
 * -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
+* -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
 
@@ -1082,6 +1083,7 @@ EPTP switching mechanism (see **KVMI_GET_VERSION**).
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_EINVAL - padding is not zero
 * -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
+* -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EINVAL - the selected EPT view is invalid
 
 24. KVMI_VCPU_CONTROL_EPT_VIEW
@@ -1120,6 +1122,8 @@ is terminated.
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_EINVAL - padding is not zero
 * -KVM_EINVAL - the selected EPT view is not valid
+* -KVM_EOPNOTSUPP - SPP is enabled for this VM
+* -KVM_EOPNOTSUPP - a non-zero EPT view was made visible but SPP is enabled for this VM
 
 25. KVMI_VCPU_SET_VE_INFO
 -------------------------
@@ -1367,6 +1371,7 @@ will fail.
 * -KVM_EINVAL - padding is not zero
 * -KVM_EOPNOTSUPP - the hardware doesn't support SPP
 * -KVM_EOPNOTSUPP - the current implementation can't disable SPP
+* -KVM_EOPNOTSUPP - at least one vCPU is running on a non-zero EPT-view
 
 Events
 ======

@@ -807,6 +807,8 @@ static int handle_vcpu_set_ept_view(const struct kvmi_vcpu_cmd_job *job,
 		ec = -KVM_EINVAL;
 	else if (!kvm_eptp_switching_supported)
 		ec = -KVM_EOPNOTSUPP;
+	else if (req->view && kvmi_spp_enabled(KVMI(job->vcpu->kvm)))
+		ec = -KVM_EOPNOTSUPP;
 	else
 		ec = kvmi_arch_cmd_set_ept_view(job->vcpu, req->view);
 
@@ -824,6 +826,9 @@ static int handle_vcpu_control_ept_view(const struct kvmi_vcpu_cmd_job *job,
 		ec = -KVM_EINVAL;
 	else if (!is_valid_view(req->view))
 		ec = -KVM_EINVAL;
+	else if (req->view && req->visible &&
+	    kvmi_spp_enabled(KVMI(job->vcpu->kvm)))
+		ec = -KVM_EOPNOTSUPP;
 	else
 		ec = kvmi_arch_cmd_control_ept_view(job->vcpu, req->view,
 						    req->visible);

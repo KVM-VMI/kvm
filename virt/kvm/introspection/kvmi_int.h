@@ -98,6 +98,11 @@ static inline bool is_valid_view(unsigned short view)
 	return (view < KVM_MAX_EPT_VIEWS);
 }
 
+static inline bool kvmi_spp_enabled(struct kvm_introspection *kvmi)
+{
+	return READ_ONCE(kvmi->arch.spp.enabled);
+}
+
 /* kvmi_msg.c */
 bool kvmi_sock_get(struct kvm_introspection *kvmi, int fd);
 void kvmi_sock_shutdown(struct kvm_introspection *kvmi);
