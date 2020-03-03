@@ -1433,3 +1433,49 @@ int kvmi_arch_cmd_control_spp(struct kvm *kvm)
 	return spp_init(kvm);
 }
 
+int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,
+				const struct kvmi_msg_hdr *msg,
+				const struct kvmi_vm_set_page_write_bitmap *req)
+{
+	u16 k, n = req->count;
+	int ec = 0;
+
+	if (req->padding1 || req->padding2)
+		return -KVM_EINVAL;
+
+	if (msg->size < struct_size(req, entries, req->count))
+		return -KVM_EINVAL;
+
+	if (!kvmi_spp_enabled(kvmi))
+		return -KVM_EOPNOTSUPP;
+
+	for (k = 0; k < n; k++) {
+		u64 gpa = req->entries[k].gpa;
+		u32 bitmap = req->entries[k].bitmap;
+		int r;
+
+		r = kvmi_cmd_set_page_write_bitmap(kvmi, gpa, bitmap);
+
+		if (!ec && r)
+			ec = r;
+	}
+
+	return ec;
+}
+
+/*
+ * Only try to set SPP bitmap when the page is writable.
+ * Be careful, kvm_mmu_set_subpages() will enable page write-protection
+ * by default when set SPP bitmap. If bitmap contains all 1s, it'll
+ * make the page writable by default too.
+ */
+int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m)
+{
+	if (m->access & KVMI_PAGE_ACCESS_W)
+		return 0;
+
+	if (!kvmi_spp_enabled(KVMI(kvm)))
+		return 0;
+
+	return kvm_vm_ioctl_set_subpages(kvm, m->gfn, 1, &m->write_bitmap);
+}

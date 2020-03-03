@@ -192,4 +192,17 @@ struct kvmi_vm_control_spp {
 	__u32 padding3;
 };
 
+struct kvmi_page_write_bitmap_entry {
+	__u64 gpa;
+	__u32 bitmap;
+	__u32 padding;
+};
+
+struct kvmi_vm_set_page_write_bitmap {
+	__u16 count;
+	__u16 padding1;
+	__u32 padding2;
+	struct kvmi_page_write_bitmap_entry entries[0];
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

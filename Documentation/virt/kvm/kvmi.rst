@@ -1373,6 +1373,71 @@ will fail.
 * -KVM_EOPNOTSUPP - the current implementation can't disable SPP
 * -KVM_EOPNOTSUPP - at least one vCPU is running on a non-zero EPT-view
 
+28. KVMI_VM_SET_PAGE_WRITE_BITMAP
+---------------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_set_page_write_bitmap {
+		__u16 count;
+		__u16 padding1;
+		__u32 padding2;
+		struct kvmi_page_write_bitmap_entry entries[0];
+	};
+
+where::
+
+	struct kvmi_page_write_bitmap_entry {
+		__u64 gpa;
+		__u32 bitmap;
+		__u32 padding;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Sets the subpage protection (SPP) write bitmap for an array of ``count``
+guest physical addresses of 4KB bytes.
+
+The command will try to apply all changes and return the first error if
+some failed. The introspection tool should handle the rollback.
+
+While the *KVMI_VM_SET_PAGE_ACCESS* command can be used to write-protect a
+4KB page, this command can write-protect 128-bytes subpages inside of a
+4KB page by setting the corresponding bit to 1 (write allowed) or to 0
+(write disallowed). For example, to allow write access to the A and B
+subpages only, the bitmap must be set to::
+
+	BIT(A) | BIT(B)
+
+A and B must be a number between 0 (first subpage) and 31 (last subpage).
+
+Using this command to set all bits to 1 (allow write access for
+all subpages) will allow write access to the whole 4KB page (like a
+*KVMI_VM_SET_PAGE_ACCESS* command with the *KVMI_PAGE_ACCESS_W* flag set)
+and vice versa.
+
+Using this command to set any bit to 0 will write-protect the whole 4KB
+page (like a *KVMI_VM_SET_PAGE_ACCESS* command with the *KVMI_PAGE_ACCESS_W*
+flag cleared) and allow write access only for subpages with the
+corresponding bit set to 1.
+
+:Errors:
+
+* -KVM_EINVAL - the selected SPT view is invalid
+* -KVM_EOPNOTSUPP - a SPT view was selected but the hardware doesn't support it
+* -KVM_EOPNOTSUPP - the hardware doesn't support SPP or hasn't been enabled
+* -KVM_EINVAL - the write access is already allowed for the whole 4KB page
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_ENOMEM - not enough memory to add the page tracking structures
+
 Events
 ======
 

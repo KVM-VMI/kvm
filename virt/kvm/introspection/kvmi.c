@@ -1162,6 +1162,8 @@ static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access,
 
 	if (radix_tree_preload(GFP_KERNEL))
 		err = -KVM_ENOMEM;
+	else if (kvmi_arch_set_subpage_access(kvm, m))
+		err = -KVM_ENOMEM;
 	else
 		kvmi_set_mem_access(kvm, m, rwx_access, view, &done);
 
@@ -1980,4 +1982,24 @@ static void kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu->kvm, action, "CREATE");
 	}
+}
+
+int kvmi_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi, u64 gpa,
+				   u32 write_bitmap)
+{
+	gfn_t gfn = gpa_to_gfn(gpa);
+	bool write_allowed_for_all;
+	u32 ignored_write_bitmap;
+	u8 access = rwx_access;
+	u16 view = 0;
+
+	kvmi_get_gfn_access(kvmi, gfn, &access, &ignored_write_bitmap, view);
+
+	write_allowed_for_all = (write_bitmap == (u32)((1ULL << 32) - 1));
+	if (write_allowed_for_all)
+		access |= KVMI_PAGE_ACCESS_W;
+	else
+		access &= ~KVMI_PAGE_ACCESS_W;
+
+	return kvmi_set_gfn_access(kvmi->kvm, gfn, access, write_bitmap, view);
 }

@@ -154,6 +154,8 @@ int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa,
 int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress);
 int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token);
 unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn);
+int kvmi_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi, u64 gpa,
+					u32 bitmap);
 
 /* arch */
 bool kvmi_arch_vcpu_alloc(struct kvm_vcpu *vcpu);
@@ -212,6 +214,10 @@ int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
 			      bool trigger_vmexit);
 int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_control_spp(struct kvm *kvm);
+int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,
+			const struct kvmi_msg_hdr *msg,
+			const struct kvmi_vm_set_page_write_bitmap *req);
+int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m);
 
 /* kvmi_mem.c */
 void kvmi_mem_init(void);
