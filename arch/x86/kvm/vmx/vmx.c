@@ -1620,6 +1620,8 @@ static void vmx_queue_exception(struct kvm_vcpu *vcpu)
 	u32 error_code = vcpu->arch.exception.error_code;
 	u32 intr_info = nr | INTR_INFO_VALID_MASK;
 
+	trace_kvm_inj_exception(vcpu);
+
 	kvm_deliver_exception_payload(vcpu);
 
 	if (has_error_code) {
@@ -4646,7 +4648,7 @@ static void vmx_inject_irq(struct kvm_vcpu *vcpu)
 	uint32_t intr;
 	int irq = vcpu->arch.interrupt.nr;
 
-	trace_kvm_inj_virq(irq);
+	trace_kvm_inj_interrupt(vcpu);
 
 	++vcpu->stat.irq_injections;
 	if (vmx->rmode.vm86_active) {
@@ -4671,6 +4673,8 @@ static void vmx_inject_irq(struct kvm_vcpu *vcpu)
 static void vmx_inject_nmi(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+
+	trace_kvm_inj_nmi(vcpu);
 
 	if (!enable_vnmi) {
 		/*
@@ -6305,14 +6309,14 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu)
 	u32 exit_reason = vmx->exit_reason;
 	u32 vectoring_info = vmx->idt_vectoring_info;
 
-	trace_kvm_exit(exit_reason, vcpu, KVM_ISA_VMX);
-
 	if (vmx->eptp_list_pg) {
 		unsigned int view = update_ept_view(vmx);
 		struct kvm_mmu *mmu = vcpu->arch.mmu;
 
 		mmu->root_hpa = mmu->root_hpa_altviews[view];
 	}
+
+	trace_kvm_exit(exit_reason, vcpu, vmx->view, KVM_ISA_VMX);
 
 	/*
 	 * Flush logged GPAs PML buffer, this will make dirty_bitmap more
@@ -6871,6 +6875,8 @@ static void vmx_complete_interrupts(struct vcpu_vmx *vmx)
 
 static void vmx_cancel_injection(struct kvm_vcpu *vcpu)
 {
+	trace_kvm_cancel_inj(vcpu);
+
 	__vmx_complete_interrupts(vcpu,
 				  vmcs_read32(VM_ENTRY_INTR_INFO_FIELD),
 				  VM_ENTRY_INSTRUCTION_LEN,
