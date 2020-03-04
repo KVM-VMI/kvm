@@ -428,8 +428,12 @@ static int kvmi_recv_thread(void *arg)
 {
 	struct kvm_introspection *kvmi = arg;
 
+	kvmi_info(kvmi, "Hooking VM\n");
+
 	while (kvmi_msg_process(kvmi))
 		;
+
+	kvmi_info(kvmi, "Unhooking VM\n");
 
 	/*
 	 * Signal userspace (which might wait for POLLHUP only)

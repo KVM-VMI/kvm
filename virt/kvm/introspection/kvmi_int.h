@@ -4,6 +4,8 @@
 
 #include <linux/kvm_host.h>
 
+#define kvmi_info(kvmi, fmt, ...) \
+	kvm_info("%pU " fmt, &kvmi->uuid, ## __VA_ARGS__)
 #define kvmi_warn(kvmi, fmt, ...) \
 	kvm_info("%pU WARNING: " fmt, &kvmi->uuid, ## __VA_ARGS__)
 #define kvmi_warn_once(kvmi, fmt, ...) ({                     \
