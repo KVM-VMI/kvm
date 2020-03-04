@@ -421,6 +421,7 @@ static void test_cmd_get_version(void)
 	DEBUG("\tvmfunc: %u\n", features.vmfunc);
 	DEBUG("\teptp: %u\n", features.eptp);
 	DEBUG("\tve: %u\n", features.ve);
+	DEBUG("\tspp: %u\n", features.spp);
 }
 
 static int cmd_check_command(__u16 id)

@@ -8,6 +8,7 @@
 #include "linux/kvm_host.h"
 #include "x86.h"
 #include "cpuid.h"
+#include "spp.h"
 #include "../../../virt/kvm/introspection/kvmi_int.h"
 
 static unsigned int kvmi_vcpu_mode(const struct kvm_vcpu *vcpu,
@@ -1267,7 +1268,7 @@ bool kvmi_arch_pf_event(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	return ret;
 }
 
-void kvmi_arch_features(struct kvmi_features *feat)
+void kvmi_arch_features(struct kvm *kvm, struct kvmi_features *feat)
 {
 	feat->singlestep = !!kvm_x86_ops->control_singlestep;
 	feat->vmfunc = kvm_x86_ops->get_vmfunc_status &&
@@ -1276,6 +1277,18 @@ void kvmi_arch_features(struct kvmi_features *feat)
 			kvm_x86_ops->get_eptp_switching_status();
 	feat->ve = kvm_x86_ops->get_ve_status &&
 			kvm_x86_ops->get_ve_status();
+	if (kvm_x86_ops->get_spp_status) {
+		struct kvm_vcpu *vcpu;
+		u32 status;
+		u32 mask;
+
+		vcpu = kvm_get_vcpu(kvm, 0);
+		status = kvm_x86_ops->get_spp_status(vcpu);
+		mask = SPP_STATUS_VMX_SUPPORT | SPP_STATUS_EPT_SUPPORT;
+		feat->spp = (status & mask) == mask;
+	} else {
+		feat->spp = false;
+	}
 }
 
 bool kvmi_arch_pf_of_interest(struct kvm_vcpu *vcpu)
