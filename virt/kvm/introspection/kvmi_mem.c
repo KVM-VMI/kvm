@@ -23,6 +23,7 @@
 #include <linux/remote_mapping.h>
 
 #include <uapi/linux/kvmi.h>
+#include <trace/events/kvmi.h>
 
 #include "kvmi_int.h"
 
@@ -221,6 +222,8 @@ int kvmi_host_mem_map(struct kvm_vcpu *vcpu, gva_t tkn_gva,
 	}
 	req_mm = target_kvm->mm;
 
+	trace_kvmi_mem_map(target_kvm, req_gpa, map_gpa);
+
 	/* translate source addresses */
 	req_gfn = gpa_to_gfn(req_gpa);
 	req_hva = gfn_to_hva_safe(target_kvm, req_gfn);
@@ -269,6 +272,8 @@ int kvmi_host_mem_unmap(struct kvm_vcpu *vcpu, gpa_t map_gpa)
 	int result;
 
 	kvm_debug("kvmi: unmapping request for map_gpa %016llx\n", map_gpa);
+
+	trace_kvmi_mem_unmap(map_gpa);
 
 	/* convert GPA -> HVA */
 	map_gfn = gpa_to_gfn(map_gpa);

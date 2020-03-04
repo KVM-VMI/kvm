@@ -8,6 +8,8 @@
 #include <linux/net.h>
 #include "kvmi_int.h"
 
+#include <trace/events/kvmi.h>
+
 static int kvmi_msg_send_cmd_error(struct kvm_introspection *kvmi,
 				   const struct kvmi_msg_hdr *msg,
 				   int ec);
@@ -180,6 +182,8 @@ static int kvmi_msg_vm_reply(struct kvm_introspection *kvmi,
 		return 0;
 	}
 
+	trace_kvmi_vm_reply(msg->id, msg->seq, err);
+
 	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
 }
 
@@ -196,6 +200,8 @@ static int kvmi_msg_vcpu_reply(const struct kvmi_vcpu_cmd_job *job,
 			return kvmi_msg_send_cmd_error(kvmi, msg, err);
 		return 0;
 	}
+
+	trace_kvmi_vcpu_reply(job->vcpu->vcpu_id, msg->id, msg->seq, err);
 
 	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
 }
@@ -570,6 +576,8 @@ static int handle_event_reply(const struct kvmi_vcpu_cmd_job *job,
 	struct kvmi_vcpu_reply *expected = &vcpui->reply;
 	const struct kvmi_event_reply *reply = rpl;
 	size_t useful, received, common;
+
+	trace_kvmi_event_reply(reply->event, msg->seq);
 
 	if (unlikely(msg->seq != expected->seq))
 		goto out_wakeup;
@@ -1022,6 +1030,8 @@ out_err:
 static int kvmi_msg_dispatch_vm_cmd(struct kvm_introspection *kvmi,
 				    const struct kvmi_msg_hdr *msg)
 {
+	trace_kvmi_vm_command(msg->id, msg->seq);
+
 	return msg_vm[msg->id](kvmi, msg, msg + 1);
 }
 
@@ -1053,6 +1063,8 @@ static int kvmi_msg_dispatch_vcpu_job(struct kvm_introspection *kvmi,
 	struct kvmi_msg_hdr *hdr = &job->msg->hdr;
 	struct kvm_vcpu *vcpu = NULL;
 	int err;
+
+	trace_kvmi_vcpu_command(cmd->vcpu, hdr->id, hdr->seq);
 
 	if (invalid_vcpu_hdr(cmd))
 		return -KVM_EINVAL;
@@ -1199,6 +1211,8 @@ int kvmi_msg_send_unhook(struct kvm_introspection *kvmi)
 
 	kvmi_setup_event_common(&common, KVMI_EVENT_UNHOOK, 0);
 
+	trace_kvmi_event(0, common.event, hdr.seq);
+
 	return kvmi_sock_write(kvmi, vec, n, msg_size);
 }
 
@@ -1251,6 +1265,8 @@ int __kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
 	vcpui->reply.data = rpl;
 	vcpui->reply.size = rpl_size;
 	vcpui->reply.error = -EINTR;
+
+	trace_kvmi_event(vcpu->vcpu_id, common.event, hdr.seq);
 
 	err = kvmi_sock_write(kvmi, vec, n, msg_size);
 	if (err)
@@ -1412,6 +1428,8 @@ static int kvmi_msg_send_cmd_error(struct kvm_introspection *kvmi,
 	ev.cmd_error.msg_id = msg->id;
 	ev.cmd_error.msg_seq = msg->seq;
 	ev.cmd_error.err = ec;
+
+	trace_kvmi_event(0, ev.common.event, hdr.seq);
 
 	return kvmi_sock_write(kvmi, vec, n, msg_size);
 }

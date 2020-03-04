@@ -10,6 +10,9 @@
 #include <linux/kthread.h>
 #include <linux/remote_mapping.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/kvmi.h>
+
 #define MAX_PAUSE_REQUESTS 1001
 
 static bool kvmi_track_preread(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
@@ -894,6 +897,8 @@ static void kvmi_vcpu_pause_event(struct kvm_vcpu *vcpu)
 
 	atomic_dec(&vcpui->pause_requests);
 
+	trace_kvmi_event_pause_vcpu_send(vcpu->vcpu_id);
+
 	action = kvmi_msg_send_vcpu_pause(vcpu);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -901,6 +906,8 @@ static void kvmi_vcpu_pause_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu->kvm, action, "PAUSE");
 	}
+
+	trace_kvmi_event_pause_vcpu_recv(vcpu->vcpu_id, action);
 }
 
 void kvmi_send_pending_event(struct kvm_vcpu *vcpu)
@@ -1532,6 +1539,8 @@ static void kvmi_singlestep_event(struct kvm_vcpu *vcpu, bool success)
 	if (!is_event_enabled(vcpu, KVMI_EVENT_SINGLESTEP))
 		return;
 
+	trace_kvmi_event_singlestep_send(vcpu->vcpu_id);
+
 	action = kvmi_send_singlestep(vcpu, success);
 	switch (action) {
 	case KVMI_EVENT_ACTION_CONTINUE:
@@ -1540,6 +1549,8 @@ static void kvmi_singlestep_event(struct kvm_vcpu *vcpu, bool success)
 		kvmi_handle_common_event_actions(vcpu->kvm, action,
 						"SINGLESTEP");
 	}
+
+	trace_kvmi_event_singlestep_recv(vcpu->vcpu_id, action);
 }
 
 static int restore_original_page_content(struct kvm_vcpu *vcpu, gva_t gva,
@@ -1624,6 +1635,8 @@ void kvmi_stop_singlestep_insn(struct kvm_vcpu *vcpu)
 	kvm_make_all_cpus_request(kvm, 0);
 
 	vcpui->singlestep.owner = false;
+
+	trace_kvmi_stop_singlestep(vcpu->vcpu_id);
 
 	kvmi_arch_stop_singlestep(vcpu);
 }
@@ -1839,6 +1852,9 @@ static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 	u16 view;
 	int err;
 
+	trace_kvmi_run_singlestep(vcpu, gpa, access, l,
+				  VCPUI(vcpu)->custom_ro_data.size);
+
 	kvmi_arch_start_singlestep(vcpu);
 
 	err = write_custom_data(vcpu);
@@ -1974,6 +1990,8 @@ static void kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 {
 	u32 action;
 
+	trace_kvmi_event_create_vcpu_send(vcpu->vcpu_id);
+
 	action = kvmi_msg_send_create_vcpu(vcpu);
 
 	switch (action) {
@@ -1982,6 +2000,8 @@ static void kvmi_create_vcpu_event(struct kvm_vcpu *vcpu)
 	default:
 		kvmi_handle_common_event_actions(vcpu->kvm, action, "CREATE");
 	}
+
+	trace_kvmi_event_create_vcpu_recv(vcpu->vcpu_id, action);
 }
 
 int kvmi_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi, u64 gpa,
