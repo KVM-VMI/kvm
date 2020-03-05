@@ -86,7 +86,9 @@ struct kvmi_event_cr_reply {
 };
 
 struct kvmi_event_trap {
-	__u32 vector;
+	__u8 vector;
+	__u8 padding1;
+	__u16 padding2;
 	__u32 error_code;
 	__u64 cr2;
 };
@@ -142,11 +144,11 @@ struct kvmi_event_msr_reply {
 };
 
 struct kvmi_features {
-	__u8 singlestep;
+	__u8 spp;
 	__u8 vmfunc;
 	__u8 eptp;
 	__u8 ve;
-	__u8 spp;
+	__u8 singlestep;
 	__u8 padding[3];
 };
 
@@ -199,8 +201,8 @@ struct kvmi_page_write_bitmap_entry {
 };
 
 struct kvmi_vm_set_page_write_bitmap {
-	__u16 count;
 	__u16 padding1;
+	__u16 count;
 	__u32 padding2;
 	struct kvmi_page_write_bitmap_entry entries[0];
 };

@@ -1383,8 +1383,8 @@ will fail.
 ::
 
 	struct kvmi_vm_set_page_write_bitmap {
-		__u16 count;
 		__u16 padding1;
+		__u16 count;
 		__u32 padding2;
 		struct kvmi_page_write_bitmap_entry entries[0];
 	};
@@ -1810,11 +1810,11 @@ sent to the introspection tool. The *CONTINUE* action will set the ``new_val``.
 	struct kvmi_vcpu_hdr;
 	struct kvmi_event_reply;
 	struct kvmi_event_pf_reply {
-		__u8 rep_complete;
-		__u8 padding1;
-		__u16 padding2;
-		__u32 ctx_size;
 		__u64 ctx_addr;
+		__u32 ctx_size;
+		__u8 padding1;
+		__u8 rep_complete;
+		__u16 padding2;
 		__u8 ctx_data[256];
 	};
 
