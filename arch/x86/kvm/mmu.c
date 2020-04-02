@@ -4401,9 +4401,6 @@ static bool page_fault_handle_page_track(struct kvm_vcpu *vcpu,
 	if (unlikely(error_code & PFERR_RSVD_MASK))
 		return false;
 
-	if (!(error_code & PFERR_PRESENT_MASK))
-		return false;
-
 	/*
 	 * guest is reading/writing/fetching the page which is
 	 * read/write/execute tracked which can
