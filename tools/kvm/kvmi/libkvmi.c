@@ -132,6 +132,11 @@ struct kvmi_set_page_access_msg {
 	struct kvmi_set_page_access cmd;
 };
 
+struct kvmi_set_page_write_bitmap_msg {
+	struct kvmi_msg_hdr               hdr;
+	struct kvmi_set_page_write_bitmap cmd;
+};
+
 struct kvmi_pause_vcpu_msg {
 	struct kvmi_msg_hdr    hdr;
 	struct kvmi_vcpu_hdr   vcpu;
@@ -145,7 +150,7 @@ static void *      log_ctx;
 static int recv_reply( struct kvmi_dom *dom, const struct kvmi_msg_hdr *req, void *dest, size_t *dest_size );
 static int __kvmi_get_version( void *dom, unsigned int *version, struct kvmi_features *features );
 
-__attribute__(( constructor )) static void lib_init( void )
+__attribute__( ( constructor ) ) static void lib_init( void )
 {
 	pagesize = sysconf( _SC_PAGE_SIZE );
 }
@@ -1548,27 +1553,61 @@ int kvmi_queue_page_access( void *grp, unsigned long long int *gpa, unsigned cha
 	return err;
 }
 
-int kvmi_set_page_write_bitmap( void *dom, __u64 *gpa, __u32 *bitmap, unsigned short count )
+static void *alloc_kvmi_set_page_write_bitmap_msg( __u64 *gpa, __u32 *bitmap, __u16 view, __u16 count,
+                                                   size_t *msg_size )
 {
-	struct kvmi_set_page_write_bitmap *req;
-	size_t                             req_size = sizeof( *req ) + count * sizeof( req->entries[0] );
-	int                                err      = -1, k;
+	struct kvmi_set_page_write_bitmap_msg *msg;
+	unsigned int                           k;
 
-	req = malloc( req_size );
-	if ( !req )
-		return -1;
+	*msg_size = sizeof( *msg ) + count * sizeof( msg->cmd.entries[0] );
+	msg       = calloc( 1, *msg_size );
+	if ( !msg )
+		return NULL;
 
-	memset( req, 0, req_size );
-	req->count = count;
+	msg->hdr.id   = KVMI_SET_PAGE_WRITE_BITMAP;
+	msg->hdr.seq  = new_seq();
+	msg->hdr.size = *msg_size - sizeof( msg->hdr );
+
+	msg->cmd.view  = view;
+	msg->cmd.count = count;
 
 	for ( k = 0; k < count; k++ ) {
-		req->entries[k].gpa    = gpa[k];
-		req->entries[k].bitmap = bitmap[k];
+		msg->cmd.entries[k].gpa    = gpa[k];
+		msg->cmd.entries[k].bitmap = bitmap[k];
 	}
 
-	err = request( dom, KVMI_SET_PAGE_WRITE_BITMAP, req, req_size, NULL, NULL );
+	return msg;
+}
 
-	free( req );
+int kvmi_set_page_write_bitmap( void *dom, __u64 *gpa, __u32 *bitmap, unsigned short count )
+{
+	void * msg;
+	size_t msg_size;
+	int    err  = -1;
+	__u16  view = 0;
+
+	msg = alloc_kvmi_set_page_write_bitmap_msg( gpa, bitmap, view, count, &msg_size );
+	if ( msg ) {
+		err = request_raw( dom, msg, msg_size, NULL, NULL );
+		free( msg );
+	}
+
+	return err;
+}
+
+int kvmi_queue_spp_access( void *grp, __u64 *gpa, __u32 *bitmap, __u16 view, __u16 count )
+{
+	struct kvmi_set_page_write_bitmap *msg;
+	size_t                             msg_size;
+	int                                err;
+
+	msg = alloc_kvmi_set_page_write_bitmap_msg( gpa, bitmap, view, count, &msg_size );
+	if ( !msg )
+		return -1;
+
+	err = kvmi_batch_add( grp, msg, msg_size );
+
+	free( msg );
 
 	return err;
 }
@@ -1667,13 +1706,13 @@ int kvmi_get_xsave( void *dom, unsigned short vcpu, void *buffer, size_t buf_siz
 	return request( dom, KVMI_GET_XSAVE, &req, sizeof( req ), buffer, &buf_size );
 }
 
-int kvmi_inject_exception( void *dom, unsigned short vcpu, unsigned long long int gva, unsigned int error, unsigned char vector )
+int kvmi_inject_exception( void *dom, unsigned short vcpu, unsigned long long int gva, unsigned int error,
+                           unsigned char vector )
 {
 	struct {
 		struct kvmi_vcpu_hdr         vcpu;
 		struct kvmi_inject_exception cmd;
-	} req = { .vcpu = { .vcpu = vcpu },
-		  .cmd  = { .nr = vector, .error_code = error, .address = gva } };
+	} req = { .vcpu = { .vcpu = vcpu }, .cmd = { .nr = vector, .error_code = error, .address = gva } };
 
 	return request( dom, KVMI_INJECT_EXCEPTION, &req, sizeof( req ), NULL, NULL );
 }
@@ -2081,8 +2120,8 @@ void kvmi_set_log_cb( kvmi_log_cb cb, void *ctx )
 int kvmi_get_maximum_gfn( void *dom, unsigned long long *gfn )
 {
 	struct kvmi_get_max_gfn_reply rpl;
-	size_t received = sizeof( rpl );
-	int err;
+	size_t                        received = sizeof( rpl );
+	int                           err;
 
 	err = request( dom, KVMI_GET_MAX_GFN, NULL, 0, &rpl, &received );
 	if ( !err )

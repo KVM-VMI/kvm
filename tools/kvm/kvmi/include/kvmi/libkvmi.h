@@ -26,10 +26,7 @@
 
 typedef int kvmi_timeout_t;
 
-enum {
-	KVMI_NOWAIT = 0,
-	KVMI_WAIT   = 150
-};
+enum { KVMI_NOWAIT = 0, KVMI_WAIT = 150 };
 
 struct kvmi_dom_event {
 	void *next;
@@ -103,7 +100,8 @@ int     kvmi_get_cpuid( void *dom, unsigned short vcpu, unsigned int function, u
                         unsigned int *ebx, unsigned int *ecx, unsigned int *edx );
 int     kvmi_get_mtrr_type( void *dom, unsigned long long int gpa, unsigned char *type );
 int     kvmi_get_xsave( void *dom, unsigned short vcpu, void *buffer, size_t bufSize );
-int     kvmi_inject_exception( void *dom, unsigned short vcpu, unsigned long long int gva, unsigned int error, unsigned char vector );
+int     kvmi_inject_exception( void *dom, unsigned short vcpu, unsigned long long int gva, unsigned int error,
+                               unsigned char vector );
 int     kvmi_read_physical( void *dom, unsigned long long int gpa, void *buffer, size_t size );
 int     kvmi_write_physical( void *dom, unsigned long long int gpa, const void *buffer, size_t size );
 void *  kvmi_map_physical_page( void *dom, unsigned long long int gpa );
@@ -129,6 +127,7 @@ int     kvmi_spp_support( void *dom, bool *supported );
 int     kvmi_ve_support( void *dom, bool *supported );
 int     kvmi_vmfunc_support( void *dom, bool *supported );
 int     kvmi_eptp_support( void *dom, bool *supported );
+int     kvmi_queue_spp_access( void *batch, __u64 *gpa, __u32 *bitmap, __u16 view, __u16 count );
 int     kvmi_set_ve_info_page( void *dom, unsigned short vcpu, unsigned long long int gpa );
 int     kvmi_set_ept_page_conv( void *dom, unsigned short index, unsigned long long gpa, bool sve );
 int     kvmi_get_ept_page_conv( void *dom, unsigned short index, unsigned long long gpa, bool *sve );
