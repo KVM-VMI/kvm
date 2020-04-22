@@ -20,6 +20,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <limits.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -62,7 +63,9 @@ struct sockaddr_vm {
 #endif
 
 #define MAX_QUEUED_EVENTS 16384
-#define MAX_BATCH_IOVS 1001
+#define MAX_BATCH_IOVS ( 50 )
+#define MAX_BATCH_BYTES ( 1024 * 1024 - 2 * sizeof( struct kvmi_control_cmd_response_msg ) )
+#define BATCH_PREALLOCATED_PAGES 4
 #define MIN_KVMI_VERSION 1
 #define MIN_HANDSHAKE_DATA offsetof( struct kvmi_qemu2introspector, name )
 #define MAX_HANDSHAKE_DATA ( 64 * 1024 )
@@ -115,6 +118,7 @@ struct kvmi_batch {
 	size_t                               vec_pos;
 	struct iovec                         static_vec;
 	size_t                               static_space;
+	size_t                               filled;
 	unsigned int                         first_seq;
 	bool                                 wait_for_reply;
 	struct kvmi_control_cmd_response_msg prefix;
@@ -144,15 +148,18 @@ struct kvmi_pause_vcpu_msg {
 };
 
 static long        pagesize;
+static size_t      batch_preallocated_size;
 static kvmi_log_cb log_cb;
 static void *      log_ctx;
 
 static int recv_reply( struct kvmi_dom *dom, const struct kvmi_msg_hdr *req, void *dest, size_t *dest_size );
 static int __kvmi_get_version( void *dom, unsigned int *version, struct kvmi_features *features );
+static int __kvmi_batch_commit( struct kvmi_batch *grp, bool wait_for_reply );
 
 __attribute__( ( constructor ) ) static void lib_init( void )
 {
-	pagesize = sysconf( _SC_PAGE_SIZE );
+	pagesize                = sysconf( _SC_PAGE_SIZE );
+	batch_preallocated_size = pagesize * BATCH_PREALLOCATED_PAGES;
 }
 
 static void kvmi_log_generic( kvmi_log_level level, const char *s, va_list va )
@@ -534,33 +541,30 @@ static unsigned int new_seq( void )
 	return __sync_add_and_fetch( &seq, 1 );
 }
 
+static void kvmi_batch_init( struct kvmi_batch *grp, struct kvmi_dom *dom )
+{
+	grp->dom                 = dom;
+	grp->static_vec.iov_base = grp + 1;
+	grp->static_space        = batch_preallocated_size - sizeof( *grp );
+	grp->first_seq           = new_seq();
+	grp->wait_for_reply      = true;
+}
+
 void *kvmi_batch_alloc( void *dom )
 {
 	struct kvmi_batch *grp;
-	size_t             allocated = pagesize * 4;
 
-	grp = calloc( 1, allocated );
-	if ( grp ) {
-		grp->dom = dom;
-
-		grp->static_vec.iov_base = grp + 1;
-		grp->static_space        = allocated - sizeof( *grp );
-		grp->first_seq           = new_seq();
-		grp->wait_for_reply      = true;
-	}
+	grp = calloc( 1, batch_preallocated_size );
+	if ( grp )
+		kvmi_batch_init( grp, dom );
 
 	return grp;
 }
 
-void kvmi_batch_free( void *_grp )
+static void kvmi_batch_free_iov( struct kvmi_batch *grp )
 {
-	struct kvmi_batch *grp = _grp;
-	struct iovec *     iov;
+	struct iovec *iov = grp->vec;
 
-	if ( !grp )
-		return;
-
-	iov = grp->vec;
 	if ( iov ) {
 		for ( ; grp->vec_allocated--; iov++ )
 			if ( iov->iov_base != grp->static_vec.iov_base )
@@ -568,8 +572,28 @@ void kvmi_batch_free( void *_grp )
 
 		free( grp->vec );
 	}
+}
+
+void kvmi_batch_free( void *_grp )
+{
+	struct kvmi_batch *grp = _grp;
+
+	if ( !grp )
+		return;
+
+	kvmi_batch_free_iov( grp );
 
 	free( grp );
+}
+
+static void kvmi_batch_reset( struct kvmi_batch *grp )
+{
+	struct kvmi_dom *dom = grp->dom;
+
+	kvmi_batch_free_iov( grp );
+
+	memset( grp, 0, batch_preallocated_size );
+	kvmi_batch_init( grp, dom );
 }
 
 static int kvmi_enlarge_batch_iovec( struct kvmi_batch *grp )
@@ -610,20 +634,12 @@ static bool message_added_to_static_buffer( struct kvmi_batch *grp, const void *
 	return true;
 }
 
-static int kvmi_batch_add( struct kvmi_batch *grp, const void *data, size_t data_size )
+static int __kvmi_batch_add( struct kvmi_batch *grp, const void *data, size_t data_size )
 {
 	struct iovec *iov;
 
-	if ( !data_size )
-		return 0;
-
 	if ( message_added_to_static_buffer( grp, data, data_size ) )
-		return 0;
-
-	if ( grp->vec_pos == MAX_BATCH_IOVS ) {
-		errno = E2BIG;
-		return -1;
-	}
+		goto out;
 
 	if ( grp->vec_pos == grp->vec_allocated ) {
 		if ( kvmi_enlarge_batch_iovec( grp ) )
@@ -647,7 +663,34 @@ static int kvmi_batch_add( struct kvmi_batch *grp, const void *data, size_t data
 
 	grp->vec_pos++;
 
+out:
+	grp->filled += data_size;
 	return 0;
+}
+
+static int kvmi_batch_check_space( struct kvmi_batch *grp, size_t data_size, size_t count )
+{
+	if ( data_size > MAX_BATCH_BYTES || grp->filled + data_size > MAX_BATCH_BYTES )
+		return -1;
+
+	if ( grp->vec_pos + count >= MAX_BATCH_IOVS )
+		return -1;
+
+	return 0;
+}
+
+static int kvmi_batch_add( struct kvmi_batch *grp, const void *data, size_t data_size )
+{
+	if ( !data_size )
+		return 0;
+
+	if ( kvmi_batch_check_space( grp, data_size, 1 ) ) {
+		if ( __kvmi_batch_commit( grp, false ) )
+			return -1;
+		kvmi_batch_reset( grp );
+	}
+
+	return __kvmi_batch_add( grp, data, data_size );
 }
 
 static void setup_kvmi_control_cmd_response_msg( struct kvmi_control_cmd_response_msg *msg, bool enable, bool now,
@@ -681,7 +724,8 @@ static bool batch_with_event_reply_only( struct iovec *iov )
 	return ( one_msg_in_iovec && hdr->id == KVMI_EVENT_REPLY );
 }
 
-static struct iovec *alloc_iovec( struct kvmi_batch *grp, struct iovec *buf, size_t buf_size, size_t *iov_cnt )
+static struct iovec *alloc_iovec( struct kvmi_batch *grp, struct iovec *buf, size_t buf_len, size_t *iov_cnt,
+                                  size_t *total_len, bool wait_for_reply )
 {
 	struct iovec *iov, *new_iov;
 	size_t        n, new_n;
@@ -698,13 +742,14 @@ static struct iovec *alloc_iovec( struct kvmi_batch *grp, struct iovec *buf, siz
 	}
 
 	if ( n == 0 || ( n == 1 && batch_with_event_reply_only( iov ) ) ) {
-		*iov_cnt = n;
+		*iov_cnt   = n;
+		*total_len = grp->filled;
 		return iov;
 	}
 
 	new_n = n + 2;
 
-	if ( new_n <= buf_size )
+	if ( new_n <= buf_len )
 		new_iov = buf;
 	else {
 		new_iov = calloc( new_n, sizeof( *new_iov ) );
@@ -718,11 +763,12 @@ static struct iovec *alloc_iovec( struct kvmi_batch *grp, struct iovec *buf, siz
 
 	memcpy( new_iov + 1, iov, n * sizeof( *iov ) );
 
-	enable_command_reply( &grp->suffix, grp->wait_for_reply );
+	enable_command_reply( &grp->suffix, wait_for_reply );
 	new_iov[n + 1].iov_base = &grp->suffix;
 	new_iov[n + 1].iov_len  = sizeof( grp->suffix );
 
-	*iov_cnt = new_n;
+	*iov_cnt   = new_n;
+	*total_len = grp->filled + sizeof( grp->prefix ) + sizeof( grp->suffix );
 	return new_iov;
 }
 
@@ -732,16 +778,16 @@ static void free_iovec( struct iovec *iov, struct kvmi_batch *grp, struct iovec 
 		free( iov );
 }
 
-int kvmi_batch_commit( void *_grp )
+static int __kvmi_batch_commit( struct kvmi_batch *grp, bool wait_for_reply )
 {
-	struct kvmi_batch *grp = _grp;
-	struct kvmi_dom *  dom;
-	struct iovec       buf_iov[30];
-	struct iovec *     iov = NULL;
-	size_t             n   = 0;
-	int                err = 0;
+	struct kvmi_dom *dom;
+	struct iovec     buf_iov[30];
+	struct iovec *   iov = NULL;
+	size_t           n   = 0;
+	size_t           total_len = 0;
+	int              err = 0;
 
-	iov = alloc_iovec( grp, buf_iov, sizeof( buf_iov ) / sizeof( buf_iov[0] ), &n );
+	iov = alloc_iovec( grp, buf_iov, sizeof( buf_iov ) / sizeof( buf_iov[0] ), &n, &total_len, wait_for_reply );
 	if ( !iov )
 		return -1;
 	if ( !n )
@@ -752,7 +798,7 @@ int kvmi_batch_commit( void *_grp )
 	pthread_mutex_lock( &dom->lock );
 
 	err = do_write( dom, iov, n );
-	if ( !err && grp->wait_for_reply )
+	if ( !err && wait_for_reply )
 		err = recv_reply( dom, &grp->suffix.hdr, NULL, NULL );
 
 	pthread_mutex_unlock( &dom->lock );
@@ -761,6 +807,13 @@ out:
 	free_iovec( iov, grp, buf_iov );
 
 	return err;
+}
+
+int kvmi_batch_commit( void *_grp )
+{
+	struct kvmi_batch *grp = _grp;
+
+	return __kvmi_batch_commit( grp, grp->wait_for_reply );
 }
 
 static int set_nonblock( int fd )
@@ -1929,13 +1982,25 @@ static void setup_reply_header( struct kvmi_msg_hdr *hdr, unsigned int seq, size
 int kvmi_queue_reply_event( void *grp, unsigned int seq, const void *data, size_t data_size )
 {
 	struct kvmi_msg_hdr hdr;
+	size_t              reply_size = sizeof( hdr ) + data_size;
+
+	if ( data_size > UINT_MAX ) { /* overflow */
+		errno = E2BIG;
+		return -1;
+	}
+
+	if ( kvmi_batch_check_space( grp, reply_size, 2 ) ) {
+		if ( __kvmi_batch_commit( grp, false ) )
+			return -1;
+		kvmi_batch_reset( grp );
+	}
 
 	setup_reply_header( &hdr, seq, data_size );
 
-	if ( kvmi_batch_add( grp, &hdr, sizeof( hdr ) ) )
+	if ( __kvmi_batch_add( grp, &hdr, sizeof( hdr ) ) )
 		return -1;
 
-	if ( kvmi_batch_add( grp, data, data_size ) )
+	if ( __kvmi_batch_add( grp, data, data_size ) )
 		return -1;
 
 	( ( struct kvmi_batch * )grp )->wait_for_reply = false;
