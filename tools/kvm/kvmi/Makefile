@@ -14,15 +14,15 @@ libkvmi.c : include/linux/kvmi.h include/asm/kvmi.h
 include/linux/kvmi.h : include/linux/kvm_para.h
 include/asm/kvmi.h : include/asm/kvm.h
 
-include/linux/% :
-	install -Dm0644 $(TOPDIR)/include/uapi/linux/$* $@
+include/linux/kvm_para.h :
+	install -Dm0644 $(TOPDIR)/include/uapi/linux/$(notdir $@) $@
 
-include/asm/% :
-	install -Dm0644 $(TOPDIR)/arch/x86/include/uapi/asm/$* $@
+include/asm/kvm.h :
+	install -Dm0644 $(TOPDIR)/arch/x86/include/uapi/asm/$(notdir $@) $@
 
 .PHONY : clean
 clean :
-	-rm kvmi-test libkvmi.so include/linux/*.h include/asm/*.h
+	-rm kvmi-test libkvmi.so include/asm/kvm.h include/linux/kvm_para.h
 
 .PHONY : install
 install: libkvmi.so
