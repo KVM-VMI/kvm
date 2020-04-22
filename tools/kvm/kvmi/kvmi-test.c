@@ -162,7 +162,7 @@ static __u8 get_page_access( void *dom, __u64 gpa )
 
 	printf( "Get page access gpa 0x%llx\n", gpa );
 
-	if ( kvmi_get_page_access( dom, gpa, &access ) )
+	if ( kvmi_get_page_access( dom, gpa, &access, 0 ) )
 		die( "kvmi_set_page_access" );
 
 	printf( "Access is %s (0x%x)\n", access_str[access & 7], access );
@@ -174,7 +174,7 @@ static void set_page_access( void *dom, __u64 gpa, __u8 access )
 {
 	printf( "Set page access gpa 0x%llx access %s [0x%x]\n", gpa, access_str[access & 7], access );
 
-	if ( kvmi_set_page_access( dom, &gpa, &access, 1 ) )
+	if ( kvmi_set_page_access( dom, &gpa, &access, 1, 0 ) )
 		die( "kvmi_set_page_access" );
 }
 

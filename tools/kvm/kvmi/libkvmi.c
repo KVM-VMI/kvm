@@ -1430,7 +1430,7 @@ out:
 	return err;
 }
 
-int kvmi_get_page_access( void *dom, unsigned long long int gpa, unsigned char *access )
+int kvmi_get_page_access( void *dom, unsigned long long int gpa, unsigned char *access, unsigned short view )
 {
 	struct kvmi_get_page_access *      req      = NULL;
 	struct kvmi_get_page_access_reply *rpl      = NULL;
@@ -1445,6 +1445,7 @@ int kvmi_get_page_access( void *dom, unsigned long long int gpa, unsigned char *
 
 	req->count  = 1;
 	req->gpa[0] = gpa;
+	req->view   = view;
 
 	err = request( dom, KVMI_GET_PAGE_ACCESS, req, req_size, rpl, &rpl_size );
 
@@ -1488,7 +1489,7 @@ out:
 }
 
 static void *alloc_kvmi_set_page_access_msg( unsigned long long int *gpa, unsigned char *access, unsigned short count,
-                                             size_t *msg_size )
+                                             size_t *msg_size, unsigned short view )
 {
 	struct kvmi_set_page_access_msg *msg;
 	unsigned int                     k;
@@ -1503,6 +1504,7 @@ static void *alloc_kvmi_set_page_access_msg( unsigned long long int *gpa, unsign
 	msg->hdr.size = *msg_size - sizeof( msg->hdr );
 
 	msg->cmd.count = count;
+	msg->cmd.view  = view;
 
 	for ( k = 0; k < count; k++ ) {
 		msg->cmd.entries[k].gpa    = gpa[k];
@@ -1512,13 +1514,14 @@ static void *alloc_kvmi_set_page_access_msg( unsigned long long int *gpa, unsign
 	return msg;
 }
 
-int kvmi_set_page_access( void *dom, unsigned long long int *gpa, unsigned char *access, unsigned short count )
+int kvmi_set_page_access( void *dom, unsigned long long int *gpa, unsigned char *access, unsigned short count,
+                          unsigned short view )
 {
 	void * msg;
 	size_t msg_size;
 	int    err = -1;
 
-	msg = alloc_kvmi_set_page_access_msg( gpa, access, count, &msg_size );
+	msg = alloc_kvmi_set_page_access_msg( gpa, access, count, &msg_size, view );
 	if ( msg ) {
 		err = request_raw( dom, msg, msg_size, NULL, NULL );
 		free( msg );
@@ -1527,13 +1530,14 @@ int kvmi_set_page_access( void *dom, unsigned long long int *gpa, unsigned char 
 	return err;
 }
 
-int kvmi_queue_page_access( void *grp, unsigned long long int *gpa, unsigned char *access, unsigned short count )
+int kvmi_queue_page_access( void *grp, unsigned long long int *gpa, unsigned char *access, unsigned short count,
+                            unsigned short view )
 {
 	struct kvmi_set_page_access_msg *msg;
 	size_t                           msg_size;
 	int                              err = -1;
 
-	msg = alloc_kvmi_set_page_access_msg( gpa, access, count, &msg_size );
+	msg = alloc_kvmi_set_page_access_msg( gpa, access, count, &msg_size, view );
 	if ( !msg )
 		return -1;
 

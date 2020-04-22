@@ -91,9 +91,10 @@ int   kvmi_control_vm_events( void *dom, int id, bool enable );
 int   kvmi_control_cr( void *dom, unsigned short vcpu, unsigned int cr, bool enable );
 int   kvmi_control_msr( void *dom, unsigned short vcpu, unsigned int msr, bool enable );
 int   kvmi_pause_all_vcpus( void *dom, unsigned int count );
-int   kvmi_get_page_access( void *dom, unsigned long long int gpa, unsigned char *access );
+int   kvmi_get_page_access( void *dom, unsigned long long int gpa, unsigned char *access, unsigned short view );
 int   kvmi_get_page_write_bitmap( void *dom, __u64 gpa, __u32 *bitmap );
-int   kvmi_set_page_access( void *dom, unsigned long long int *gpa, unsigned char *access, unsigned short count );
+int   kvmi_set_page_access( void *dom, unsigned long long int *gpa, unsigned char *access, unsigned short count,
+                            unsigned short view );
 int   kvmi_set_page_write_bitmap( void *dom, __u64 *gpa, __u32 *bitmap, unsigned short count );
 int   kvmi_get_vcpu_count( void *dom, unsigned int *count );
 int64_t kvmi_get_starttime( const void *dom );
@@ -120,7 +121,8 @@ int     kvmi_batch_commit( void *batch );
 void    kvmi_batch_free( void *batch );
 int     kvmi_queue_registers( void *batch, unsigned short vcpu, const struct kvm_regs *regs );
 int     kvmi_queue_reply_event( void *batch, unsigned int msg_seq, const void *data, size_t data_size );
-int     kvmi_queue_page_access( void *batch, unsigned long long int *gpa, unsigned char *access, unsigned short count );
+int     kvmi_queue_page_access( void *batch, unsigned long long int *gpa, unsigned char *access, unsigned short count,
+                                unsigned short view );
 int     kvmi_queue_pause_vcpu( void *batch, unsigned short vcpu );
 int     kvmi_get_maximum_gfn( void *dom, unsigned long long *gfn );
 int     kvmi_spp_support( void *dom, bool *supported );
