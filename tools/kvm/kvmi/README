@@ -52,8 +52,7 @@ In another terminal, run the VM prepared for introspection with:
 		-enable-kvm \
 		-chardev socket,path=/tmp/introspector,id=chardev0,reconnect=10 \
 		-object secret,id=key0,data=some \
-		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
-		-accel kvm,introspection=kvmi
+		-object introspection,id=kvmi,chardev=chardev0,key=key0
 
 QEMU will connect to the introspection tool, pass the file descriptor to
 the host kernel through /dev/kvm and boot the VM.
@@ -89,8 +88,7 @@ While the kvmi-test program is running, start the introspected VM from host with
 		-enable-kvm \
 		-chardev socket,id=chardev0,cid=3,port=1234,reconnect=10 \
 		-object secret,id=key0,data=some \
-		-object introspection,id=kvmi,chardev=chardev0,key=key0 \
-		-accel kvm,introspection=kvmi
+		-object introspection,id=kvmi,chardev=chardev0,key=key0
 
 Debug messages
 ==============
