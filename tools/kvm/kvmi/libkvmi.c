@@ -75,6 +75,7 @@ struct sockaddr_vm {
 struct kvmi_dom {
 	int                           fd;
 	unsigned int                  api_version;
+	struct kvmi_features          supported;
 	bool                          disconnected;
 	int                           mem_fd;
 	void *                        cb_ctx;
@@ -142,6 +143,7 @@ static kvmi_log_cb log_cb;
 static void *      log_ctx;
 
 static int recv_reply( struct kvmi_dom *dom, const struct kvmi_msg_hdr *req, void *dest, size_t *dest_size );
+static int __kvmi_get_version( void *dom, unsigned int *version, struct kvmi_features *features );
 
 __attribute__(( constructor )) static void lib_init( void )
 {
@@ -444,9 +446,10 @@ static int consume_bytes( struct kvmi_dom *dom, size_t size )
 
 static bool unsupported_version( struct kvmi_dom *dom )
 {
-	unsigned int version;
+	unsigned int         version;
+	struct kvmi_features supported;
 
-	if ( kvmi_get_version( dom, &version ) ) {
+	if ( __kvmi_get_version( dom, &version, &supported ) ) {
 		kvmi_log_error( "failed to retrieve the protocol version (invalid authentication token?)" );
 		return true;
 	}
@@ -458,6 +461,7 @@ static bool unsupported_version( struct kvmi_dom *dom )
 	}
 
 	dom->api_version = version;
+	dom->supported   = supported;
 
 	return false;
 }
@@ -1916,7 +1920,7 @@ int kvmi_reply_event( void *_dom, unsigned int seq, const void *data, size_t dat
 	return err;
 }
 
-int kvmi_get_version( void *dom, unsigned int *version )
+static int __kvmi_get_version( void *dom, unsigned int *version, struct kvmi_features *supported )
 {
 	struct kvmi_get_version_reply rpl;
 	size_t                        received = sizeof( rpl );
@@ -1924,10 +1928,47 @@ int kvmi_get_version( void *dom, unsigned int *version )
 
 	err = request( dom, KVMI_GET_VERSION, NULL, 0, &rpl, &received );
 
-	if ( !err )
-		*version = rpl.version;
+	if ( !err ) {
+		*version   = rpl.version;
+		*supported = rpl.features;
+	}
 
 	return err;
+}
+
+int kvmi_get_version( void *dom, unsigned int *version )
+{
+	*version = ( ( struct kvmi_dom * )dom )->api_version;
+
+	return 0;
+}
+
+int kvmi_spp_support( void *dom, bool *supported )
+{
+	*supported = ( ( struct kvmi_dom * )dom )->supported.spp;
+
+	return 0;
+}
+
+int kvmi_ve_support( void *dom, bool *supported )
+{
+	*supported = ( ( struct kvmi_dom * )dom )->supported.ve;
+
+	return 0;
+}
+
+int kvmi_vmfunc_support( void *dom, bool *supported )
+{
+	*supported = ( ( struct kvmi_dom * )dom )->supported.vmfunc;
+
+	return 0;
+}
+
+int kvmi_eptp_support( void *dom, bool *supported )
+{
+	*supported = ( ( struct kvmi_dom * )dom )->supported.eptp;
+
+	return 0;
 }
 
 int kvmi_check_command( void *dom, int id )

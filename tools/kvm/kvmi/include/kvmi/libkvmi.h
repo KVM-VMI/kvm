@@ -123,6 +123,10 @@ int     kvmi_queue_reply_event( void *batch, unsigned int msg_seq, const void *d
 int     kvmi_queue_page_access( void *batch, unsigned long long int *gpa, unsigned char *access, unsigned short count );
 int     kvmi_queue_pause_vcpu( void *batch, unsigned short vcpu );
 int     kvmi_get_maximum_gfn( void *dom, unsigned long long *gfn );
+int     kvmi_spp_support( void *dom, bool *supported );
+int     kvmi_ve_support( void *dom, bool *supported );
+int     kvmi_vmfunc_support( void *dom, bool *supported );
+int     kvmi_eptp_support( void *dom, bool *supported );
 
 #ifdef __cplusplus
 }
