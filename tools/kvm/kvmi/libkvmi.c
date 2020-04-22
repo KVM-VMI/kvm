@@ -413,9 +413,9 @@ static int do_read( struct kvmi_dom *dom, void *buf, size_t size )
 	return __do_read( dom, buf, size, KVMI_MAX_TIMEOUT );
 }
 
-static int do_write( struct kvmi_dom *dom, struct iovec *iov, size_t iovlen )
+static ssize_t do_write_iov( struct kvmi_dom *dom, struct iovec *iov, size_t iov_len )
 {
-	struct msghdr msg = { .msg_iov = iov, .msg_iovlen = iovlen };
+	struct msghdr msg = { .msg_iov = iov, .msg_iovlen = iov_len };
 
 	errno = 0;
 
@@ -430,11 +430,60 @@ static int do_write( struct kvmi_dom *dom, struct iovec *iov, size_t iovlen )
 		} while ( n < 0 && errno == EINTR );
 
 		if ( n >= 0 )
-			break;
+			return n;
 
 		if ( errno != EAGAIN && errno != EWOULDBLOCK ) {
 			check_if_disconnected( dom, errno, KVMI_MAX_TIMEOUT, false );
 			return -1;
+		}
+	}
+
+	return 0;
+}
+
+static int do_write( struct kvmi_dom *dom, struct iovec *iov, size_t iov_len, size_t to_send )
+{
+	size_t iov_idx = 0, prev = 0;
+	static bool once = true;
+
+	while ( to_send ) {
+		ssize_t n;
+
+		if ( !prev ) {
+			n = do_write_iov( dom, iov + iov_idx, iov_len - iov_idx );
+		} else {
+			struct iovec tmp;
+
+			tmp.iov_base = iov[iov_idx].iov_base + prev;
+			tmp.iov_len  = iov[iov_idx].iov_len - prev;
+
+			n = do_write_iov( dom, &tmp, 1 );
+		}
+
+		if ( n <= 0 || (size_t) n > to_send )
+			return -1;
+
+		if ( (size_t) n == to_send )
+			return 0;
+
+		if ( once ) {
+			kvmi_log_warning("%s: sendmsg() was unable to send all data, resending the leftover!",
+					__func__);
+			once = false;
+		}
+
+		to_send -= n;
+
+		while ( n ) {
+			if ( prev + n >= iov[iov_idx].iov_len ) {
+				n -= iov[iov_idx].iov_len - prev;
+				iov_idx++;
+
+				prev = 0;
+			} else {
+				prev += n;
+				break;
+			}
 		}
 	}
 
@@ -530,7 +579,7 @@ static bool handshake_done( struct kvmi_ctx *ctx, struct kvmi_dom *dom )
 	if ( ctx->handshake_cb && ctx->handshake_cb( qemu, &intro, ctx->cb_ctx ) < 0 )
 		return false;
 
-	return do_write( dom, &iov, 1 ) == 0;
+	return do_write( dom, &iov, 1, iov.iov_len ) == 0;
 }
 
 /* The same sequence variable is used by all domains. */
@@ -797,7 +846,7 @@ static int __kvmi_batch_commit( struct kvmi_batch *grp, bool wait_for_reply )
 
 	pthread_mutex_lock( &dom->lock );
 
-	err = do_write( dom, iov, n );
+	err = do_write( dom, iov, n, total_len );
 	if ( !err && wait_for_reply )
 		err = recv_reply( dom, &grp->suffix.hdr, NULL, NULL );
 
@@ -1097,7 +1146,7 @@ static int kvmi_send_msg( struct kvmi_dom *dom, unsigned short msg_id, unsigned 
 	};
 	size_t n = data_size ? 2 : 1;
 
-	return do_write( dom, iov, n );
+	return do_write( dom, iov, n, sizeof( hdr ) + data_size );
 }
 
 static bool is_event( unsigned msg_id )
@@ -1377,7 +1426,7 @@ static int request_raw( struct kvmi_dom *dom, const void *src, size_t src_size, 
 
 	pthread_mutex_lock( &dom->lock );
 
-	err = do_write( dom, &iov, 1 );
+	err = do_write( dom, &iov, 1, src_size );
 	if ( !err )
 		err = recv_reply( dom, req, dest, dest_size );
 
@@ -2021,7 +2070,7 @@ int kvmi_reply_event( void *_dom, unsigned int seq, const void *data, size_t dat
 
 	pthread_mutex_lock( &dom->lock );
 
-	err = do_write( dom, iov, 2 );
+	err = do_write( dom, iov, 2, sizeof( hdr ) + data_size );
 
 	pthread_mutex_unlock( &dom->lock );
 
