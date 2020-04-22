@@ -129,6 +129,13 @@ int     kvmi_spp_support( void *dom, bool *supported );
 int     kvmi_ve_support( void *dom, bool *supported );
 int     kvmi_vmfunc_support( void *dom, bool *supported );
 int     kvmi_eptp_support( void *dom, bool *supported );
+int     kvmi_set_ve_info_page( void *dom, unsigned short vcpu, unsigned long long int gpa );
+int     kvmi_set_ept_page_conv( void *dom, unsigned short index, unsigned long long gpa, bool sve );
+int     kvmi_get_ept_page_conv( void *dom, unsigned short index, unsigned long long gpa, bool *sve );
+int     kvmi_switch_ept_view( void *dom, unsigned short vcpu, unsigned short view );
+int     kvmi_disable_ve( void *dom, unsigned short vcpu );
+int     kvmi_get_ept_view( void *dom, unsigned short vcpu, unsigned short *view );
+int     kvmi_control_ept_view( void *dom, unsigned short vcpu, unsigned short view, bool visible);
 
 #ifdef __cplusplus
 }

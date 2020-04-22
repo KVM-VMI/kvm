@@ -2090,3 +2090,77 @@ int kvmi_get_maximum_gfn( void *dom, unsigned long long *gfn )
 
 	return err;
 }
+
+/* begin of VE related functions */
+int kvmi_set_ve_info_page( void *dom, unsigned short vcpu, unsigned long long int gpa )
+{
+	struct {
+		struct kvmi_vcpu_hdr         hdr;
+		struct kvmi_set_ve_info_page cmd;
+	} req = { .hdr = { .vcpu = vcpu }, .cmd = { .gpa = gpa } };
+
+	return request( dom, KVMI_SET_VE_INFO_PAGE, &req, sizeof( req ), NULL, 0 );
+}
+
+int kvmi_set_ept_page_conv( void *dom, unsigned short index, unsigned long long gpa, bool sve )
+{
+	struct kvmi_set_ept_page_conv_req req = { .view = index, .gpa = gpa, .sve = sve };
+
+	return request( dom, KVMI_SET_EPT_PAGE_CONV, &req, sizeof( req ), NULL, 0 );
+}
+
+int kvmi_get_ept_page_conv( void *dom, unsigned short index, unsigned long long gpa, bool *sve )
+{
+	struct kvmi_get_ept_page_conv_req   req = { .view = index, .gpa = gpa };
+	struct kvmi_get_ept_page_conv_reply rpl;
+	int                                 err;
+	size_t                              received = sizeof( rpl );
+
+	err = request( dom, KVMI_GET_EPT_PAGE_CONV, &req, sizeof( req ), &rpl, &received );
+	if ( !err )
+		*sve = !!rpl.sve;
+
+	return err;
+}
+
+int kvmi_switch_ept_view( void *dom, unsigned short vcpu, unsigned short view )
+{
+	struct {
+		struct kvmi_vcpu_hdr            hdr;
+		struct kvmi_switch_ept_view_req cmd;
+	} req = { .hdr = { .vcpu = vcpu }, .cmd = { .view = view } };
+
+	return request( dom, KVMI_SWITCH_EPT_VIEW, &req, sizeof( req ), NULL, 0 );
+}
+
+int kvmi_disable_ve( void *dom, unsigned short vcpu )
+{
+	struct kvmi_vcpu_hdr req = { .vcpu = vcpu };
+
+	return request( dom, KVMI_DISABLE_VE, &req, sizeof( req ), NULL, 0 );
+}
+
+int kvmi_get_ept_view( void *dom, unsigned short vcpu, unsigned short *view )
+{
+	struct kvmi_vcpu_hdr           req = { .vcpu = vcpu };
+	struct kvmi_get_ept_view_reply rpl;
+	int                            err;
+	size_t                         received = sizeof( rpl );
+
+	err = request( dom, KVMI_GET_EPT_VIEW, &req, sizeof( req ), &rpl, &received );
+	if ( !err )
+		*view = rpl.view;
+
+	return err;
+}
+
+int kvmi_control_ept_view( void *dom, unsigned short vcpu, unsigned short view, bool visible)
+{
+	struct {
+		struct kvmi_vcpu_hdr		 hdr;
+		struct kvmi_control_ept_view_req cmd;
+	} req = { .hdr = { .vcpu = vcpu }, .cmd = { .view = view, .visible = visible } };
+
+	return request (dom, KVMI_CONTROL_EPT_VIEW, &req, sizeof( req ), NULL, 0 );
+}
+/* end of VE related functions */

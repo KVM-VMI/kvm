@@ -53,6 +53,13 @@ KVMI_1.0 {
 		kvmi_wait_event;
 		kvmi_write_physical;
 		kvmi_get_mtrr_type;
+		kvmi_set_ve_info_page;
+		kvmi_set_ept_page_conv;
+		kvmi_get_ept_page_conv;
+		kvmi_switch_ept_view;
+		kvmi_disable_ve;
+		kvmi_get_ept_view;
+		kvmi_control_ept_view;
 	local:
 		*;
 };
