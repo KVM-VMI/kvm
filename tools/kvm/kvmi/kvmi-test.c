@@ -156,20 +156,6 @@ static void handle_pause_vcpu_event( void *dom, struct kvmi_dom_event *ev )
 	reply_continue( dom, ev, &rpl.hdr, sizeof( rpl ) );
 }
 
-static __u8 get_page_access( void *dom, __u64 gpa )
-{
-	unsigned char access;
-
-	printf( "Get page access gpa 0x%llx\n", gpa );
-
-	if ( kvmi_get_page_access( dom, gpa, &access, 0 ) )
-		die( "kvmi_set_page_access" );
-
-	printf( "Access is %s (0x%x)\n", access_str[access & 7], access );
-
-	return access;
-}
-
 static void set_page_access( void *dom, __u64 gpa, __u8 access )
 {
 	printf( "Set page access gpa 0x%llx access %s [0x%x]\n", gpa, access_str[access & 7], access );
@@ -180,16 +166,7 @@ static void set_page_access( void *dom, __u64 gpa, __u8 access )
 
 static bool write_protect_page( void *dom, __u64 gpa )
 {
-	__u8 access = get_page_access( dom, gpa );
-
-	if ( access & KVMI_PAGE_ACCESS_W ) {
-		access &= ~KVMI_PAGE_ACCESS_W;
-		set_page_access( dom, gpa, access );
-
-		return true;
-	}
-
-	return false;
+	set_page_access( dom, gpa, KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_X );
 }
 
 static void maybe_start_pf_test( void *dom, struct kvmi_dom_event *ev )
@@ -205,8 +182,9 @@ static void maybe_start_pf_test( void *dom, struct kvmi_dom_event *ev )
 	printf( "Starting #PF test with CR3 0x%llx (vcpu%u)\n", cr3, vcpu );
 
 	for ( __u64 end = pt + EPT_TEST_PAGES * PAGE_SIZE; pt < end; pt += PAGE_SIZE )
-		if ( write_protect_page( dom, pt ) )
-			started = true;
+		write_protect_page( dom, pt );
+
+	started = true;
 
 	if ( ev->event.common.event == KVMI_EVENT_CR ) {
 		bool enable = false;
@@ -227,17 +205,12 @@ static void handle_pf_event( void *dom, struct kvmi_dom_event *ev )
 		struct kvmi_event_reply    common;
 		struct kvmi_event_pf_reply pf;
 	} rpl = {};
+	__u8 access = KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_W | KVMI_PAGE_ACCESS_X;
 
 	printf( "PF gva 0x%llx gpa 0x%llx access %s [0x%x] (vcpu%u)\n", pf->gva, pf->gpa, access_str[pf->access & 7],
 	        pf->access, vcpu );
 
-	if ( pf->access & KVMI_PAGE_ACCESS_W ) {
-		__u8 access = get_page_access( dom, pf->gpa );
-
-		access |= KVMI_PAGE_ACCESS_W;
-
-		set_page_access( dom, pf->gpa, access );
-	}
+	set_page_access( dom, pf->gpa, access );
 
 	reply_retry( dom, ev, &rpl.hdr, sizeof( rpl ) );
 }
