@@ -51,8 +51,7 @@ In another terminal, run the VM prepared for introspection with:
 	qemu-system-x86_64 ... \
 		-enable-kvm \
 		-chardev socket,path=/tmp/introspector,id=chardev0,reconnect=10 \
-		-object secret,id=key0,data=some \
-		-object introspection,id=kvmi,chardev=chardev0,key=key0
+		-object introspection,id=kvmi,chardev=chardev0
 
 QEMU will connect to the introspection tool, pass the file descriptor to
 the host kernel through /dev/kvm and boot the VM.
@@ -87,15 +86,18 @@ While the kvmi-test program is running, start the introspected VM from host with
 	qemu-system-x86_64 ... \
 		-enable-kvm \
 		-chardev socket,id=chardev0,cid=3,port=1234,reconnect=10 \
-		-object secret,id=key0,data=some \
-		-object introspection,id=kvmi,chardev=chardev0,key=key0
+		-object introspection,id=kvmi,chardev=chardev0
 
 Debug messages
 ==============
 
+Enable CONFIG_DYNAMIC_DEBUG, CONFIG_FTRACE and CONFIG_FUNCTION_TRACER.
+
+mount -t debugfs none /sys/kernel/debug
 echo 8 > /proc/sys/kernel/printk
 echo "file kvmi_msg.c +p" >> /sys/kernel/debug/dynamic_debug/control
 echo "file kvmi.c +p" >> /sys/kernel/debug/dynamic_debug/control
 
-echo 'kvmi:*' > /sys/kernel/debug/tracing/set_event
-cat /sys/kernel/debug/tracing/trace_pipe
+mount -t tracefs nodev /sys/kernel/tracing
+echo 'kvmi:*' > /sys/kernel/tracing/set_event
+cat /sys/kernel/tracing/trace_pipe
