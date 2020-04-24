@@ -281,7 +281,7 @@ static int new_guest( void *dom, unsigned char ( *uuid )[16], void *ctx )
 
 static int new_handshake( const struct kvmi_qemu2introspector *qemu, struct kvmi_introspector2qemu *intro, void *ctx )
 {
-	printf( "New handshake\n" );
+	printf( "New handshake: name '%s' start_time %lld\n", qemu->name, qemu->start_time );
 	return 0;
 }
 
