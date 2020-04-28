@@ -1184,19 +1184,17 @@ static int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 gfn_t kvm_get_max_gfn(struct kvm *kvm)
 {
 	struct kvm_memory_slot *memslot;
-	struct kvm_memslots *slots;
 	gfn_t max_gfn = 0;
-	int i, idx;
+	int idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
 	spin_lock(&kvm->mmu_lock);
 
-	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
-		slots = __kvm_memslots(kvm, i);
-		kvm_for_each_memslot(memslot, slots)
+	kvm_for_each_memslot(memslot, kvm_memslots(kvm))
+		if (memslot->id < KVM_USER_MEM_SLOTS &&
+		   (memslot->flags & KVM_MEM_READONLY) == 0)
 			max_gfn = max(max_gfn, memslot->base_gfn
 						+ memslot->npages);
-	}
 
 	spin_unlock(&kvm->mmu_lock);
 	srcu_read_unlock(&kvm->srcu, idx);
