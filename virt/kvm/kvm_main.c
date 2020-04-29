@@ -1183,6 +1183,7 @@ static int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 
 gfn_t kvm_get_max_gfn(struct kvm *kvm)
 {
+	u32 skip_mask = KVM_MEM_READONLY | KVM_MEMSLOT_INVALID;
 	struct kvm_memory_slot *memslot;
 	gfn_t max_gfn = 0;
 	int idx;
@@ -1192,7 +1193,7 @@ gfn_t kvm_get_max_gfn(struct kvm *kvm)
 
 	kvm_for_each_memslot(memslot, kvm_memslots(kvm))
 		if (memslot->id < KVM_USER_MEM_SLOTS &&
-		   (memslot->flags & KVM_MEM_READONLY) == 0)
+		   (memslot->flags & skip_mask) == 0)
 			max_gfn = max(max_gfn, memslot->base_gfn
 						+ memslot->npages);
 
