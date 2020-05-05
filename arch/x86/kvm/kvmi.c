@@ -1532,3 +1532,8 @@ int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m)
 
 	return kvm_vm_ioctl_set_subpages(kvm, m->gfn, 1, &m->write_bitmap);
 }
+
+u64 kvmi_arch_cmd_get_xcr(struct kvm_vcpu *vcpu, u8 xcr)
+{
+	return vcpu->arch.xcr0;
+}

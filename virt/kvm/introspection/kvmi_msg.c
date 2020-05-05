@@ -50,6 +50,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_GET_INFO]           = "KVMI_VCPU_GET_INFO",
 	[KVMI_VCPU_GET_MTRR_TYPE]      = "KVMI_VCPU_GET_MTRR_TYPE",
 	[KVMI_VCPU_GET_REGISTERS]      = "KVMI_VCPU_GET_REGISTERS",
+	[KVMI_VCPU_GET_XCR]            = "KVMI_VCPU_GET_XCR",
 	[KVMI_VCPU_GET_XSAVE]          = "KVMI_VCPU_GET_XSAVE",
 	[KVMI_VCPU_INJECT_EXCEPTION]   = "KVMI_VCPU_INJECT_EXCEPTION",
 	[KVMI_VCPU_PAUSE]              = "KVMI_VCPU_PAUSE",
@@ -885,6 +886,23 @@ static int handle_disable_ve(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_get_xcr(const struct kvmi_vcpu_cmd_job *job,
+			       const struct kvmi_msg_hdr *msg,
+			       const void *_req)
+{
+	const struct kvmi_vcpu_get_xcr *req = _req;
+	struct kvmi_vcpu_get_xcr_reply rpl;
+
+	memset(&rpl, 0, sizeof(rpl));
+
+	if (req->xcr != 0)
+		return kvmi_msg_vcpu_reply(job, msg, -KVM_EINVAL, NULL, 0);
+
+	rpl.value = kvmi_arch_cmd_get_xcr(job->vcpu, req->xcr);
+
+	return kvmi_msg_vcpu_reply(job, msg, 0, &rpl, sizeof(rpl));
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -905,6 +923,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_GET_INFO]           = handle_get_vcpu_info,
 	[KVMI_VCPU_GET_MTRR_TYPE]      = handle_vcpu_get_mtrr_type,
 	[KVMI_VCPU_GET_REGISTERS]      = handle_get_registers,
+	[KVMI_VCPU_GET_XCR]            = handle_vcpu_get_xcr,
 	[KVMI_VCPU_GET_XSAVE]          = handle_vcpu_get_xsave,
 	[KVMI_VCPU_INJECT_EXCEPTION]   = handle_vcpu_inject_exception,
 	[KVMI_VCPU_SET_EPT_VIEW]       = handle_vcpu_set_ept_view,

@@ -207,4 +207,13 @@ struct kvmi_vm_set_page_write_bitmap {
 	struct kvmi_page_write_bitmap_entry entries[0];
 };
 
+struct kvmi_vcpu_get_xcr {
+	__u8 xcr;
+	__u8 padding[7];
+};
+
+struct kvmi_vcpu_get_xcr_reply {
+	u64 value;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

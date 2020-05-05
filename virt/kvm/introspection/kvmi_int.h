@@ -67,6 +67,7 @@
 			| BIT(KVMI_VCPU_GET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_GET_MTRR_TYPE) \
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
+			| BIT(KVMI_VCPU_GET_XCR) \
 			| BIT(KVMI_VCPU_GET_XSAVE) \
 			| BIT(KVMI_VCPU_INJECT_EXCEPTION) \
 			| BIT(KVMI_VCPU_SET_EPT_VIEW) \
@@ -220,6 +221,7 @@ int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,
 			const struct kvmi_msg_hdr *msg,
 			const struct kvmi_vm_set_page_write_bitmap *req);
 int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m);
+u64 kvmi_arch_cmd_get_xcr(struct kvm_vcpu *vcpu, u8 xcr);
 
 /* kvmi_mem.c */
 void kvmi_mem_init(void);

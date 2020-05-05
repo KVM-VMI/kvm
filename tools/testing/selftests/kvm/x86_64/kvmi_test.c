@@ -2198,6 +2198,43 @@ static void test_cmd_control_cmd_response(struct kvm_vm *vm)
 		-r, kvm_strerror(-r));
 }
 
+static int cmd_vcpu_get_xcr(struct kvm_vm *vm, u8 xcr, u64 *value)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_get_xcr cmd;
+	} req = { 0 };
+	struct kvmi_vcpu_get_xcr_reply rpl = { 0 };
+	int r;
+
+	req.cmd.xcr = xcr;
+
+	r = do_vcpu0_command(vm, KVMI_VCPU_GET_XCR, &req.hdr, sizeof(req),
+				&rpl, sizeof(rpl));
+
+	*value = r == 0 ? rpl.value : 0;
+
+	return r;
+}
+
+static void test_cmd_vcpu_get_xcr(struct kvm_vm *vm)
+{
+	u64 value;
+	int r;
+
+	r = cmd_vcpu_get_xcr(vm, 0, &value);
+	TEST_ASSERT(r == 0,
+		    "KVMI_VCPU_GET_XCR failed with error %d (%s)\n",
+		    -r, kvm_strerror(-r));
+	DEBUG("XCR0 0x%lx\n", value);
+
+	r = cmd_vcpu_get_xcr(vm, 1, &value);
+	TEST_ASSERT(r == -KVM_EINVAL,
+		    "KVMI_VCPU_GET_XCR didn't failed with -KVM_EINVAL, error %d (%s)\n",
+		    -r, kvm_strerror(-r));
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -2238,6 +2275,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_virtualization_exceptions(vm);
 	test_event_create_vcpu(vm);
 	test_cmd_control_cmd_response(vm);
+	test_cmd_vcpu_get_xcr(vm);
 
 	unhook_introspection(vm);
 }
