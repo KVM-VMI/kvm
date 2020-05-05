@@ -1456,14 +1456,36 @@ static void test_event_xsetbv(struct kvm_vm *vm)
 	disable_vcpu_event(vm, event_id);
 }
 
-static void test_cmd_vcpu_get_xsave(struct kvm_vm *vm)
+static void cmd_vcpu_get_xsave(struct kvm_vm *vm, struct kvm_xsave *rpl)
 {
-	struct kvm_cpuid_entry2 *entry;
 	struct {
 		struct kvmi_msg_hdr hdr;
 		struct kvmi_vcpu_hdr vcpu_hdr;
 	} req = {};
-	struct kvm_xsave rpl;
+
+	test_vcpu0_command(vm, KVMI_VCPU_GET_XSAVE, &req.hdr, sizeof(req),
+			   rpl, sizeof(*rpl));
+}
+
+static void cmd_vcpu_set_xsave(struct kvm_vm *vm, struct kvm_xsave *xsave)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvm_xsave xsave;
+	} req = {};
+
+	memcpy(&req.xsave, xsave, sizeof(*xsave));
+
+	test_vcpu0_command(vm, KVMI_VCPU_SET_XSAVE, &req.hdr, sizeof(req),
+			   NULL, 0);
+}
+
+
+static void test_cmd_vcpu_xsave(struct kvm_vm *vm)
+{
+	struct kvm_cpuid_entry2 *entry;
+	struct kvm_xsave xsave;
 
 	entry = kvm_get_supported_cpuid_entry(1);
 	if (!(entry->ecx & X86_FEATURE_XSAVE)) {
@@ -1472,8 +1494,8 @@ static void test_cmd_vcpu_get_xsave(struct kvm_vm *vm)
 		return;
 	}
 
-	test_vcpu0_command(vm, KVMI_VCPU_GET_XSAVE, &req.hdr, sizeof(req),
-			   &rpl, sizeof(rpl));
+	cmd_vcpu_get_xsave(vm, &xsave);
+	cmd_vcpu_set_xsave(vm, &xsave);
 }
 
 static void test_cmd_vcpu_get_mtrr_type(struct kvm_vm *vm)
@@ -2261,7 +2283,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_inject_exception(vm);
 	test_cmd_vm_get_max_gfn();
 	test_event_xsetbv(vm);
-	test_cmd_vcpu_get_xsave(vm);
+	test_cmd_vcpu_xsave(vm);
 	test_cmd_vcpu_get_mtrr_type(vm);
 	test_event_descriptor(vm);
 	test_cmd_vcpu_control_msr(vm);

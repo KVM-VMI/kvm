@@ -57,6 +57,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_SET_EPT_VIEW]       = "KVMI_VCPU_SET_EPT_VIEW",
 	[KVMI_VCPU_SET_REGISTERS]      = "KVMI_VCPU_SET_REGISTERS",
 	[KVMI_VCPU_SET_VE_INFO]        = "KVMI_VCPU_SET_VE_INFO",
+	[KVMI_VCPU_SET_XSAVE]          = "KVMI_VCPU_SET_XSAVE",
 	[KVMI_VCPU_TRANSLATE_GVA]      = "KVMI_VCPU_TRANSLATE_GVA",
 };
 
@@ -735,6 +736,18 @@ static int handle_vcpu_get_xsave(const struct kvmi_vcpu_cmd_job *job,
 	return err;
 }
 
+static int handle_vcpu_set_xsave(const struct kvmi_vcpu_cmd_job *job,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *req)
+{
+	size_t xsave_size = msg->size - sizeof(struct kvmi_vcpu_hdr);
+	int ec;
+
+	ec = kvmi_arch_cmd_set_xsave(job->vcpu, req, xsave_size);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static int handle_vcpu_get_mtrr_type(const struct kvmi_vcpu_cmd_job *job,
 				     const struct kvmi_msg_hdr *msg,
 				     const void *_req)
@@ -929,6 +942,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_SET_EPT_VIEW]       = handle_vcpu_set_ept_view,
 	[KVMI_VCPU_SET_REGISTERS]      = handle_set_registers,
 	[KVMI_VCPU_SET_VE_INFO]        = handle_set_ve_info,
+	[KVMI_VCPU_SET_XSAVE]          = handle_vcpu_set_xsave,
 	[KVMI_VCPU_TRANSLATE_GVA]      = handle_vcpu_translate_gva,
 };
 

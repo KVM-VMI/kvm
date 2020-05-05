@@ -72,6 +72,7 @@
 			| BIT(KVMI_VCPU_INJECT_EXCEPTION) \
 			| BIT(KVMI_VCPU_SET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_SET_REGISTERS) \
+			| BIT(KVMI_VCPU_SET_XSAVE) \
 			| BIT(KVMI_VCPU_SET_VE_INFO) \
 			| BIT(KVMI_VCPU_TRANSLATE_GVA) \
 		)
@@ -191,6 +192,9 @@ void kvmi_arch_inject_pending_exception(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_vcpu_get_xsave(struct kvm_vcpu *vcpu,
 				 struct kvmi_vcpu_get_xsave_reply **dest,
 				 size_t *dest_size);
+int kvmi_arch_cmd_set_xsave(struct kvm_vcpu *vcpu,
+			    const struct kvmi_vcpu_set_xsave *req,
+			    size_t req_size);
 int kvmi_arch_cmd_vcpu_get_mtrr_type(struct kvm_vcpu *vcpu, u64 gpa, u8 *type);
 int kvmi_arch_cmd_vcpu_control_msr(struct kvm_vcpu *vcpu,
 				   const struct kvmi_vcpu_control_msr *req);
