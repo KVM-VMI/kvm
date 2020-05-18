@@ -52,6 +52,8 @@ enum {
 	KVMI_VCPU_TRANSLATE_GVA    = 35,
 	KVMI_CONTROL_EPT_VIEW      = 36,
 
+	KVMI_VCPU_CONTROL_SINGLESTEP = 63,
+
 	KVM_NUM_MESSAGES
 };
 
@@ -328,6 +330,11 @@ struct kvmi_control_ept_view_req {
 	__u8  visible;
 	__u8  padding1;
 	__u32 padding2;
+};
+
+struct kvmi_vcpu_control_singlestep {
+	__u8 enable;
+	__u8 padding[7];
 };
 
 /*

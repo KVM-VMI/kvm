@@ -2317,3 +2317,13 @@ int kvmi_control_ept_view( void *dom, unsigned short vcpu, unsigned short view, 
 	return request (dom, KVMI_CONTROL_EPT_VIEW, &req, sizeof( req ), NULL, 0 );
 }
 /* end of VE related functions */
+
+int kvmi_control_singlestep( void *dom, unsigned short vcpu, bool enable )
+{
+	struct {
+		struct kvmi_vcpu_hdr               vcpu;
+		struct kvmi_vcpu_control_singlestep cmd;
+	} req = { .vcpu = { .vcpu = vcpu }, .cmd = { .enable = enable } };
+
+	return request( dom, KVMI_VCPU_CONTROL_SINGLESTEP, &req, sizeof( req ), NULL, NULL );
+}

@@ -10,6 +10,7 @@ KVMI_1.0 {
 		kvmi_control_cr;
 		kvmi_control_events;
 		kvmi_control_msr;
+		kvmi_control_singlestep;
 		kvmi_control_vm_events;
 		kvmi_domain_close;
 		kvmi_domain_is_connected;
