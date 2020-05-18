@@ -48,6 +48,7 @@ KVMI_1.0 {
 		kvmi_set_registers;
 		kvmi_shutdown_guest;
 		kvmi_spp_support;
+		kvmi_translate_gva;
 		kvmi_ve_support;
 		kvmi_vmfunc_support;
 		kvmi_uninit;

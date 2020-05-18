@@ -337,6 +337,14 @@ struct kvmi_vcpu_control_singlestep {
 	__u8 padding[7];
 };
 
+struct kvmi_vcpu_translate_gva {
+	__u64 gva;
+};
+
+struct kvmi_vcpu_translate_gva_reply {
+	__u64 gpa;
+};
+
 /*
  * ioctls for /dev/kvmmem
  */

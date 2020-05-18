@@ -2327,3 +2327,20 @@ int kvmi_control_singlestep( void *dom, unsigned short vcpu, bool enable )
 
 	return request( dom, KVMI_VCPU_CONTROL_SINGLESTEP, &req, sizeof( req ), NULL, NULL );
 }
+
+int kvmi_translate_gva( void *dom, unsigned short vcpu, __u64 gva, __u64 *gpa )
+{
+	struct {
+		struct kvmi_vcpu_hdr           vcpu;
+		struct kvmi_vcpu_translate_gva cmd;
+	} req = { .vcpu = { .vcpu = vcpu }, .cmd = { .gva = gva } };
+	struct kvmi_vcpu_translate_gva_reply rpl;
+	size_t                               received = sizeof( rpl );
+	int                                  err;
+
+	err = request( dom, KVMI_VCPU_TRANSLATE_GVA, &req, sizeof( req ), &rpl, &received );
+	if ( !err )
+		*gpa = rpl.gpa;
+
+	return err;
+}
