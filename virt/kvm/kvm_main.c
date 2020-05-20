@@ -90,6 +90,9 @@ unsigned int halt_poll_ns_shrink;
 module_param(halt_poll_ns_shrink, uint, 0644);
 EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
 
+static bool enable_introspection = true;
+module_param_named(introspection, enable_introspection, bool, 0644);
+
 /*
  * Ordering of locks:
  *
@@ -353,6 +356,13 @@ int kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	r = kvm_arch_vcpu_init(vcpu);
 	if (r < 0)
 		goto fail_free_run;
+
+	r = kvmi_vcpu_init(vcpu);
+	if (r < 0) {
+		kvm_arch_vcpu_uninit(vcpu);
+		goto fail_free_run;
+	}
+
 	return 0;
 
 fail_free_run:
@@ -370,6 +380,7 @@ void kvm_vcpu_uninit(struct kvm_vcpu *vcpu)
 	 * descriptors are already gone.
 	 */
 	put_pid(rcu_dereference_protected(vcpu->pid, 1));
+	kvmi_vcpu_uninit(vcpu);
 	kvm_arch_vcpu_uninit(vcpu);
 	free_page((unsigned long)vcpu->run);
 }
@@ -739,6 +750,9 @@ static struct kvm *kvm_create_vm(unsigned long type)
 	if (r)
 		goto out_err;
 
+	if (enable_introspection)
+		kvmi_create_vm(kvm);
+
 	mutex_lock(&kvm_lock);
 	list_add(&kvm->vm_list, &vm_list);
 	mutex_unlock(&kvm_lock);
@@ -791,6 +805,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	int i;
 	struct mm_struct *mm = kvm->mm;
 
+	kvmi_destroy_vm(kvm);
 	kvm_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
 	kvm_destroy_vm_debugfs(kvm);
 	kvm_arch_sync_events(kvm);
@@ -1164,6 +1179,28 @@ static int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 		return -EINVAL;
 
 	return kvm_set_memory_region(kvm, mem);
+}
+
+gfn_t kvm_get_max_gfn(struct kvm *kvm)
+{
+	u32 skip_mask = KVM_MEM_READONLY | KVM_MEMSLOT_INVALID;
+	struct kvm_memory_slot *memslot;
+	gfn_t max_gfn = 0;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+
+	kvm_for_each_memslot(memslot, kvm_memslots(kvm))
+		if (memslot->id < KVM_USER_MEM_SLOTS &&
+		   (memslot->flags & skip_mask) == 0)
+			max_gfn = max(max_gfn, memslot->base_gfn
+						+ memslot->npages);
+
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return max_gfn;
 }
 
 int kvm_get_dirty_log(struct kvm *kvm,
@@ -2450,6 +2487,8 @@ static int kvm_vcpu_check_block(struct kvm_vcpu *vcpu)
 		goto out;
 	if (signal_pending(current))
 		goto out;
+	if (kvm_test_request(KVM_REQ_INTROSPECTION, vcpu))
+		goto out;
 
 	ret = 0;
 out:
@@ -2564,6 +2603,16 @@ void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_kick);
 #endif /* !CONFIG_S390 */
+
+void kvm_vcpu_kick_and_wait(struct kvm_vcpu *vcpu)
+{
+	if (kvm_vcpu_wake_up(vcpu))
+		return;
+
+	if (kvm_request_needs_ipi(vcpu, KVM_REQUEST_WAIT))
+		smp_call_function_single(vcpu->cpu, ack_flush, NULL, 1);
+}
+EXPORT_SYMBOL_GPL(kvm_vcpu_kick_and_wait);
 
 int kvm_vcpu_yield_to(struct kvm_vcpu *target)
 {
@@ -3521,6 +3570,26 @@ out_free_irq_routing:
 	case KVM_CHECK_EXTENSION:
 		r = kvm_vm_ioctl_check_extension_generic(kvm, arg);
 		break;
+#ifdef CONFIG_KVM_INTROSPECTION
+	case KVM_INTROSPECTION_HOOK:
+		if (enable_introspection)
+			r = kvmi_ioctl_hook(kvm, argp);
+		else
+			r = -EPERM;
+		break;
+	case KVM_INTROSPECTION_UNHOOK:
+		r = kvmi_ioctl_unhook(kvm);
+		break;
+	case KVM_INTROSPECTION_COMMAND:
+		r = kvmi_ioctl_command(kvm, argp);
+		break;
+	case KVM_INTROSPECTION_EVENT:
+		r = kvmi_ioctl_event(kvm, argp);
+		break;
+	case KVM_INTROSPECTION_PREUNHOOK:
+		r = kvmi_ioctl_preunhook(kvm);
+		break;
+#endif /* CONFIG_KVM_INTROSPECTION */
 	default:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
@@ -4472,6 +4541,11 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	r = kvm_vfio_ops_init();
 	WARN_ON(r);
 
+	if (enable_introspection) {
+		r = kvmi_init();
+		WARN_ON(r);
+	}
+
 	return 0;
 
 out_unreg:
@@ -4497,6 +4571,7 @@ EXPORT_SYMBOL_GPL(kvm_init);
 
 void kvm_exit(void)
 {
+	kvmi_uninit();
 	debugfs_remove_recursive(kvm_debugfs_dir);
 	misc_deregister(&kvm_dev);
 	kmem_cache_destroy(kvm_vcpu_cache);

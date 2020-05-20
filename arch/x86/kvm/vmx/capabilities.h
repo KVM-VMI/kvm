@@ -217,6 +217,14 @@ static inline bool cpu_has_vmx_vmfunc(void)
 		SECONDARY_EXEC_ENABLE_VMFUNC;
 }
 
+static inline bool cpu_has_vmx_eptp_switching(void)
+{
+	u64 vmx_msr;
+
+	rdmsrl(MSR_IA32_VMX_VMFUNC, vmx_msr);
+	return vmx_msr & VMX_VMFUNC_EPTP_SWITCHING;
+}
+
 static inline bool cpu_has_vmx_shadow_vmcs(void)
 {
 	u64 vmx_msr;
@@ -247,10 +255,20 @@ static inline bool cpu_has_vmx_pml(void)
 	return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_ENABLE_PML;
 }
 
+static inline bool cpu_has_vmx_ve(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_EPT_VE;
+}
+
 static inline bool vmx_xsaves_supported(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_XSAVES;
+}
+
+static inline bool cpu_has_vmx_ept_spp(void)
+{
+	return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_SPP;
 }
 
 static inline bool vmx_waitpkg_supported(void)

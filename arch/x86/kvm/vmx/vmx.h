@@ -16,13 +16,21 @@ extern u64 host_efer;
 
 extern u32 get_umwait_control_msr(void);
 
-#define MSR_TYPE_R	1
-#define MSR_TYPE_W	2
-#define MSR_TYPE_RW	3
-
 #define X2APIC_MSR(r) (APIC_BASE_MSR + ((r) >> 4))
 
 #define NR_AUTOLOAD_MSRS 8
+
+struct vcpu_ve_info {
+	u32 exit_reason;
+	u32 unused;
+	u64 exit_qualification;
+	u64 gva;
+	u64 gpa;
+	u16 eptp_index;
+
+	u16 offset1;
+	u32 offset2;
+};
 
 struct vmx_msrs {
 	unsigned int		nr;
@@ -284,6 +292,12 @@ struct vcpu_vmx {
 	u64 ept_pointer;
 
 	struct pt_desc pt_desc;
+
+	struct page *eptp_list_pg;
+	/* The view this vcpu operates on. */
+	u16 view;
+	/* Visible EPT views bitmap for in-guest VMFUNC. */
+	unsigned long allowed_views;
 };
 
 enum ept_pointers_status {

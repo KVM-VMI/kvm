@@ -676,6 +676,15 @@ config HMM_MIRROR
 	depends on MMU
 	depends on MMU_NOTIFIER
 
+config REMOTE_MAPPING
+	bool "Remote memory mapping"
+	depends on MMU && !KSM
+	default n
+
+	help
+	  Allows a given application to map pages of another application in its own
+	  address space.
+
 config DEVICE_PRIVATE
 	bool "Unaddressable device memory (GPU memory, ...)"
 	depends on ZONE_DEVICE

@@ -4127,6 +4127,160 @@ Valid values for 'action':
 #define KVM_PMU_EVENT_DENY 1
 
 
+4.122 KVM_INTROSPECTION_HOOK
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_introspection (in)
+Returns: 0 on success, a negative value on error
+Errors:
+  ENOMEM: memory allocation failed
+  EEXIST: the VM is already introspected
+  EINVAL: the file descriptor doesn't correspond to an active socket
+          padding is not zero
+  EPERM: the introspection is disabled (kvm.introspection=0)
+
+This ioctl is used to enable the introspection of the current VM.
+
+struct kvm_introspection {
+	__s32 fd;
+	__u32 padding;
+	__u8 uuid[16];
+};
+
+fd is the file descriptor of a socket connected to the introspection tool,
+
+padding must be zero (it might be used in the future),
+
+uuid is used for debug and error messages.
+
+The KVMI version can be retrieved using the KVM_CAP_INTROSPECTION of
+the KVM_CHECK_EXTENSION ioctl() at run-time.
+
+4.123 KVM_INTROSPECTION_UNHOOK
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: none
+Returns: 0 on success, a negative value on error
+
+This ioctl is used to free all introspection structures
+related to this VM.
+
+4.124 KVM_INTROSPECTION_COMMAND
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_introspection_feature (in)
+Returns: 0 on success, a negative value on error
+Errors:
+  EINVAL: the command is unknown
+  EPERM:  the command can't be disallowed (e.g. KVMI_GET_VERSION)
+
+This ioctl is used to allow or disallow introspection commands
+for the current VM. By default, almost all commands are disallowed
+except for those used to query the API.
+
+struct kvm_introspection_feature {
+	__u32 allow;
+	__s32 id;
+};
+
+If allow is 1, the command specified by id is allowed. If allow is 0,
+the command is disallowed.
+
+Unless set to -1 (meaning all commands), id must be a command ID
+(e.g. KVMI_GET_VERSION)
+
+4.125 KVM_INTROSPECTION_EVENT
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_introspection_feature (in)
+Returns: 0 on success, a negative value on error
+Errors:
+  EINVAL: the event is unknown
+
+This ioctl is used to allow or disallow introspection events
+for the current VM. By default, all events are disallowed.
+
+struct kvm_introspection_feature {
+	__u32 allow;
+	__s32 id;
+};
+
+If allow is 1, the event specified by id is allowed. If allow is 0,
+the event is disallowed.
+
+Unless set to -1 (meaning all event), id must be a event ID
+(e.g. KVMI_EVENT_UNHOOK, KVMI_EVENT_CR, etc.)
+
+4.126 KVM_INTROSPECTION_PREUNHOOK
+
+Capability: KVM_CAP_INTROSPECTION
+Architectures: x86
+Type: vm ioctl
+Parameters: none
+Returns: 0 on success, a negative value on error
+Errors:
+  EFAULT: the introspection is not enabled
+          the socket (passed with KVM_INTROSPECTION_HOOK) had an error
+  ENOENT: the introspection tool didn't subscribed
+            to this type of introspection event (unhook).
+
+This ioctl is used to inform that the current VM is
+paused/suspended/migrated/etc.
+
+KVM should send an 'unhook' introspection event to the introspection tool.
+
+If this ioctl is successful, the userspace should give the
+introspection tool a chance to unhook the VM and then it should use
+KVM_INTROSPECTION_UNHOOK to make sure all the introspection structures
+are freed.
+
+4.122 KVM_SUBPAGES_GET_ACCESS
+
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_subpage_info (in/out)
+Returns: 0 on success, < 0 on error
+
+#define KVM_SUBPAGE_MAX_PAGES   512
+struct kvm_subpage {
+	__u64 gfn_base;    /* the first page gfn of the contiguous pages */
+	__u32 npages; /* number of 4K pages */
+	__u32 flags;  /* reserved to 0 now */
+	__u32 access_map[0]; /* start place of bitmap array */
+};
+
+This ioctl fetches subpage permission from contiguous pages starting with
+gfn. npages is the number of contiguous pages to fetch. access_map contains permission
+vectors fetched for all the pages.
+
+4.123 KVM_SUBPAGES_SET_ACCESS
+
+Architectures: x86
+Type: vm ioctl
+Parameters: struct kvm_subpage_info (in/out)
+Returns: 0 on success, < 0 on error
+
+#define KVM_SUBPAGE_MAX_PAGES   512
+struct kvm_subpage {
+	__u64 gfn_base;    /* the first page gfn of the contiguous pages */
+	__u32 npages; /* number of 4K pages */
+	__u32 flags;  /* reserved to 0 now */
+	__u32 access_map[0]; /* start place of bitmap array */
+};
+
+This ioctl sets subpage permission for contiguous pages starting with gfn. npages is
+the number of contiguous pages to set. access_map contains permission vectors for all the
+pages. Since during execution of the ioctl, it holds mmu_lock, so limits the MAX pages
+to 512 to reduce the impact to EPT.
+
 5. The kvm_run structure
 ------------------------
 
