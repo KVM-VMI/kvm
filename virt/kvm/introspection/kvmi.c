@@ -411,8 +411,10 @@ static void kvmi_job_release_vcpu(struct kvm_vcpu *vcpu, void *ctx)
 	atomic_set(&vcpui->pause_requests, 0);
 	vcpui->waiting_for_reply = false;
 
-	if (vcpui->singlestep.loop)
+	if (vcpui->singlestep.loop) {
 		kvmi_arch_stop_singlestep(vcpu);
+		vcpui->singlestep.loop = false;
+	}
 }
 
 static void kvmi_release_vcpus(struct kvm *kvm)
