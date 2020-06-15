@@ -665,12 +665,15 @@ int kvmi_ioctl_preunhook(struct kvm *kvm)
 	mutex_lock(&kvm->kvmi_lock);
 
 	kvmi = KVMI(kvm);
-	if (!kvmi)
-		return -EFAULT;
+	if (!kvmi) {
+		err = -EFAULT;
+		goto out;
+	}
 
 	if (!kvmi_unhook_event(kvmi))
 		err = -ENOENT;
 
+out:
 	mutex_unlock(&kvm->kvmi_lock);
 
 	return err;
