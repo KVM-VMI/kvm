@@ -137,6 +137,7 @@ int     kvmi_switch_ept_view( void *dom, unsigned short vcpu, unsigned short vie
 int     kvmi_disable_ve( void *dom, unsigned short vcpu );
 int     kvmi_get_ept_view( void *dom, unsigned short vcpu, unsigned short *view );
 int     kvmi_control_ept_view( void *dom, unsigned short vcpu, unsigned short view, bool visible);
+size_t  kvmi_get_pending_events( void *dom );
 
 #ifdef __cplusplus
 }

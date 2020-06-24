@@ -1313,6 +1313,18 @@ int kvmi_pop_event( void *d, struct kvmi_dom_event **event )
 	return 0;
 }
 
+size_t kvmi_get_pending_events( void *d )
+{
+	struct kvmi_dom *dom = d;
+	size_t cnt;
+
+	pthread_mutex_lock( &dom->event_lock );
+	cnt = dom->event_count;
+	pthread_mutex_unlock( &dom->event_lock );
+
+	return cnt;
+}
+
 static int recv_reply_header( struct kvmi_dom *dom, const struct kvmi_msg_hdr *req, size_t *size )
 {
 	struct kvmi_msg_hdr h;

@@ -411,8 +411,10 @@ static void kvmi_job_release_vcpu(struct kvm_vcpu *vcpu, void *ctx)
 	atomic_set(&vcpui->pause_requests, 0);
 	vcpui->waiting_for_reply = false;
 
-	if (vcpui->singlestep.loop)
+	if (vcpui->singlestep.loop) {
 		kvmi_arch_stop_singlestep(vcpu);
+		vcpui->singlestep.loop = false;
+	}
 }
 
 static void kvmi_release_vcpus(struct kvm *kvm)
@@ -663,12 +665,15 @@ int kvmi_ioctl_preunhook(struct kvm *kvm)
 	mutex_lock(&kvm->kvmi_lock);
 
 	kvmi = KVMI(kvm);
-	if (!kvmi)
-		return -EFAULT;
+	if (!kvmi) {
+		err = -EFAULT;
+		goto out;
+	}
 
 	if (!kvmi_unhook_event(kvmi))
 		err = -ENOENT;
 
+out:
 	mutex_unlock(&kvm->kvmi_lock);
 
 	return err;
