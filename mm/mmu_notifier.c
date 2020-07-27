@@ -22,12 +22,6 @@
 /* global SRCU for all MMs */
 DEFINE_STATIC_SRCU(srcu);
 
-#ifdef CONFIG_LOCKDEP
-struct lockdep_map __mmu_notifier_invalidate_range_start_map = {
-	.name = "mmu_notifier_invalidate_range_start"
-};
-#endif
-
 /*
  * The mmu_notifier_subscriptions structure is allocated and installed in
  * mm->notifier_subscriptions inside the mm_take_all_locks() protected
@@ -242,8 +236,6 @@ mmu_interval_read_begin(struct mmu_interval_notifier *interval_sub)
 	 * will always clear the below sleep in some reasonable time as
 	 * subscriptions->invalidate_seq is even in the idle state.
 	 */
-	lock_map_acquire(&__mmu_notifier_invalidate_range_start_map);
-	lock_map_release(&__mmu_notifier_invalidate_range_start_map);
 	if (is_invalidating)
 		wait_event(subscriptions->wq,
 			   READ_ONCE(subscriptions->invalidate_seq) != seq);
@@ -572,13 +564,11 @@ void __mmu_notifier_invalidate_range_end(struct mmu_notifier_range *range,
 	struct mmu_notifier_subscriptions *subscriptions =
 		range->mm->notifier_subscriptions;
 
-	lock_map_acquire(&__mmu_notifier_invalidate_range_start_map);
 	if (subscriptions->has_itree)
 		mn_itree_inv_end(subscriptions);
 
 	if (!hlist_empty(&subscriptions->list))
 		mn_hlist_invalidate_end(subscriptions, range, only_end);
-	lock_map_release(&__mmu_notifier_invalidate_range_start_map);
 }
 
 void __mmu_notifier_invalidate_range(struct mm_struct *mm,
@@ -611,13 +601,6 @@ int __mmu_notifier_register(struct mmu_notifier *subscription,
 
 	lockdep_assert_held_write(&mm->mmap_sem);
 	BUG_ON(atomic_read(&mm->mm_users) <= 0);
-
-	if (IS_ENABLED(CONFIG_LOCKDEP)) {
-		fs_reclaim_acquire(GFP_KERNEL);
-		lock_map_acquire(&__mmu_notifier_invalidate_range_start_map);
-		lock_map_release(&__mmu_notifier_invalidate_range_start_map);
-		fs_reclaim_release(GFP_KERNEL);
-	}
 
 	if (!mm->notifier_subscriptions) {
 		/*
@@ -1062,8 +1045,6 @@ void mmu_interval_notifier_remove(struct mmu_interval_notifier *interval_sub)
 	 * The possible sleep on progress in the invalidation requires the
 	 * caller not hold any locks held by invalidation callbacks.
 	 */
-	lock_map_acquire(&__mmu_notifier_invalidate_range_start_map);
-	lock_map_release(&__mmu_notifier_invalidate_range_start_map);
 	if (seq)
 		wait_event(subscriptions->wq,
 			   READ_ONCE(subscriptions->invalidate_seq) != seq);
