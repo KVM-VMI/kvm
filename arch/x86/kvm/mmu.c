@@ -5527,6 +5527,9 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu, bool reset_roots)
 
 		for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 			vcpu->arch.mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
+
+		for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+			vcpu->arch.mmu->root_hpa_altviews[i] = INVALID_PAGE;
 	}
 
 	if (mmu_is_nested(vcpu))
