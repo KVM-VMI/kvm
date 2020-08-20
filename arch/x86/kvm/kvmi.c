@@ -656,7 +656,7 @@ void kvmi_arch_restore_ept_view(struct kvm_vcpu *vcpu)
 		kvmi_arch_cmd_control_ept_view(vcpu, view, visible);
 
 	if (refcount_dec_and_test(&kvm->arch.kvmi_refcount)) {
-		u16 zap_mask = ~(1 << default_view);
+		unsigned long zap_mask = ~(1 << default_view);
 
 		kvm_mmu_zap_all(vcpu->kvm, zap_mask);
 	}
