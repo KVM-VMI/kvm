@@ -59,6 +59,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_SET_VE_INFO]        = "KVMI_VCPU_SET_VE_INFO",
 	[KVMI_VCPU_SET_XSAVE]          = "KVMI_VCPU_SET_XSAVE",
 	[KVMI_VCPU_TRANSLATE_GVA]      = "KVMI_VCPU_TRANSLATE_GVA",
+	[KVMI_VCPU_CHANGE_GFN]         = "KVMI_VCPU_CHANGE_GFN",
 };
 
 static bool is_known_message(u16 id)
@@ -899,6 +900,18 @@ static int handle_disable_ve(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_change_gfn(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vcpu_change_gfn *req = _req;
+	int ec;
+
+	ec = kvmi_arch_cmd_change_gfn(job->vcpu, req->old_gfn, req->new_gfn);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static int handle_vcpu_get_xcr(const struct kvmi_vcpu_cmd_job *job,
 			       const struct kvmi_msg_hdr *msg,
 			       const void *_req)
@@ -944,6 +957,7 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_SET_VE_INFO]        = handle_set_ve_info,
 	[KVMI_VCPU_SET_XSAVE]          = handle_vcpu_set_xsave,
 	[KVMI_VCPU_TRANSLATE_GVA]      = handle_vcpu_translate_gva,
+	[KVMI_VCPU_CHANGE_GFN]         = handle_vcpu_change_gfn,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)

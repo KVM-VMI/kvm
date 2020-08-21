@@ -48,6 +48,7 @@ static const struct trace_print_flags kvmi_msg_id_symbol[] = {
 	EN(KVMI_VCPU_SET_REGISTERS),
 	EN(KVMI_VCPU_SET_VE_INFO),
 	EN(KVMI_VCPU_TRANSLATE_GVA),
+	EN(KVMI_VCPU_CHANGE_GFN),
 	{-1, NULL}
 };
 

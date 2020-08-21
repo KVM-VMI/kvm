@@ -36,6 +36,13 @@ static vm_vaddr_t test_gva;
 static void *test_hva;
 static vm_paddr_t test_gpa;
 
+static vm_vaddr_t special_test_gva;
+static vm_paddr_t special_test_gpa;
+
+static vm_vaddr_t aux_test_gva;
+static void *aux_test_hva;
+static vm_paddr_t aux_test_gpa;
+
 static vm_vaddr_t test_ve_info_gva;
 static void *test_ve_info_hva;
 static vm_paddr_t test_ve_info_gpa;
@@ -50,6 +57,7 @@ struct vcpu_ve_info {
 };
 
 static uint8_t test_write_pattern;
+static uint8_t aux_test_write_pattern;
 static int page_size;
 
 struct vcpu_reply {
@@ -99,6 +107,10 @@ enum {
 	GUEST_TEST_HYPERCALL,
 	GUEST_TEST_MSR,
 	GUEST_TEST_PF,
+	GUEST_TEST_CHANGE_GFN,
+	GUEST_TEST_CHANGE_UNMAPPED_GFN,
+	GUEST_ACCESS_GVA,
+	GUEST_ACCESS_SPECIAL_GVA,
 	GUEST_TEST_VMFUNC,
 	GUEST_TEST_XSETBV,
 };
@@ -152,6 +164,27 @@ static void guest_msr_test(void)
 static void guest_pf_test(void)
 {
 	*((uint8_t *)test_gva) = READ_ONCE(test_write_pattern);
+}
+
+static void guest_change_gfn_test(void)
+{
+	*((uint8_t *)test_gva) = READ_ONCE(test_write_pattern);
+	*((uint8_t *)aux_test_gva) = READ_ONCE(aux_test_write_pattern);
+}
+
+static void guest_change_unmapped_gfn_test(void)
+{
+	*((uint8_t *)aux_test_gva) = READ_ONCE(aux_test_write_pattern);
+}
+
+static void guest_access_gva(void)
+{
+	*((uint8_t *)test_gva) = *((uint8_t *)test_gva) + 1;
+}
+
+static void guest_access_special_gva(void)
+{
+	*((uint8_t *)special_test_gva) = *((uint8_t *)special_test_gva) + 1;
 }
 
 static void guest_vmfunc_test(void)
@@ -223,6 +256,18 @@ static void guest_code(void)
 			break;
 		case GUEST_TEST_PF:
 			guest_pf_test();
+			break;
+		case GUEST_TEST_CHANGE_GFN:
+			guest_change_gfn_test();
+			break;
+		case GUEST_TEST_CHANGE_UNMAPPED_GFN:
+			guest_change_unmapped_gfn_test();
+			break;
+		case GUEST_ACCESS_GVA:
+			guest_access_gva();
+			break;
+		case GUEST_ACCESS_SPECIAL_GVA:
+			guest_access_special_gva();
 			break;
 		case GUEST_TEST_VMFUNC:
 			guest_vmfunc_test();
@@ -698,6 +743,19 @@ static void new_test_write_pattern(struct kvm_vm *vm)
 	sync_global_to_guest(vm, test_write_pattern);
 }
 
+static void new_aux_test_write_pattern(struct kvm_vm *vm)
+{
+	uint8_t n;
+
+	do {
+		n = random();
+	} while (!n || n == aux_test_write_pattern);
+
+	aux_test_write_pattern = n;
+	sync_global_to_guest(vm, aux_test_write_pattern);
+
+}
+
 static void test_memory_access(struct kvm_vm *vm)
 {
 	void *pw, *pr;
@@ -737,6 +795,9 @@ static void *vcpu_worker(void *data)
 	struct kvm_run *run;
 
 	run = vcpu_state(ctx->vm, ctx->vcpu_id);
+
+	test_id = GUEST_TEST_NOOP;
+	sync_global_to_guest(ctx->vm, test_id);
 
 	while (!READ_ONCE(ctx->stop)) {
 		struct ucall uc;
@@ -1761,6 +1822,118 @@ static void test_event_pf(struct kvm_vm *vm)
 	test_pf(vm, cbk_test_event_pf);
 }
 
+static void cmd_vcpu_change_gfn(struct kvm_vm *vm, u64 old_gfn, u64 new_gfn)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_change_gfn cmd;
+
+	} req = {};
+
+	req.cmd.old_gfn = old_gfn;
+	req.cmd.new_gfn = new_gfn;
+
+	test_vcpu0_command(vm, KVMI_VCPU_CHANGE_GFN,
+			&req.hdr, sizeof(req), NULL, 0);
+}
+
+static void test_change_unmapped_gfn(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.run_guest_once = true,
+		.test_id = GUEST_TEST_CHANGE_UNMAPPED_GFN,
+	};
+	pthread_t vcpu_thread;
+
+	new_aux_test_write_pattern(vm);
+
+	vcpu_thread = start_vcpu_worker(&data);
+	wait_vcpu_worker(vcpu_thread);
+
+	TEST_ASSERT(*((uint8_t *)aux_test_hva) == aux_test_write_pattern,
+		"Write failed, expected 0x%x, result 0x%x\n",
+		aux_test_write_pattern, *((uint8_t *)aux_test_hva));
+
+	cmd_vcpu_change_gfn(vm,
+			special_test_gpa >> vm->page_shift,
+			aux_test_gpa >> vm->page_shift);
+
+	/* At this point guest should view special_test_gva translated to
+	 * aux_test_hva. Test this by incrementing special_test_gva; check
+	 * the result on host for aux_test_hva, which should have
+	 * been incremented.
+	 */
+	data.test_id = GUEST_ACCESS_SPECIAL_GVA;
+	vcpu_thread = start_vcpu_worker(&data);
+	wait_vcpu_worker(vcpu_thread);
+
+	TEST_ASSERT(*((uint8_t *)aux_test_hva) == aux_test_write_pattern + 1,
+		"gfn->pfn change failed, expected 0x%x, result 0x%x\n",
+		aux_test_write_pattern + 1, *((uint8_t *)aux_test_hva));
+}
+
+static void test_change_gfn(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.run_guest_once = true,
+		.test_id = GUEST_TEST_CHANGE_GFN,
+	};
+	pthread_t vcpu_thread;
+
+	new_test_write_pattern(vm);
+	new_aux_test_write_pattern(vm);
+
+	vcpu_thread = start_vcpu_worker(&data);
+	wait_vcpu_worker(vcpu_thread);
+
+	TEST_ASSERT(*((uint8_t *)test_hva) == test_write_pattern,
+		"Write failed, expected 0x%x, result 0x%x\n",
+		test_write_pattern, *((uint8_t *)test_hva));
+
+	TEST_ASSERT(*((uint8_t *)aux_test_hva) == aux_test_write_pattern,
+		"Write failed, expected 0x%x, result 0x%x\n",
+		aux_test_write_pattern, *((uint8_t *)aux_test_hva));
+
+	cmd_vcpu_change_gfn(vm,
+			test_gpa >> vm->page_shift,
+			aux_test_gpa >> vm->page_shift);
+
+	/* At this point guest should view test_gva translated to
+	 * aux_test_hva. Test this by incrementing test_gva; check
+	 * the result on host for aux_test_hva, which should have
+	 * been incremented.
+	 */
+	data.test_id = GUEST_ACCESS_GVA;
+	vcpu_thread = start_vcpu_worker(&data);
+	wait_vcpu_worker(vcpu_thread);
+
+	TEST_ASSERT(*((uint8_t *)aux_test_hva) == aux_test_write_pattern + 1,
+		"gfn->pfn change failed, expected 0x%x, result 0x%x\n",
+		aux_test_write_pattern + 1, *((uint8_t *)aux_test_hva));
+
+	/* Restore previous mapping */
+	cmd_vcpu_change_gfn(vm,
+			test_gpa >> vm->page_shift,
+			test_gpa >> vm->page_shift);
+
+	/* At this point guest should view test_gva translated back to
+	 * test_hva. Test this by incrementing test_gva; check the
+	 * result on host for test_hva, which should have been
+	 * incremented.
+	 */
+	vcpu_thread = start_vcpu_worker(&data);
+	wait_vcpu_worker(vcpu_thread);
+
+	TEST_ASSERT(*((uint8_t *)test_hva) == test_write_pattern + 1,
+		"gfn->pfn restore failed, expected 0x%x, result 0x%x\n",
+		test_write_pattern + 1, *((uint8_t *)test_hva));
+}
+
 static void control_singlestep(struct kvm_vm *vm, bool enable)
 {
 	struct {
@@ -2298,6 +2471,8 @@ static void test_introspection(struct kvm_vm *vm)
 	test_event_create_vcpu(vm);
 	test_cmd_control_cmd_response(vm);
 	test_cmd_vcpu_get_xcr(vm);
+	test_change_unmapped_gfn(vm);
+	test_change_gfn(vm);
 
 	unhook_introspection(vm);
 }
@@ -2312,6 +2487,19 @@ static void setup_test_pages(struct kvm_vm *vm)
 	memset(test_hva, 0, page_size);
 
 	test_gpa = addr_gva2gpa(vm, test_gva);
+
+	/* Allocate secondary test gpa */
+	aux_test_gva = vm_vaddr_alloc(vm, page_size, KVM_UTIL_MIN_VADDR, 0, 0);
+	sync_global_to_guest(vm, aux_test_gva);
+	aux_test_hva = addr_gva2hva(vm, aux_test_gva);
+	memset(aux_test_hva, 0, page_size);
+	aux_test_gpa = addr_gva2gpa(vm, aux_test_gva);
+
+	/* Allocate special test gpa used by test_change_unmapped_gfn() */
+	special_test_gva = vm_vaddr_alloc(vm, page_size, KVM_UTIL_MIN_VADDR,
+					0, 0);
+	sync_global_to_guest(vm, special_test_gva);
+	special_test_gpa = addr_gva2gpa(vm, special_test_gva);
 
 	/* Allocate #VE info page */
 	test_ve_info_gva = vm_vaddr_alloc(vm, page_size, KVM_UTIL_MIN_VADDR,

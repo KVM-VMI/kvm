@@ -57,6 +57,7 @@
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
+			| BIT(KVMI_VCPU_CHANGE_GFN) \
 			| BIT(KVMI_VCPU_CONTROL_CR) \
 			| BIT(KVMI_VCPU_CONTROL_EPT_VIEW) \
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
@@ -219,6 +220,7 @@ int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 				   bool visible);
 int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
 			      bool trigger_vmexit);
+int kvmi_arch_cmd_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn);
 int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_control_spp(struct kvm *kvm);
 int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,

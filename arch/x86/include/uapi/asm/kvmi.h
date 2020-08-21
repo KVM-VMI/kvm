@@ -183,6 +183,11 @@ struct kvmi_vcpu_set_ve_info {
 	__u32 padding3;
 };
 
+struct kvmi_vcpu_change_gfn {
+	__u64 old_gfn;
+	__u64 new_gfn;
+};
+
 struct kvmi_vm_set_page_sve {
 	__u16 view;
 	__u8 suppress;

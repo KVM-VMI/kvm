@@ -1500,6 +1500,60 @@ Modifies the XSAVE area.
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 
+31. KVMI_VCPU_CHANGE_GFN
+------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_change_gfn {
+		__u64 old_gfn;
+		__u64 new_gfn;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Changes the content of ``old_gfn`` with the one provided through ``new_gfn``,
+inside the current EPT view. Usage:
+
+* change{gfn_1, gfn_2} - alters page table entries for gfn_1 so they point to
+        the pfn that gfn_2 is mapped to; page table entries mapping gfn_2 must
+        already be present
+
+* change{gfn_1, gfn_1} - restores page table entries so they point to the pfn
+        that gfn_1 was initially mapped to; page table entries mapping gfn_1
+        must already be present
+
+* change{gfn_1, ~0ULL} - reserved for future use
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EPERM - reserved operation, ``new_gfn`` must not be (~0ULL)
+* -KVM_EINVAL - provided gfn is not visible by KVM, meaning one of the following:
+                a. the memory slot holding the gfn is marked as invalid
+                b. the memory slot holding the gfn is not exposed to userspace
+                c. the gfn does not belong to any memory slot
+* -KVM_EINVAL - ``new_gfn`` (first case) or ``old_gfn`` (second case) has no
+                mapping inside the current EPT view, no r/w access has been made
+* -KVM_EINVAL - internal KVM error: provided gfn can't be translated
+                to a valid pfn
+* -KVM_ENOMEM - not enough memory to allocate new page tables for
+                the current EPT view
+* -KVM_EAGAIN - internal KVM error inside the MMU notifier subsystem
+* -KVM_EFAULT - internal KVM error: one of the created page table
+                entries points to a MMIO region
+* -KVM_EAGAIN - internal KVM error: current root page table is invalid
+
 Events
 ======
 

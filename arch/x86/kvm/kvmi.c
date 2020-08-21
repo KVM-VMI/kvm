@@ -9,6 +9,7 @@
 #include "x86.h"
 #include "cpuid.h"
 #include "spp.h"
+#include "mmu.h"
 #include "../../../virt/kvm/introspection/kvmi_int.h"
 
 #include <trace/events/kvmi.h>
@@ -1559,4 +1560,9 @@ int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m)
 u64 kvmi_arch_cmd_get_xcr(struct kvm_vcpu *vcpu, u8 xcr)
 {
 	return vcpu->arch.xcr0;
+}
+
+int kvmi_arch_cmd_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn)
+{
+	return kvm_mmu_change_gfn(vcpu, old_gfn, new_gfn);
 }
