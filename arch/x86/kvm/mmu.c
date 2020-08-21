@@ -6108,12 +6108,16 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.root_mmu.translate_gpa = translate_gpa;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		vcpu->arch.root_mmu.prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
+	for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+		vcpu->arch.root_mmu.root_hpa_altviews[i] = INVALID_PAGE;
 
 	vcpu->arch.guest_mmu.root_hpa = INVALID_PAGE;
 	vcpu->arch.guest_mmu.root_cr3 = 0;
 	vcpu->arch.guest_mmu.translate_gpa = translate_gpa;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		vcpu->arch.guest_mmu.prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
+	for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+		vcpu->arch.guest_mmu.root_hpa_altviews[i] = INVALID_PAGE;
 
 	vcpu->arch.nested_mmu.translate_gpa = translate_nested_gpa;
 
