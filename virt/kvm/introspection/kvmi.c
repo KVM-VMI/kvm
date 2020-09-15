@@ -1061,43 +1061,34 @@ bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 }
 EXPORT_SYMBOL(kvmi_breakpoint_event);
 
-static bool kvmi_inject_pending_exception(struct kvm_vcpu *vcpu)
+static void kvmi_inject_pending_exception(struct kvm_vcpu *vcpu)
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
-
-	if (!vcpui->exception.pending)
-		return false;
 
 	kvmi_arch_inject_pending_exception(vcpu);
 
 	vcpui->exception.pending = false;
 
-	if (!is_event_enabled(vcpu, KVMI_EVENT_TRAP))
-		return false;
-
 	kvm_make_request(KVM_REQ_INTROSPECTION, vcpu);
 	vcpui->exception.send_event = true;
-
-	return true;
 }
 
-bool kvmi_enter_guest(struct kvm_vcpu *vcpu)
+void kvmi_enter_guest(struct kvm_vcpu *vcpu)
 {
+	struct kvm_vcpu_introspection *vcpui;
 	struct kvm_introspection *kvmi;
-	bool r = true;
 
 	kvmi = kvmi_get(vcpu->kvm);
-	if (!kvmi)
-		return true;
+	if (kvmi) {
+		vcpui = VCPUI(vcpu);
 
-	if (VCPUI(vcpu)->singlestep.loop)
-		kvmi_arch_start_singlestep(vcpu);
+		if (vcpui->singlestep.loop)
+			kvmi_arch_start_singlestep(vcpu);
+		else if (vcpui->exception.pending)
+			kvmi_inject_pending_exception(vcpu);
 
-	if (kvmi_inject_pending_exception(vcpu))
-		r = false;
-
-	kvmi_put(vcpu->kvm);
-	return r;
+		kvmi_put(vcpu->kvm);
+	}
 }
 
 static struct kvmi_mem_access *

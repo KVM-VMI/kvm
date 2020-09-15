@@ -563,14 +563,16 @@ the following events::
 	KVMI_EVENT_MSR
 	KVMI_EVENT_PF
 	KVMI_EVENT_SINGLESTEP
-	KVMI_EVENT_TRAP
 	KVMI_EVENT_XSETBV
 
 When an event is enabled, the introspection tool is notified and it
 must reply with: continue, retry, crash, etc. (see **Events** below).
 
-The *KVMI_EVENT_PAUSE_VCPU* event is always allowed,
+The *KVMI_EVENT_PAUSE_VCPU* event is always enabled,
 because it is triggered by the *KVMI_VCPU_PAUSE* command.
+
+The *KVMI_EVENT_TRAP* event is always enabled,
+because it is triggered by the *KVMI_VCPU_INJECT_EXCEPTION* command.
 
 The *KVMI_EVENT_CREATE_VCPU* and *KVMI_EVENT_UNHOOK* events are controlled
 by the *KVMI_VM_CONTROL_EVENTS* command.
@@ -757,8 +759,7 @@ ID set.
 Injects a vCPU exception with or without an error code. In case of page fault
 exception, the guest virtual address has to be specified.
 
-The introspection tool should enable the *KVMI_EVENT_TRAP* event in
-order to be notified about the effective injected expection.
+An *KVMI_EVENT_TRAP* event will be send as soon as possible.
 
 :Errors:
 
@@ -1688,8 +1689,7 @@ are sent to the introspection tool. The *CONTINUE* action will set the ``new_val
 	struct kvmi_event_reply;
 
 This event is sent if a previous *KVMI_VCPU_INJECT_EXCEPTION* command
-took place and the introspection has been enabled for this event
-(see *KVMI_VCPU_CONTROL_EVENTS*).
+took place.
 
 ``kvmi_event``, exception/interrupt number (vector), exception code
 (``error_code``) and CR2 are sent to the introspection tool,
