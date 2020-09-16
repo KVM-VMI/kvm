@@ -1185,13 +1185,15 @@ gfn_t kvm_get_max_gfn(struct kvm *kvm)
 {
 	u32 skip_mask = KVM_MEM_READONLY | KVM_MEMSLOT_INVALID;
 	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
 	gfn_t max_gfn = 0;
 	int idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
 	spin_lock(&kvm->mmu_lock);
 
-	kvm_for_each_memslot(memslot, kvm_memslots(kvm))
+	slots = kvm_memslots(kvm);
+	kvm_for_each_memslot(memslot, slots)
 		if (memslot->id < KVM_USER_MEM_SLOTS &&
 		   (memslot->flags & skip_mask) == 0)
 			max_gfn = max(max_gfn, memslot->base_gfn
