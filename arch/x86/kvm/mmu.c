@@ -4664,6 +4664,8 @@ static bool cached_root_available(struct kvm_vcpu *vcpu, gpa_t new_cr3,
 	mmu->root_hpa = root.hpa;
 	mmu->root_cr3 = root.cr3;
 
+	mmu->root_hpa_altviews[kvm_get_ept_view(vcpu)] = root.hpa;
+
 	return i < KVM_MMU_NUM_PREV_ROOTS;
 }
 
