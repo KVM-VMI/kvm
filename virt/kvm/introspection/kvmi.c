@@ -1271,9 +1271,6 @@ static bool is_pf_of_interest(struct kvm_vcpu *vcpu, gpa_t gpa, u8 access)
 {
 	struct kvm *kvm = vcpu->kvm;
 
-	if (!kvmi_arch_pf_of_interest(vcpu))
-		return false;
-
 	return kvmi_restricted_access(KVMI(kvm), gpa, access,
 					kvm_get_ept_view(vcpu));
 }

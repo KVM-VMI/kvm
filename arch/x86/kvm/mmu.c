@@ -4664,6 +4664,8 @@ static bool cached_root_available(struct kvm_vcpu *vcpu, gpa_t new_cr3,
 	mmu->root_hpa = root.hpa;
 	mmu->root_cr3 = root.cr3;
 
+	mmu->root_hpa_altviews[kvm_get_ept_view(vcpu)] = root.hpa;
+
 	return i < KVM_MMU_NUM_PREV_ROOTS;
 }
 
@@ -5527,6 +5529,9 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu, bool reset_roots)
 
 		for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 			vcpu->arch.mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
+
+		for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+			vcpu->arch.mmu->root_hpa_altviews[i] = INVALID_PAGE;
 	}
 
 	if (mmu_is_nested(vcpu))
@@ -6105,12 +6110,16 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.root_mmu.translate_gpa = translate_gpa;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		vcpu->arch.root_mmu.prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
+	for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+		vcpu->arch.root_mmu.root_hpa_altviews[i] = INVALID_PAGE;
 
 	vcpu->arch.guest_mmu.root_hpa = INVALID_PAGE;
 	vcpu->arch.guest_mmu.root_cr3 = 0;
 	vcpu->arch.guest_mmu.translate_gpa = translate_gpa;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		vcpu->arch.guest_mmu.prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
+	for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+		vcpu->arch.guest_mmu.root_hpa_altviews[i] = INVALID_PAGE;
 
 	vcpu->arch.nested_mmu.translate_gpa = translate_nested_gpa;
 
@@ -6421,7 +6430,7 @@ void kvm_mmu_slot_set_dirty(struct kvm *kvm,
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_slot_set_dirty);
 
-void kvm_mmu_zap_all(struct kvm *kvm, u16 view_mask)
+void kvm_mmu_zap_all(struct kvm *kvm, unsigned long view_mask)
 {
 	struct kvm_mmu_page *sp, *node;
 	LIST_HEAD(invalid_list);
@@ -6430,7 +6439,7 @@ void kvm_mmu_zap_all(struct kvm *kvm, u16 view_mask)
 	spin_lock(&kvm->mmu_lock);
 restart:
 	list_for_each_entry_safe(sp, node, &kvm->arch.active_mmu_pages, link) {
-		if (!test_bit(sp->view, (unsigned long *)&view_mask))
+		if (!test_bit(sp->view, &view_mask))
 			continue;
 		if (sp->role.invalid && sp->root_count)
 			continue;
