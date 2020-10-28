@@ -8,8 +8,6 @@
 #include <linux/mmu_context.h>
 #include "kvmi_int.h"
 #include <linux/kthread.h>
-#include <linux/remote_mapping.h>
-
 #define CREATE_TRACE_POINTS
 #include <trace/events/kvmi.h>
 
@@ -352,7 +350,6 @@ static void __kvmi_unhook(struct kvm *kvm)
 
 	kvm_page_track_unregister_notifier(kvm, &kvmi->arch.kptn_node);
 	kvmi_sock_put(kvmi);
-	mm_remote_reset();
 }
 
 static void kvmi_unhook(struct kvm *kvm)

@@ -119,5 +119,7 @@
 #define ERFKILL		132	/* Operation not possible due to RF-kill */
 
 #define EHWPOISON	133	/* Memory page has hardware error */
+#define ESIGBUS		134     /* Faulting failed with VM_FAULT_SIGBUS */
+#define ESIGSEGV	135     /* Faulting failed with VM_FAULT_SIGSEGV */
 
 #endif

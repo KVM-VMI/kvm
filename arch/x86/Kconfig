@@ -827,7 +827,7 @@ config KVM_DEBUG_FS
 
 config KVM_INTROSPECTION_GUEST
 	bool "KVM Introspection support on Guest"
-	depends on KVM_GUEST
+	depends on KVM_GUEST && ACPI_HOTPLUG_MEMORY
 	default n
 	help
 	  Enables any application running inside a VM to map pages from

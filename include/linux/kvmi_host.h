@@ -115,6 +115,7 @@ void kvmi_create_vm(struct kvm *kvm);
 void kvmi_destroy_vm(struct kvm *kvm);
 int kvmi_vcpu_init(struct kvm_vcpu *vcpu);
 void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu);
+int kvmi_vcpu_ioctl_map(struct kvm_vcpu *vcpu, u64 arg);
 
 int kvmi_ioctl_hook(struct kvm *kvm, void __user *argp);
 int kvmi_ioctl_unhook(struct kvm *kvm);
@@ -134,9 +135,15 @@ void kvmi_init_emulate(struct kvm_vcpu *vcpu);
 void kvmi_activate_rep_complete(struct kvm_vcpu *vcpu);
 bool kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 			  int *emulation_type);
-int kvmi_host_mem_map(struct kvm_vcpu *vcpu, gva_t tkn_gva,
-			     gpa_t req_gpa, gpa_t map_gpa);
-int kvmi_host_mem_unmap(struct kvm_vcpu *vcpu, gpa_t map_gpa);
+
+int kvmi_introspection_hc(struct kvm_vcpu *vcpu, unsigned long type,
+	unsigned long a1, unsigned long a2, unsigned long a3);
+int kvmi_introspection_hc_end(struct kvm_vcpu *vcpu, unsigned long ret);
+void kvmi_introspection_hc_return(struct kvm_vcpu *vcpu, unsigned long ret);
+int kvmi_host_remote_start(struct kvm_vcpu *vcpu, gva_t id_gva);
+int kvmi_host_remote_map(struct kvm_vcpu *vcpu, gva_t tkn_gva, gva_t handle);
+int kvmi_host_remote_unmap(struct kvm_vcpu *vcpu, gva_t handle);
+int kvmi_host_remote_end(struct kvm_vcpu *vcpu, gva_t id_gva);
 
 #else
 
@@ -146,6 +153,8 @@ static inline void kvmi_create_vm(struct kvm *kvm) { }
 static inline void kvmi_destroy_vm(struct kvm *kvm) { }
 static inline int kvmi_vcpu_init(struct kvm_vcpu *vcpu) { return 0; }
 static inline void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu) { }
+static inline int kvmi_vcpu_ioctl_map(struct kvm_vcpu *vcpu, u64 arg)
+				{ return 0; }
 
 static inline void kvmi_handle_requests(struct kvm_vcpu *vcpu) { }
 static inline bool kvmi_hypercall_event(struct kvm_vcpu *vcpu) { return false; }

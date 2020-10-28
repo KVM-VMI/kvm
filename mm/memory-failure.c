@@ -56,7 +56,6 @@
 #include <linux/kfifo.h>
 #include <linux/ratelimit.h>
 #include <linux/page-isolation.h>
-#include <linux/remote_mapping.h>
 #include "internal.h"
 #include "ras/ras_event.h"
 
@@ -470,45 +469,6 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 }
 
 /*
- * Collect processes when the error hit a remote mapped page.
- */
-static void collect_procs_remote(struct page *page, struct list_head *to_kill,
-				struct to_kill **tkc, int force_early)
-{
-	struct page_db *pdb;
-	struct vm_area_struct *vma;
-	struct task_struct *tsk;
-	struct anon_vma *av;
-	pgoff_t pgoff;
-
-	pdb = RemoteMapping(page);
-	av = pdb->req_anon_vma;
-	if (av == NULL)			/* Target has left */
-		return;
-
-	pgoff = page_to_pgoff(page);	/* Offset in target */
-	anon_vma_lock_read(av);
-	read_lock(&tasklist_lock);
-	for_each_process(tsk) {
-		struct anon_vma_chain *vmac;
-		struct task_struct *t = task_early_kill(tsk, force_early);
-
-		if (!t)
-			continue;
-		anon_vma_interval_tree_foreach(vmac, &av->rb_root,
-			pgoff, pgoff) {
-			vma = vmac->vma;
-			if (!page_mapped_in_vma(page, vma))
-				continue;
-			if (vma->vm_mm == t->mm)
-				add_to_kill(t, page, vma, to_kill, tkc);
-		}
-	}
-	read_unlock(&tasklist_lock);
-	anon_vma_unlock_read(av);
-}
-
-/*
  * Collect processes when the error hit a file mapped page.
  */
 static void collect_procs_file(struct page *page, struct list_head *to_kill,
@@ -560,12 +520,9 @@ static void collect_procs(struct page *page, struct list_head *tokill,
 	tk = kmalloc(sizeof(struct to_kill), GFP_NOIO);
 	if (!tk)
 		return;
-	if (PageAnon(page)) {
-		if (PageRemote(page))
-			collect_procs_remote(page, tokill, &tk, force_early);
-		else
-			collect_procs_anon(page, tokill, &tk, force_early);
-	} else
+	if (PageAnon(page))
+		collect_procs_anon(page, tokill, &tk, force_early);
+	else
 		collect_procs_file(page, tokill, &tk, force_early);
 	kfree(tk);
 }

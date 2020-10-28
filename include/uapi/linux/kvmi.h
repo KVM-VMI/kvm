@@ -246,12 +246,6 @@ struct kvmi_map_mem_token {
 	__u64 token[4];
 };
 
-struct kvmi_mem_map {
-	struct kvmi_map_mem_token token;
-	__u64 gpa;
-	__u64 gva;
-};
-
 struct kvmi_vm_get_map_token_reply {
 	struct kvmi_map_mem_token token;
 };
@@ -271,10 +265,20 @@ struct kvmi_event_cmd_error {
 	__u16 padding[3];
 };
 
-/*
- * ioctls for /dev/kvmmem
- */
-#define KVM_INTRO_MEM_MAP       _IOW('i', 0x01, struct kvmi_mem_map)
-#define KVM_INTRO_MEM_UNMAP     _IOW('i', 0x02, unsigned long)
+struct kvmi_guest_mem_map {
+	struct kvmi_map_mem_token token;	/* In */
+	__u64 gpa;				/* In/Out */
+	__u64 length;				/* Out */
+};
+
+#define KVM_GUEST_MEM_START	_IOW('i', 0x01, void *)
+#define KVM_GUEST_MEM_MAP	_IOWR('i', 0x02, struct kvmi_guest_mem_map)
+#define KVM_GUEST_MEM_UNMAP	_IOW('i', 0x03, unsigned long)
+
+/* KVM_HC_INTROSPECTION codes */
+#define KVMI_HC_START		0x01
+#define KVMI_HC_MAP		0x02
+#define KVMI_HC_UNMAP		0x03
+#define KVMI_HC_END		0x04
 
 #endif /* _UAPI__LINUX_KVMI_H */

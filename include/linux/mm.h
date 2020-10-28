@@ -35,6 +35,7 @@ struct file_ra_state;
 struct user_struct;
 struct writeback_control;
 struct bdi_writeback;
+struct zap_details;
 
 void init_mm_internals(void);
 
@@ -524,6 +525,14 @@ struct vm_operations_struct {
 	 */
 	struct page *(*find_special_page)(struct vm_area_struct *vma,
 					  unsigned long addr);
+
+	/*
+	 * Called by zap_pte_range() for use by special VMAs that implement
+	 * custom zapping behavior.
+	 */
+	int (*zap_pte)(struct vm_area_struct *vma, unsigned long addr,
+		       pte_t *pte, int rss[], struct mmu_gather *tlb,
+		       struct zap_details *details);
 };
 
 static inline void vma_init(struct vm_area_struct *vma, struct mm_struct *mm)
@@ -1428,13 +1437,26 @@ extern int user_shm_lock(size_t, struct user_struct *);
 extern void user_shm_unlock(size_t, struct user_struct *);
 
 /*
+ * Flags returned by zap_pte implementations
+ */
+#define ZAP_PTE_CONTINUE	0
+#define ZAP_PTE_FLUSH		(1 << 0)	/* Ask for TLB flush. */
+#define ZAP_PTE_BREAK		(1 << 1)	/* Break PTE iteration. */
+
+/*
  * Parameter block passed down to zap_pte_range in exceptional cases.
  */
 struct zap_details {
 	struct address_space *check_mapping;	/* Check page->mapping if set */
 	pgoff_t	first_index;			/* Lowest page->index to unmap */
 	pgoff_t last_index;			/* Highest page->index to unmap */
+	bool atomic;				/* Do not sleep. */
 };
+
+static inline bool zap_is_atomic(struct zap_details *details)
+{
+	return (unlikely(details) && details->atomic);
+}
 
 struct page *vm_normal_page(struct vm_area_struct *vma, unsigned long addr,
 			     pte_t pte);
@@ -2589,6 +2611,7 @@ struct page *follow_page(struct vm_area_struct *vma, unsigned long address,
 #define FOLL_ANON	0x8000	/* don't do file mappings */
 #define FOLL_LONGTERM	0x10000	/* mapping lifetime is indefinite: see below */
 #define FOLL_SPLIT_PMD	0x20000	/* split huge pmd before returning */
+#define FOLL_SIGNAL	0x40000	/* extract signal info from fault result */
 
 /*
  * NOTE on FOLL_LONGTERM:
@@ -2623,8 +2646,10 @@ static inline int vm_fault_to_errno(vm_fault_t vm_fault, int foll_flags)
 		return -ENOMEM;
 	if (vm_fault & (VM_FAULT_HWPOISON | VM_FAULT_HWPOISON_LARGE))
 		return (foll_flags & FOLL_HWPOISON) ? -EHWPOISON : -EFAULT;
-	if (vm_fault & (VM_FAULT_SIGBUS | VM_FAULT_SIGSEGV))
-		return -EFAULT;
+	if (vm_fault & VM_FAULT_SIGBUS)
+		return (foll_flags & FOLL_SIGNAL) ? -ESIGBUS : -EFAULT;
+	if (vm_fault & VM_FAULT_SIGSEGV)
+		return (foll_flags & FOLL_SIGNAL) ? -ESIGSEGV : -EFAULT;
 	return 0;
 }
 

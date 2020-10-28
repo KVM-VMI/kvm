@@ -11,6 +11,7 @@
 #include "spp.h"
 #include "mmu.h"
 #include "../../../virt/kvm/introspection/kvmi_int.h"
+#include <linux/kvmi.h>
 
 #include <trace/events/kvmi.h>
 
@@ -1565,4 +1566,63 @@ u64 kvmi_arch_cmd_get_xcr(struct kvm_vcpu *vcpu, u8 xcr)
 int kvmi_arch_cmd_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn)
 {
 	return kvm_mmu_change_gfn(vcpu, old_gfn, new_gfn);
+}
+
+int kvmi_introspection_hc(struct kvm_vcpu *vcpu, unsigned long type,
+	unsigned long a1, unsigned long a2, unsigned long a3)
+{
+	int err;
+
+	switch (type) {
+
+	case KVMI_HC_START:
+		err = kvmi_host_remote_start(vcpu, (gva_t)a1);
+		break;
+
+	case KVMI_HC_MAP:
+		err = kvmi_host_remote_map(vcpu, (gva_t)a1, (gva_t)a2);
+		break;
+
+	case KVMI_HC_UNMAP:
+		err = kvmi_host_remote_unmap(vcpu, (gva_t)a1);
+		break;
+
+	case KVMI_HC_END:
+		err = kvmi_host_remote_end(vcpu, (gva_t)a1);
+		break;
+
+	default:
+		err = -KVM_ENOSYS;
+	}
+
+	if (err == 0)
+		return 0;	// exit to QEMU
+
+	// default return from hypercall (pass err to guest)
+	return kvmi_introspection_hc_end(vcpu, err);
+}
+
+/*
+ * Code called at the end of kvm_emulate_hypercall().
+ * Will return 1 if the main loop in vcpu_run() is to continue.
+ */
+int kvmi_introspection_hc_end(struct kvm_vcpu *vcpu, unsigned long ret)
+{
+	int op_64_bit = is_64_bit_mode(vcpu);
+
+	if (!op_64_bit)
+		ret = (u32)ret;
+	kvm_rax_write(vcpu, ret);
+
+	++vcpu->stat.hypercalls;
+	return kvm_skip_emulated_instruction(vcpu);
+}
+
+void kvmi_introspection_hc_return(struct kvm_vcpu *vcpu, unsigned long ret)
+{
+	int op_64_bit = is_64_bit_mode(vcpu);
+
+	if (!op_64_bit)
+		ret = (u32)ret;
+	kvm_rax_write(vcpu, ret);
 }

@@ -1470,7 +1470,7 @@ end:
 	return retval;
 }
 
-static struct pid *pidfd_get_pid(unsigned int fd)
+struct pid *pidfd_get_pid(unsigned int fd)
 {
 	struct fd f;
 	struct pid *pid;

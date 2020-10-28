@@ -2513,6 +2513,7 @@ static void kvm_mmu_free_page(struct kvm_mmu_page *sp)
 	MMU_WARN_ON(!is_empty_shadow_page(sp->spt));
 	hlist_del(&sp->hash_link);
 	list_del(&sp->link);
+	set_page_private(virt_to_page(sp->spt), (unsigned long)NULL);
 	free_page((unsigned long)sp->spt);
 	if (!sp->role.direct)
 		free_page((unsigned long)sp->gfns);
@@ -3790,6 +3791,32 @@ static void kvm_send_hwpoison_signal(unsigned long address, struct task_struct *
 	send_sig_mceerr(BUS_MCEERR_AR, (void __user *)address, PAGE_SHIFT, tsk);
 }
 
+static void kvm_send_sigbus(unsigned long address, struct task_struct *tsk)
+{
+	struct kernel_siginfo info;
+
+	clear_siginfo(&info);
+	info.si_signo = SIGBUS;
+	info.si_errno = 0;
+	info.si_code = BUS_ADRERR;
+	info.si_addr = (void *) address;
+
+	send_sig_info(info.si_signo, &info, tsk);
+}
+
+static void kvm_send_sigsegv(unsigned long address, struct task_struct *tsk)
+{
+	struct kernel_siginfo info;
+
+	clear_siginfo(&info);
+	info.si_signo = SIGSEGV;
+	info.si_errno = 0;
+	info.si_code = SEGV_MAPERR;
+	info.si_addr = (void *) address;
+
+	send_sig_info(info.si_signo, &info, tsk);
+}
+
 static int kvm_handle_bad_page(struct kvm_vcpu *vcpu, gfn_t gfn, kvm_pfn_t pfn)
 {
 	/*
@@ -3802,6 +3829,16 @@ static int kvm_handle_bad_page(struct kvm_vcpu *vcpu, gfn_t gfn, kvm_pfn_t pfn)
 
 	if (pfn == KVM_PFN_ERR_HWPOISON) {
 		kvm_send_hwpoison_signal(kvm_vcpu_gfn_to_hva(vcpu, gfn), current);
+		return RET_PF_RETRY;
+	}
+
+	if (pfn == KVM_PFN_ERR_SIGBUS) {
+		kvm_send_sigbus(kvm_vcpu_gfn_to_hva(vcpu, gfn), current);
+		return RET_PF_RETRY;
+	}
+
+	if (pfn == KVM_PFN_ERR_SIGSEGV) {
+		kvm_send_sigsegv(kvm_vcpu_gfn_to_hva(vcpu, gfn), current);
 		return RET_PF_RETRY;
 	}
 
@@ -4661,7 +4698,7 @@ static bool try_async_pf(struct kvm_vcpu *vcpu, bool prefault, gfn_t gfn,
 			 bool *writable)
 {
 	struct kvm_memory_slot *slot;
-	bool async;
+	bool async = false;
 
 	/*
 	 * Don't expose private memslots to L2.
@@ -4672,7 +4709,6 @@ static bool try_async_pf(struct kvm_vcpu *vcpu, bool prefault, gfn_t gfn,
 	}
 
 	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	async = false;
 	*pfn = __gfn_to_pfn_memslot(slot, gfn, false, &async, write, writable);
 	if (!async)
 		return false; /* *pfn has correct page already */

@@ -88,6 +88,26 @@ struct kvmi_mem_access {
 	struct kvmi_arch_mem_access arch;
 };
 
+/*
+ * The SVA requests a mapping of a GPA from the host (doesn't know the length).
+ * The host looks up the memslot containing that GPA in the source machine.
+ * The host then returns the memory range info to the guest in this struct.
+ */
+struct kvmi_mem_map {
+	uuid_t dom_id;		/* in - domain ID */
+	gpa_t req_gpa;		/* in - address to look for */
+	size_t min_map;		/* in - min length of memory to hotplug */
+
+	gpa_t req_start;	/* out - starting GPA of guest memslot */
+	size_t req_length;	/* out - length of guest memslot */
+	gpa_t map_start;	/* out - local GPA where QEMU hotplugged mirror DIMM */
+};
+
+struct kvmi_mem_unmap {
+	uuid_t dom_id;		/* in - domain ID */
+	gpa_t map_gpa;		/* in - local GPA */
+};
+
 static inline bool is_vm_event_enabled(struct kvm_introspection *kvmi,
 					int event)
 {
