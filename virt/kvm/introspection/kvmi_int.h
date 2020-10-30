@@ -178,7 +178,6 @@ int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa,
 			     u8 access, u16 view);
 int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress);
 int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token);
-unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn);
 int kvmi_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi, u64 gpa,
 					u32 bitmap);
 

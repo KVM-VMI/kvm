@@ -700,18 +700,6 @@ int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
 	return kvmi_arch_cmd_control_intercept(vcpu, event_id, enable);
 }
 
-unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn)
-{
-	unsigned long hva;
-	int srcu_idx;
-
-	srcu_idx = srcu_read_lock(&kvm->srcu);
-	hva = gfn_to_hva(kvm, gfn);
-	srcu_read_unlock(&kvm->srcu, srcu_idx);
-
-	return hva;
-}
-
 static long
 get_user_pages_remote_unlocked(struct mm_struct *mm, unsigned long start,
 				unsigned long nr_pages, unsigned int gup_flags,
@@ -739,7 +727,7 @@ static void *get_page_ptr(struct kvm *kvm, gpa_t gpa, struct page **page,
 
 	*page = NULL;
 
-	hva = gfn_to_hva_safe(kvm, gpa_to_gfn(gpa));
+	hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
 
 	if (kvm_is_error_hva(hva))
 		return NULL;
@@ -762,22 +750,6 @@ static void put_page_ptr(void *ptr, struct page *page, bool write)
 		put_page(page);
 }
 
-static int get_first_vcpu(struct kvm *kvm, struct kvm_vcpu **vcpu)
-{
-	struct kvm_vcpu *v;
-
-	if (!atomic_read(&kvm->online_vcpus))
-		return -KVM_EINVAL;
-
-	v = kvm_get_vcpu(kvm, 0);
-	if (!v)
-		return -KVM_EINVAL;
-
-	*vcpu = v;
-
-	return 0;
-}
-
 int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size,
 			   int (*send)(struct kvm_introspection *,
 					const struct kvmi_msg_hdr *,
@@ -786,14 +758,11 @@ int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size,
 {
 	void *ptr_page = NULL, *ptr = NULL;
 	struct page *page = NULL;
-	struct kvm_vcpu *vcpu;
 	size_t ptr_size = 0;
-	int err, ec;
+	int srcu_idx;
+	int err, ec = 0;
 
-	ec = get_first_vcpu(kvm, &vcpu);
-
-	if (ec)
-		goto out;
+	srcu_idx = srcu_read_lock(&kvm->srcu);
 
 	ptr_page = get_page_ptr(kvm, gpa, &page, false);
 	if (!ptr_page) {
@@ -808,30 +777,28 @@ out:
 	err = send(KVMI(kvm), ctx, ec, ptr, ptr_size);
 
 	put_page_ptr(ptr_page, page, false);
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
 	return err;
 }
 
 int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size, const void *buf)
 {
-	struct kvm_vcpu *vcpu;
+	int srcu_idx, ec = 0;
 	struct page *page;
 	void *ptr;
-	int err;
 
-	err = get_first_vcpu(kvm, &vcpu);
-
-	if (err)
-		return err;
+	srcu_idx = srcu_read_lock(&kvm->srcu);
 
 	ptr = get_page_ptr(kvm, gpa, &page, true);
-	if (!ptr)
-		return -KVM_ENOENT;
+	if (!ptr) {
+		ec = -KVM_ENOENT;
+	} else {
+		memcpy(ptr + (gpa & ~PAGE_MASK), buf, size);
+		put_page_ptr(ptr, page, true);
+	}
 
-	memcpy(ptr + (gpa & ~PAGE_MASK), buf, size);
-
-	put_page_ptr(ptr, page, true);
-
-	return 0;
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
+	return ec;
 }
 
 static struct kvmi_job *kvmi_pull_job(struct kvm_vcpu_introspection *vcpui)
@@ -1578,11 +1545,13 @@ static void restore_original_content(struct kvm_vcpu *vcpu)
 	size_t bytes = kvmi->singlestep.custom_ro_data.size;
 	gva_t gva = vcpui->custom_ro_data.addr;
 	u8 *backup;
+	int srcu_idx;
 
 	if (!bytes)
 		return;
 
 	backup = kvmi->singlestep.custom_ro_data.data;
+	srcu_idx = srcu_read_lock(&vcpu->kvm->srcu);
 
 	while (bytes) {
 		size_t offset = gva & ~PAGE_MASK;
@@ -1597,6 +1566,7 @@ static void restore_original_content(struct kvm_vcpu *vcpu)
 	}
 
 out:
+	srcu_read_unlock(&vcpu->kvm->srcu, srcu_idx);
 	kvmi->singlestep.custom_ro_data.size = 0;
 }
 
@@ -1810,6 +1780,7 @@ static int write_custom_data(struct kvm_vcpu *vcpu)
 	size_t bytes = vcpui->custom_ro_data.size;
 	gva_t gva = vcpui->custom_ro_data.addr;
 	u8 *backup;
+	int srcu_idx;
 
 	if (kvmi->singlestep.custom_ro_data.size)
 		return 0;
@@ -1818,19 +1789,24 @@ static int write_custom_data(struct kvm_vcpu *vcpu)
 		return 0;
 
 	backup = kvmi->singlestep.custom_ro_data.data;
+	srcu_idx = srcu_read_lock(&vcpu->kvm->srcu);
 
 	while (bytes) {
 		size_t offset = gva & ~PAGE_MASK;
 		size_t chunk = min(bytes, PAGE_SIZE - offset);
 
-		if (write_custom_data_to_page(vcpu, gva, backup, chunk))
+		if (write_custom_data_to_page(vcpu, gva, backup, chunk)) {
+			srcu_read_unlock(&vcpu->kvm->srcu, srcu_idx);
 			return -KVM_EINVAL;
+		}
 
 		bytes -= chunk;
 		backup += chunk;
 		gva += chunk;
 		kvmi->singlestep.custom_ro_data.size += chunk;
 	}
+
+	srcu_read_unlock(&vcpu->kvm->srcu, srcu_idx);
 
 	return 0;
 }
