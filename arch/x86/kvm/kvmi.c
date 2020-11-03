@@ -840,6 +840,26 @@ bool kvmi_cr3_intercepted(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL(kvmi_cr3_intercepted);
 
+bool kvmi_cpuid_event(struct kvm_vcpu *vcpu, u8 insn_len,
+		      unsigned int function, unsigned int index)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = true;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_CPUID)) {
+		kvm_info("kvmi event cpuid len: %d, function: %d, index: %d",
+			insn_len, function, index);
+	}
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 int kvmi_arch_cmd_vcpu_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 					u32 error_code, u64 address)
 {
