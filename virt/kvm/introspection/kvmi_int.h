@@ -85,7 +85,6 @@ struct kvmi_mem_access {
 	gfn_t gfn;
 	u8 access;
 	u32 write_bitmap;
-	struct kvmi_arch_mem_access arch;
 };
 
 /*
@@ -220,7 +219,7 @@ int kvmi_arch_cmd_vcpu_control_msr(struct kvm_vcpu *vcpu,
 				   const struct kvmi_vcpu_control_msr *req);
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
 				    struct kvm_memory_slot *slot,
-				    struct kvmi_mem_access *m, u16 view);
+				    gfn_t gfn, u8 access, u8 mask, u16 view);
 int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 				  const struct kvmi_msg_hdr *msg,
 				  const struct kvmi_vm_set_page_access *req);
@@ -245,7 +244,11 @@ int kvmi_arch_cmd_control_spp(struct kvm *kvm);
 int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,
 			const struct kvmi_msg_hdr *msg,
 			const struct kvmi_vm_set_page_write_bitmap *req);
-int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m);
+void kvmi_arch_set_subpage_access(struct kvm *kvm,
+				  struct kvm_memory_slot *slot,
+				  gfn_t gfn, u32 write_bitmap);
+u32 kvmi_arch_get_subpage_access(struct kvm_memory_slot *slot, u8 access,
+				 gfn_t gfn);
 u64 kvmi_arch_cmd_get_xcr(struct kvm_vcpu *vcpu, u8 xcr);
 
 /* kvmi_mem.c */

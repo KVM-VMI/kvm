@@ -30,6 +30,9 @@ void kvm_page_track_free_memslot(struct kvm_memory_slot *free,
 			      dont->arch.gfn_track[view][i]) {
 				kvfree(free->arch.gfn_track[view][i]);
 				free->arch.gfn_track[view][i] = NULL;
+
+				kvfree(free->arch.kvmi_track[view][i]);
+				free->arch.kvmi_track[view][i] = NULL;
 			}
 }
 
@@ -48,6 +51,13 @@ int kvm_page_track_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 					 GFP_KERNEL_ACCOUNT);
 			if (!slot->arch.gfn_track[view][i])
 				goto track_free;
+			slot->arch.kvmi_track[view][i] =
+				kvcalloc(BITS_TO_LONGS(npages),
+					sizeof(*slot->arch.kvmi_track[view][i]),
+					GFP_KERNEL_ACCOUNT);
+			if (!slot->arch.kvmi_track[view][i])
+				goto track_free;
+
 		}
 
 	head = &kvm->arch.track_notifier_head;

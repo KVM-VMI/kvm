@@ -828,6 +828,7 @@ struct kvm_arch_memory_slot {
 	u32 *subpage_wp_info;
 	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
 	unsigned short *gfn_track[KVM_MAX_EPT_VIEWS][KVM_PAGE_TRACK_MAX];
+	unsigned long *kvmi_track[KVM_MAX_EPT_VIEWS][KVM_PAGE_TRACK_MAX];
 };
 
 /*

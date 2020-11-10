@@ -30,6 +30,9 @@ static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
 static void kvmi_create_vcpu_event(struct kvm_vcpu *vcpu);
 static int kvmi_get_gfn_access(struct kvm_introspection *kvmi, const gfn_t gfn,
 			       u8 *access, u32 *write_bitmap, u16 view);
+static u8 kvmi_get_gfn_access_from_slot(struct kvm_memory_slot *slot,
+					gfn_t gfn, u16 view,
+					u32 *write_bitmap);
 
 static struct kmem_cache *msg_cache;
 static struct kmem_cache *job_cache;
@@ -218,22 +221,48 @@ static void kvmi_clear_mem_access(struct kvm *kvm)
 	struct kvm_introspection *kvmi = KVMI(kvm);
 	struct radix_tree_iter iter;
 	void **slot;
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
 	int idx, view;
+	u32 skip_mask = KVM_MEM_READONLY | KVM_MEMSLOT_INVALID;
 
 	idx = srcu_read_lock(&kvm->srcu);
 	spin_lock(&kvm->mmu_lock);
 
+	/* Clear any leftover in radix tree */
 	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
 		radix_tree_for_each_slot(slot, &kvmi->access_tree[view],
 					 &iter, 0) {
 			struct kvmi_mem_access *m = *slot;
 
-			m->access = full_access;
-			kvmi_arch_update_page_tracking(kvm, NULL, m, view);
-
 			radix_tree_iter_delete(&kvmi->access_tree[view],
 					       &iter, slot);
 			kmem_cache_free(radix_cache, m);
+		}
+
+	/* Remove restrictions */
+	slots = kvm_memslots(kvm);
+	kvm_for_each_memslot(memslot, slots)
+		if (memslot->id < KVM_USER_MEM_SLOTS &&
+				(memslot->flags & skip_mask) == 0) {
+			gfn_t start = memslot->base_gfn;
+			gfn_t gfn, end = start + memslot->npages;
+
+			for (gfn = start; gfn < end; gfn++) {
+				for (view = 0;
+					view < KVM_MAX_EPT_VIEWS;
+					view++) {
+					kvmi_arch_update_page_tracking(kvm,
+							memslot,
+							gfn,
+							full_access,
+							full_access,
+							view);
+				}
+				kvmi_arch_set_subpage_access(kvm, memslot,
+						gfn,
+						~default_write_bitmap);
+			}
 		}
 
 	spin_unlock(&kvm->mmu_lock);
@@ -1056,62 +1085,30 @@ void kvmi_enter_guest(struct kvm_vcpu *vcpu)
 }
 
 static struct kvmi_mem_access *
-__kvmi_get_gfn_access(struct kvm_introspection *kvmi, const gfn_t gfn, u16 view)
+__kvmi_get_saved_gfn_access(struct kvm_introspection *kvmi,
+				const gfn_t gfn, u16 view)
 {
 	return radix_tree_lookup(&kvmi->access_tree[view], gfn);
 }
 
-static void kvmi_update_mem_access(struct kvm *kvm, struct kvmi_mem_access *m, u16 view)
+static void kvmi_set_mem_access(struct kvm *kvm, gfn_t gfn, u8 access,
+				u8 mask, u32 write_bitmap, u16 view)
 {
-	struct kvm_introspection *kvmi = KVMI(kvm);
-
-	kvmi_arch_update_page_tracking(kvm, NULL, m, view);
-
-	if (m->access == full_access) {
-		radix_tree_delete(&kvmi->access_tree[view], m->gfn);
-		kmem_cache_free(radix_cache, m);
-	}
-}
-
-static bool kvmi_insert_mem_access(struct kvm *kvm, struct kvmi_mem_access *m,
-				   u16 view)
-{
-	struct kvm_introspection *kvmi = KVMI(kvm);
-
-	if (!kvm_is_visible_gfn(kvm, m->gfn))
-		return false;
-
-	if (m->access == full_access)
-		return false;
-
-	radix_tree_insert(&kvmi->access_tree[view], m->gfn, m);
-	kvmi_arch_update_page_tracking(kvm, NULL, m, view);
-
-	return true;
-}
-
-static void kvmi_set_mem_access(struct kvm *kvm, struct kvmi_mem_access *m,
-				u8 mask, u16 view, bool *done)
-{
-	struct kvm_introspection *kvmi = KVMI(kvm);
-	struct kvmi_mem_access *found;
+	struct kvm_memory_slot *slot;
 	int idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
 	spin_lock(&kvm->mmu_lock);
-	write_lock(&kvmi->access_tree_lock);
 
-	found = __kvmi_get_gfn_access(kvmi, m->gfn, view);
-	if (found) {
-		found->write_bitmap = m->write_bitmap;
-		found->access = (m->access & mask) | (found->access & ~mask);
-		kvmi_update_mem_access(kvm, found, view);
-	} else {
-		m->access |= full_access & ~mask;
-		*done = kvmi_insert_mem_access(kvm, m, view);
-	}
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot)
+		goto out;
 
-	write_unlock(&kvmi->access_tree_lock);
+	kvmi_arch_update_page_tracking(kvm, slot, gfn, access, mask, view);
+	if (mask == rwx_access)
+		kvmi_arch_set_subpage_access(kvm, slot, gfn, write_bitmap);
+
+out:
 	spin_unlock(&kvm->mmu_lock);
 	srcu_read_unlock(&kvm->srcu, idx);
 }
@@ -1119,31 +1116,11 @@ static void kvmi_set_mem_access(struct kvm *kvm, struct kvmi_mem_access *m,
 static int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access,
 			       u32 write_bitmap, u16 view)
 {
-	struct kvmi_mem_access *m;
-	bool done = false;
-	int err = 0;
+	u8 mask = rwx_access;
 
-	m = kmem_cache_zalloc(radix_cache, GFP_KERNEL);
-	if (!m)
-		return -KVM_ENOMEM;
+	kvmi_set_mem_access(kvm, gfn, access, mask, write_bitmap, view);
 
-	m->gfn = gfn;
-	m->access = access;
-	m->write_bitmap = write_bitmap;
-
-	if (radix_tree_preload(GFP_KERNEL))
-		err = -KVM_ENOMEM;
-	else if (kvmi_arch_set_subpage_access(kvm, m))
-		err = -KVM_ENOMEM;
-	else
-		kvmi_set_mem_access(kvm, m, rwx_access, view, &done);
-
-	radix_tree_preload_end();
-
-	if (!done)
-		kmem_cache_free(radix_cache, m);
-
-	return err;
+	return 0;
 }
 
 int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa, u8 access,
@@ -1153,7 +1130,11 @@ int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa, u8 access,
 	gfn_t gfn = gpa_to_gfn(gpa);
 	u8 ignored_access;
 
-	kvmi_get_gfn_access(kvmi, gfn, &ignored_access, &write_bitmap, view);
+	if (access & KVMI_PAGE_ACCESS_W)
+		write_bitmap = ~default_write_bitmap;
+	else
+		kvmi_get_gfn_access(kvmi, gfn, &ignored_access, &write_bitmap,
+				    view);
 
 	return kvmi_set_gfn_access(kvmi->kvm, gfn, access, write_bitmap, view);
 }
@@ -1161,18 +1142,19 @@ int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa, u8 access,
 static int kvmi_get_gfn_access(struct kvm_introspection *kvmi, const gfn_t gfn,
 			       u8 *access, u32 *write_bitmap, u16 view)
 {
-	struct kvmi_mem_access *m;
+	struct kvm_memory_slot *slot = NULL;
 	u8 allowed = rwx_access;
-	u32 bitmap;
+	u32 bitmap = default_write_bitmap;
 	bool restricted;
+	int idx;
 
-	read_lock(&kvmi->access_tree_lock);
-	m = __kvmi_get_gfn_access(kvmi, gfn, view);
-	if (m) {
-		allowed = m->access;
-		bitmap = m->write_bitmap;
-	}
-	read_unlock(&kvmi->access_tree_lock);
+	idx = srcu_read_lock(&kvmi->kvm->srcu);
+	slot = gfn_to_memslot(kvmi->kvm, gfn);
+	srcu_read_unlock(&kvmi->kvm->srcu, idx);
+
+	if (slot)
+		allowed = kvmi_get_gfn_access_from_slot(slot, gfn, view,
+							&bitmap);
 
 	restricted = (allowed & rwx_access) != rwx_access;
 
@@ -1381,6 +1363,33 @@ static bool kvmi_track_preexec(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	return ret;
 }
 
+static void kvmi_track_restore_from_prev_slot(struct kvm *kvm,
+		struct kvm_memory_slot *new_slot,
+		gfn_t gfn,
+		u16 view)
+{
+	struct kvm_memory_slot *old_slot = NULL;
+	u32 write_bitmap;
+	u8 old_access;
+
+	old_slot = gfn_to_memslot(kvm, gfn);
+
+	if (old_slot && old_slot->id != new_slot->id) {
+		old_access = kvmi_get_gfn_access_from_slot(old_slot, gfn, view,
+							   &write_bitmap);
+		if (old_access != full_access) {
+			kvmi_arch_update_page_tracking(kvm,
+					new_slot,
+					gfn,
+					old_access,
+					full_access,
+					view);
+			kvmi_arch_set_subpage_access(kvm, new_slot, gfn,
+						     write_bitmap);
+		}
+	}
+}
+
 static void kvmi_track_create_slot(struct kvm *kvm,
 				   struct kvm_memory_slot *slot,
 				   unsigned long npages,
@@ -1404,10 +1413,22 @@ static void kvmi_track_create_slot(struct kvm *kvm,
 		u16 view;
 
 		for (view = 0; view < KVM_MAX_EPT_VIEWS; view++) {
-			m = __kvmi_get_gfn_access(kvmi, start, view);
-			if (m)
-				kvmi_arch_update_page_tracking(kvm, slot, m,
-							       view);
+			m = __kvmi_get_saved_gfn_access(kvmi, start, view);
+			if (m) {
+				kvmi_arch_update_page_tracking(kvm,
+						slot,
+						start,
+						m->access,
+						full_access,
+						view);
+				kvmi_arch_set_subpage_access(kvm, slot, start,
+						     m->write_bitmap);
+				radix_tree_delete(&kvmi->access_tree[view],
+						m->gfn);
+				kmem_cache_free(radix_cache, m);
+			} else
+				kvmi_track_restore_from_prev_slot(kvm, slot,
+						start, view);
 		}
 		start++;
 	}
@@ -1419,45 +1440,104 @@ static void kvmi_track_create_slot(struct kvm *kvm,
 	kvmi_put(kvm);
 }
 
-static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
-				  struct kvm_page_track_notifier_node *node)
+static const struct {
+	unsigned int allow_bit;
+	enum kvm_page_track_mode track_mode;
+} track_modes[] = {
+	{ KVMI_PAGE_ACCESS_R,   KVM_PAGE_TRACK_PREREAD },
+	{ KVMI_PAGE_ACCESS_W,   KVM_PAGE_TRACK_PREWRITE },
+	{ KVMI_PAGE_ACCESS_X,   KVM_PAGE_TRACK_PREEXEC },
+	{ KVMI_PAGE_SVE,        KVM_PAGE_TRACK_SVE },
+};
+
+static u8 kvmi_get_gfn_access_from_slot(struct kvm_memory_slot *slot,
+					gfn_t gfn, u16 view,
+					u32 *write_bitmap)
+{
+	u64 offset = gfn - slot->base_gfn;
+	u8 access = 0;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(track_modes); i++) {
+		unsigned int allow_bit = track_modes[i].allow_bit;
+		enum kvm_page_track_mode mode = track_modes[i].track_mode;
+		bool kvmi_tracked = test_bit(offset,
+				slot->arch.kvmi_track[view][mode]);
+
+		if (!kvmi_tracked)
+			access |= allow_bit;
+	}
+
+	*write_bitmap = kvmi_arch_get_subpage_access(slot, gfn, access);
+
+	return access;
+}
+
+static void kvmi_insert_mem_access(struct kvm *kvm, gfn_t gfn, u8 access,
+				   u32 write_bitmap, u16 view)
 {
 	struct kvm_introspection *kvmi;
-	gfn_t start = slot->base_gfn;
-	const gfn_t end = start + slot->npages;
-	int idx;
+	struct kvmi_mem_access *m;
 
 	kvmi = kvmi_get(kvm);
 	if (!kvmi)
 		return;
 
-	idx = srcu_read_lock(&kvm->srcu);
-	spin_lock(&kvm->mmu_lock);
+	m = kmem_cache_zalloc(radix_cache, GFP_KERNEL);
+
+	if (!m) {
+		WARN_ON(!m);
+		return;
+	}
+
+	m->gfn = gfn;
+	m->access = access;
+	m->write_bitmap = write_bitmap;
+
+	if (WARN_ON(radix_tree_preload(GFP_KERNEL)))
+		return;
+
 	write_lock(&kvmi->access_tree_lock);
+	radix_tree_insert(&kvmi->access_tree[view], gfn, m);
+	write_unlock(&kvmi->access_tree_lock);
+
+	radix_tree_preload_end();
+
+	kvmi_put(kvm);
+}
+
+static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
+				  struct kvm_page_track_notifier_node *node)
+{
+	gfn_t start = slot->base_gfn;
+	const gfn_t end = start + slot->npages;
+	u32 write_bitmap;
+	u8 access;
 
 	while (start < end) {
-		struct kvmi_mem_access *m;
 		u16 view;
 
 		for (view = 0; view < KVM_MAX_EPT_VIEWS; view++) {
-			m = __kvmi_get_gfn_access(kvmi, start, view);
-			if (m) {
-				u8 prev_access = m->access;
-
-				m->access = full_access;
-				kvmi_arch_update_page_tracking(kvm, slot, m,
-							       view);
-				m->access = prev_access;
+			access = kvmi_get_gfn_access_from_slot(slot,
+					start, view, &write_bitmap);
+			if (access != full_access) {
+				kvmi_insert_mem_access(kvm, start,
+						write_bitmap,
+						access, view);
+				/* Remove all restrictions */
+				kvmi_arch_update_page_tracking(kvm,
+						slot,
+						start,
+						full_access,
+						full_access,
+						view);
+				kvmi_arch_set_subpage_access(kvm, slot,
+						start,
+						~default_write_bitmap);
 			}
 		}
 		start++;
 	}
-
-	write_unlock(&kvmi->access_tree_lock);
-	spin_unlock(&kvm->mmu_lock);
-	srcu_read_unlock(&kvm->srcu, idx);
-
-	kvmi_put(kvm);
 }
 
 bool kvmi_vcpu_running_singlestep(struct kvm_vcpu *vcpu)
@@ -1818,7 +1898,7 @@ static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 	u8 l = kvmi->singlestep.level;
 	gfn_t gfn = gpa_to_gfn(gpa);
 	u8 old_access, new_access;
-	u32 old_write_bitmap;
+	u32 old_write_bitmap, new_write_bitmap;
 	u16 view;
 	int err;
 
@@ -1855,8 +1935,11 @@ static bool kvmi_run_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa,
 	kvmi->singlestep.level++;
 
 	new_access = kvmi_arch_relax_page_access(old_access, access);
+	new_write_bitmap = (new_access & KVMI_PAGE_ACCESS_W)
+				? ~default_write_bitmap
+				: old_write_bitmap;
 
-	kvmi_set_gfn_access(vcpu->kvm, gfn, new_access, default_write_bitmap,
+	kvmi_set_gfn_access(vcpu->kvm, gfn, new_access, new_write_bitmap,
 			    view);
 
 	return true;
@@ -1925,30 +2008,13 @@ bool kvmi_singlestep_insn(struct kvm_vcpu *vcpu, gpa_t gpa, int *emulation_type)
 
 int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress)
 {
-	struct kvmi_mem_access *m;
 	u8 mask = KVMI_PAGE_SVE;
-	bool done = false;
-	int err = 0;
+	u8 access = suppress ? KVMI_PAGE_SVE : 0;
 
-	m = kmem_cache_zalloc(radix_cache, GFP_KERNEL);
-	if (!m)
-		return -KVM_ENOMEM;
+	kvmi_set_mem_access(kvm, gpa_to_gfn(gpa), access, mask,
+			    default_write_bitmap, view);
 
-	m->gfn = gpa_to_gfn(gpa);
-	m->access = suppress ? KVMI_PAGE_SVE : 0;
-	m->write_bitmap = default_write_bitmap;
-
-	if (radix_tree_preload(GFP_KERNEL))
-		err = -KVM_ENOMEM;
-	else
-		kvmi_set_mem_access(kvm, m, mask, view, &done);
-
-	radix_tree_preload_end();
-
-	if (!done)
-		kmem_cache_free(radix_cache, m);
-
-	return err;
+	return 0;
 }
 
 int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token)

@@ -1230,35 +1230,34 @@ static const struct {
 
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
 				    struct kvm_memory_slot *slot,
-				    struct kvmi_mem_access *m, u16 view)
+				    gfn_t gfn, u8 access, u8 mask, u16 view)
 {
-	struct kvmi_arch_mem_access *arch = &m->arch;
 	int i;
 
-	if (!slot) {
-		slot = gfn_to_memslot(kvm, m->gfn);
-		if (!slot)
-			return;
-	}
-
-	trace_kvmi_set_gfn_access(m->gfn, m->access, m->write_bitmap, slot->id);
+	trace_kvmi_set_gfn_access(gfn, access, 0, slot->id);
 
 	for (i = 0; i < ARRAY_SIZE(track_modes); i++) {
 		unsigned int allow_bit = track_modes[i].allow_bit;
 		enum kvm_page_track_mode mode = track_modes[i].track_mode;
-		bool slot_tracked = test_bit(slot->id, arch->active[mode]);
+		u64 offset = gfn - slot->base_gfn;
+		bool kvmi_tracked = test_bit(offset,
+				slot->arch.kvmi_track[view][mode]);
 
-		if (m->access & allow_bit) {
-			if (slot_tracked) {
+		if (!(allow_bit & mask))
+			continue;
+
+		if (access & allow_bit) {
+			if (kvmi_tracked) {
 				kvm_slot_page_track_remove_page(kvm, slot,
-								m->gfn, mode,
+								gfn, mode,
 								view);
-				clear_bit(slot->id, arch->active[mode]);
+				clear_bit(offset,
+					slot->arch.kvmi_track[view][mode]);
 			}
-		} else if (!slot_tracked) {
-			kvm_slot_page_track_add_page(kvm, slot, m->gfn, mode,
+		} else if (!kvmi_tracked) {
+			kvm_slot_page_track_add_page(kvm, slot, gfn, mode,
 						     view);
-			set_bit(slot->id, arch->active[mode]);
+			set_bit(offset, slot->arch.kvmi_track[view][mode]);
 		}
 	}
 }
@@ -1541,21 +1540,31 @@ int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,
 	return ec;
 }
 
-/*
- * Only try to set SPP bitmap when the page is writable.
- * Be careful, kvm_mmu_set_subpages() will enable page write-protection
- * by default when set SPP bitmap. If bitmap contains all 1s, it'll
- * make the page writable by default too.
- */
-int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m)
+void kvmi_arch_set_subpage_access(struct kvm *kvm,
+				  struct kvm_memory_slot *slot,
+				  gfn_t gfn, u32 write_bitmap)
 {
-	if (m->access & KVMI_PAGE_ACCESS_W)
-		return 0;
+	if (kvmi_spp_enabled(KVMI(kvm)))
+		kvm_vm_ioctl_set_subpages(kvm, gfn, 1, &write_bitmap);
+}
 
-	if (!kvmi_spp_enabled(KVMI(kvm)))
-		return 0;
+u32 kvmi_arch_get_subpage_access(struct kvm_memory_slot *slot, u8 access,
+				 gfn_t gfn)
+{
+	u32 *bitmap;
 
-	return kvm_vm_ioctl_set_subpages(kvm, m->gfn, 1, &m->write_bitmap);
+	if (access & KVMI_PAGE_ACCESS_W)
+		return FULL_SPP_ACCESS;
+
+	bitmap = gfn_to_subpage_wp_info(slot, gfn);
+	if (!bitmap)
+		return ~FULL_SPP_ACCESS;
+
+	/* the bitmap is initialized with FULL_SPP_ACCESS */
+	if (*bitmap == FULL_SPP_ACCESS)
+		return ~FULL_SPP_ACCESS;
+
+	return *bitmap;
 }
 
 u64 kvmi_arch_cmd_get_xcr(struct kvm_vcpu *vcpu, u8 xcr)
