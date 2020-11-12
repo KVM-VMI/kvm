@@ -1577,6 +1577,9 @@ The hypercall number must be ``KVM_HC_XEN_HVM_OP`` with the
 ``KVM_HC_XEN_HVM_OP_GUEST_REQUEST_VM_EVENT`` sub-function
 (see hypercalls.txt).
 
+The most useful registers describing the vCPU state can be read from
+``struct kvmi_event``.
+
 It is used by the code residing inside the introspected guest to call the
 introspection tool and to report certain details about its operation. For
 example, a classic antimalware remediation tool can report what it has
@@ -1609,14 +1612,21 @@ found during a scan.
 This event is sent when a breakpoint was reached and the introspection has
 been enabled for this event (see *KVMI_VCPU_CONTROL_EVENTS*).
 
+``kvmi_event`` (with the vCPU state), the guest physical address (``gpa``)
+where the breakpoint instruction is placed and the breakpoint instruction
+length (``insn_len``) are sent to the introspection tool.
+
 Some of these breakpoints could have been injected by the introspection tool,
 placed in the slack space of various functions and used as notification
 for when the OS or an application has reached a certain state or is
 trying to perform a certain operation (like creating a process).
 
-``kvmi_event`` and the guest physical address are sent to the introspection tool.
+The *RETRY* action is used by the introspection tool for its own
+breakpoints. In most cases, the tool will change the instruction pointer
+before returning this action.
 
-The *RETRY* action is used by the introspection tool for its own breakpoints.
+The *CONTINUE* action will cause the breakpoint exception to be reinjected
+(the OS will handle it).
 
 5. KVMI_EVENT_CR
 ----------------
@@ -1819,20 +1829,35 @@ sent to the introspection tool. The *CONTINUE* action will set the ``new_val``.
 	};
 
 This event is sent when a hypervisor page fault occurs due to a failed
-permission check in the shadow page tables, the introspection has been
-enabled for this event (see *KVMI_VCPU_CONTROL_EVENTS*) and the event was
-generated for a page in which the introspection tool has shown interest
-(ie. has previously touched it by adjusting the spte permissions).
+permission checks, the introspection has been enabled for this event
+(see *KVMI_VCPU_CONTROL_EVENTS*) and the event was generated for a
+page in which the introspection tool has shown interest (ie. has
+previously touched it by adjusting the spte permissions; see
+*KVMI_VM_SET_PAGE_ACCESS*).
 
-The shadow page tables can be used by the introspection tool to guarantee
+These permissions can be used by the introspection tool to guarantee
 the purpose of code areas inside the guest (code, rodata, stack, heap
 etc.) Each attempt at an operation unfitting for a certain memory
 range (eg. execute code in heap) triggers a page fault and gives the
 introspection tool the chance to audit the code attempting the operation.
 
-``kvmi_event``, guest virtual address (or 0xffffffff/UNMAPPED_GVA),
-guest physical address and the access flags (eg. KVMI_PAGE_ACCESS_R)
-are sent to the introspection tool.
+``kvmi_event`` (with the vCPU state), guest virtual address (``gva``)
+if available or -1/UNMAPPED_GVA, guest physical address (``gpa``)
+and the ``access`` flags (e.g. KVMI_PAGE_ACCESS_R) are sent to the
+introspection tool.
+
+In case of a restricted read access, the guest address is the location
+of the memory being read. On write access, the guest address is the
+location of the memory being written. On execute access, the guest
+address is the location of the instruction being executed
+(``gva == kvmi_event.arch.regs.rip``).
+
+In the current implementation, most of these events are sent during
+emulation. If the page fault has set more than one access bit
+(e.g. r-x/-rw), the introspection tool may receive more than one
+KVMI_PF_EVENT and the order depends on the KVM emulator. Another cause
+of multiple events is when the page fault is triggered on access crossing
+the page boundary.
 
 The *CONTINUE* action will continue the page fault handling via emulation.
 If ``rep_complete`` is 1, the REP prefixed instruction should be emulated
