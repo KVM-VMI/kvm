@@ -1863,11 +1863,12 @@ The *CONTINUE* action will continue the page fault handling via emulation.
 If ``rep_complete`` is 1, the REP prefixed instruction should be emulated
 just once (or at least no other *KVMI_EVENT_PF* event should be sent
 for the current instruction).
-If ``ctx_size`` > 0, the emulation should continue with the custom input
-from ``ctx_data`` starting from the guest virtual address specified with
-``ctx_addr``. The use of custom input is to trick the guest software
-into believing it has read certain data, in order to hide the content
-of certain memory areas (eg. hide injected code from integrity checkers).
+If ``ctx_size > 0`` and ``kvmi_event_pf.gva`` is in the range of
+``[ctx_addr, ctx_addr+ctx_size)``, the emulation will continue
+with custom input from ``ctx_data[0 .. ctx_size-1]``. The use of custom
+input is to trick the guest software into believing it has read certain
+data, in order to hide the content of certain memory areas (eg. hide
+injected code from integrity checkers).
 
 The *RETRY* action is used by the introspection tool to retry the
 execution of the current instruction, usually because it changed the
