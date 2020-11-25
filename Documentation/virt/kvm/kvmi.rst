@@ -927,7 +927,7 @@ where::
 	struct kvmi_error_code
 
 Sets the spte access bits (rwx) for an array of ``count`` guest physical
-addresses, for the selecte EPT view.
+addresses, for the selected EPT view.
 
 The valid access bits are::
 
@@ -947,10 +947,9 @@ In order to 'forget' an address, all the access bits ('rwx') must be set.
 :Errors:
 
 * -KVM_EINVAL - the specified access bits combination is invalid
-* -KVM_EINVAL - the selected SPT view is invalid
-* -KVM_EINVAL - padding is not zero
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EINVAL - the selected EPT view is invalid (see *KVM_MAX_EPT_VIEWS*)
 * -KVM_EINVAL - the message size is invalid
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
@@ -1083,9 +1082,8 @@ EPTP switching mechanism (see **KVMI_GET_VERSION**).
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_EINVAL - padding is not zero
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
-* -KVM_EINVAL - the selected EPT view is invalid
+* -KVM_EINVAL - the selected EPT view is invalid (see *KVM_MAX_EPT_VIEWS*)
 
 24. KVMI_VCPU_CONTROL_EPT_VIEW
 ------------------------------
@@ -1125,6 +1123,7 @@ is terminated.
 * -KVM_EINVAL - the selected EPT view is not valid
 * -KVM_EOPNOTSUPP - SPP is enabled for this VM
 * -KVM_EOPNOTSUPP - a non-zero EPT view was made visible but SPP is enabled for this VM
+* -KVM_EINVAL - the selected EPT view is not valid (see *KVM_MAX_EPT_VIEWS*)
 
 25. KVMI_VCPU_SET_VE_INFO
 -------------------------
@@ -1228,7 +1227,7 @@ mechanism (see **KVMI_GET_VERSION**).
 
 * -KVM_EINVAL - padding is not zero
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
+* -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EINVAL - the selected EPT view is not valid
 
 25. KVMI_VM_GET_MAP_TOKEN

@@ -230,6 +230,12 @@ enum {
 				 PFERR_WRITE_MASK |		\
 				 PFERR_PRESENT_MASK)
 
+/*
+ * We keep this value small to reduce the memory consumption
+ * and the time spent on every VM-exit in update_ept_view().
+ * Starting from 10 and up, the compiler will warn
+ * about the stack frame size used in __kvm_set_memory_region().
+ */
 #define KVM_MAX_EPT_VIEWS	3
 
 /* apic attention bits */
