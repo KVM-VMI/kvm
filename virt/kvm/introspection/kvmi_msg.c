@@ -579,7 +579,7 @@ static int handle_event_reply(const struct kvmi_vcpu_cmd_job *job,
 
 	trace_kvmi_event_reply(reply->event, msg->seq);
 
-	if (unlikely(msg->seq != expected->seq))
+	if (unlikely(msg->seq != expected->seq || !vcpui->waiting_for_reply))
 		goto out_wakeup;
 
 	common = sizeof(struct kvmi_vcpu_hdr) + sizeof(*reply);
@@ -1284,6 +1284,8 @@ int __kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
 	*action = vcpui->reply.action;
 
 out:
+	vcpui->waiting_for_reply = false;
+
 	if (err)
 		kvmi_sock_shutdown(kvmi);
 	return err;
