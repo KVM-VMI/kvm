@@ -17,6 +17,8 @@ enum {
 #define KVMI_VCPU_MESSAGE_ID(id) (((id) << 1) | 1)
 
 enum {
+	KVMI_VM_EVENT = KVMI_VM_MESSAGE_ID(0),
+
 	KVMI_GET_VERSION      = KVMI_VM_MESSAGE_ID(1),
 	KVMI_VM_CHECK_COMMAND = KVMI_VM_MESSAGE_ID(2),
 	KVMI_VM_CHECK_EVENT   = KVMI_VM_MESSAGE_ID(3),
@@ -33,6 +35,8 @@ enum {
 #define KVMI_VCPU_EVENT_ID(id) (((id) << 1) | 1)
 
 enum {
+	KVMI_VM_EVENT_UNHOOK = KVMI_VM_EVENT_ID(0),
+
 	KVMI_NEXT_VM_EVENT
 };
 
@@ -71,6 +75,11 @@ struct kvmi_vm_check_event {
 struct kvmi_vm_get_info_reply {
 	__u32 vcpu_count;
 	__u32 padding[3];
+};
+
+struct kvmi_event_hdr {
+	__u16 event;
+	__u16 padding[3];
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

@@ -331,3 +331,34 @@ This command is always allowed.
 	};
 
 Returns the number of online vCPUs.
+
+Events
+======
+
+The VM introspection events are sent using the KVMI_VM_EVENT message id.
+The message data begins with a common structure having the event id::
+
+	struct kvmi_event_hdr {
+		__u16 event;
+		__u16 padding[3];
+	};
+
+Specific event data can follow this common structure.
+
+1. KVMI_VM_EVENT_UNHOOK
+-----------------------
+
+:Architectures: all
+:Versions: >= 1
+:Actions: none
+:Parameters:
+
+::
+
+	struct kvmi_event_hdr;
+
+:Returns: none
+
+This event is sent when the device manager has to pause/stop/migrate the
+guest (see **Unhooking**).  The introspection tool has a chance to unhook
+and close the KVMI channel (signaling that the operation can proceed).

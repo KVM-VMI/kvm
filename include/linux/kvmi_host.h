@@ -17,6 +17,8 @@ struct kvm_introspection {
 
 	unsigned long *cmd_allow_mask;
 	unsigned long *event_allow_mask;
+
+	atomic_t ev_seq;
 };
 
 int kvmi_version(void);

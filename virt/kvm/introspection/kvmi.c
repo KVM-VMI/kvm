@@ -17,6 +17,8 @@
 
 static DECLARE_BITMAP(Kvmi_always_allowed_commands, KVMI_NUM_COMMANDS);
 static DECLARE_BITMAP(Kvmi_known_events, KVMI_NUM_EVENTS);
+static DECLARE_BITMAP(Kvmi_known_vm_events, KVMI_NUM_EVENTS);
+static DECLARE_BITMAP(Kvmi_known_vcpu_events, KVMI_NUM_EVENTS);
 
 static struct kmem_cache *msg_cache;
 
@@ -76,7 +78,14 @@ static void kvmi_init_always_allowed_commands(void)
 
 static void kvmi_init_known_events(void)
 {
-	bitmap_zero(Kvmi_known_events, KVMI_NUM_EVENTS);
+	bitmap_zero(Kvmi_known_vm_events, KVMI_NUM_EVENTS);
+	set_bit(KVMI_VM_EVENT_UNHOOK, Kvmi_known_vm_events);
+
+	bitmap_zero(Kvmi_known_vcpu_events, KVMI_NUM_EVENTS);
+	kvmi_arch_init_vcpu_events_mask(Kvmi_known_vcpu_events);
+
+	bitmap_or(Kvmi_known_events, Kvmi_known_vm_events,
+		  Kvmi_known_vcpu_events, KVMI_NUM_EVENTS);
 }
 
 int kvmi_init(void)
@@ -129,6 +138,8 @@ kvmi_alloc(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 
 	bitmap_copy(kvmi->cmd_allow_mask, Kvmi_always_allowed_commands,
 		    KVMI_NUM_COMMANDS);
+
+	atomic_set(&kvmi->ev_seq, 0);
 
 	kvmi->kvm = kvm;
 
