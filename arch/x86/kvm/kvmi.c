@@ -16,6 +16,7 @@ void kvmi_arch_init_vcpu_events_mask(unsigned long *supported)
 	set_bit(KVMI_VCPU_EVENT_CR, supported);
 	set_bit(KVMI_VCPU_EVENT_HYPERCALL, supported);
 	set_bit(KVMI_VCPU_EVENT_TRAP, supported);
+	set_bit(KVMI_VCPU_EVENT_XSETBV, supported);
 }
 
 static unsigned int kvmi_vcpu_mode(const struct kvm_vcpu *vcpu,
@@ -566,4 +567,33 @@ void kvmi_arch_send_pending_event(struct kvm_vcpu *vcpu)
 		vcpui->arch.exception.send_event = false;
 		kvmi_send_trap_event(vcpu);
 	}
+}
+
+static void __kvmi_xsetbv_event(struct kvm_vcpu *vcpu, u8 xcr,
+				u64 old_value, u64 new_value)
+{
+	u32 action;
+
+	action = kvmi_msg_send_vcpu_xsetbv(vcpu, xcr, old_value, new_value);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action);
+	}
+}
+
+void kvmi_xsetbv_event(struct kvm_vcpu *vcpu, u8 xcr,
+		       u64 old_value, u64 new_value)
+{
+	struct kvm_introspection *kvmi;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return;
+
+	if (is_vcpu_event_enabled(vcpu, KVMI_VCPU_EVENT_XSETBV))
+		__kvmi_xsetbv_event(vcpu, xcr, old_value, new_value);
+
+	kvmi_put(vcpu->kvm);
 }

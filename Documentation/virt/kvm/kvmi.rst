@@ -541,6 +541,7 @@ the following events::
 	KVMI_VCPU_EVENT_BREAKPOINT
 	KVMI_VCPU_EVENT_CR
 	KVMI_VCPU_EVENT_HYPERCALL
+	KVMI_VCPU_EVENT_XSETBV
 
 When an event is enabled, the introspection tool is notified and
 must reply with: continue, retry, crash, etc. (see **Events** below).
@@ -1061,3 +1062,36 @@ other vCPU introspection event.
 (``nr``), exception code (``error_code``) and ``address`` are sent to
 the introspection tool, which should check if its exception has been
 injected or overridden.
+
+7. KVMI_VCPU_EVENT_XSETBV
+-------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_event;
+	struct kvmi_vcpu_event_xsetbv {
+		__u8 xcr;
+		__u8 padding[7];
+		__u64 old_value;
+		__u64 new_value;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply;
+
+This event is sent when an extended control register XCR is going
+to be changed and the introspection has been enabled for this event
+(see *KVMI_VCPU_CONTROL_EVENTS*).
+
+``kvmi_vcpu_event`` (with the vCPU state), the extended control register
+number (``xcr``), the old value (``old_value``) and the new value
+(``new_value``) are sent to the introspection tool.

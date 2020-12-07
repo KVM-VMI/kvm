@@ -232,3 +232,23 @@ u32 kvmi_msg_send_vcpu_trap(struct kvm_vcpu *vcpu)
 
 	return action;
 }
+
+u32 kvmi_msg_send_vcpu_xsetbv(struct kvm_vcpu *vcpu, u8 xcr,
+			      u64 old_value, u64 new_value)
+{
+	struct kvmi_vcpu_event_xsetbv e;
+	u32 action;
+	int err;
+
+	memset(&e, 0, sizeof(e));
+	e.xcr = xcr;
+	e.old_value = old_value;
+	e.new_value = new_value;
+
+	err = kvmi_send_vcpu_event(vcpu, KVMI_VCPU_EVENT_XSETBV,
+				   &e, sizeof(e), NULL, 0, &action);
+	if (err)
+		action = KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}
