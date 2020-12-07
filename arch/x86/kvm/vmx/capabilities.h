@@ -142,10 +142,15 @@ static inline bool cpu_has_vmx_ept(void)
 		SECONDARY_EXEC_ENABLE_EPT;
 }
 
-static inline bool vmx_umip_emulated(void)
+static inline bool vmx_desc_ctrl_supported(void)
 {
 	return vmcs_config.cpu_based_2nd_exec_ctrl &
 		SECONDARY_EXEC_DESC;
+}
+
+static inline bool vmx_umip_emulated(void)
+{
+	return vmx_desc_ctrl_supported();
 }
 
 static inline bool cpu_has_vmx_rdtscp(void)
