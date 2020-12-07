@@ -109,4 +109,13 @@ config KVM_MMU_AUDIT
 	 This option adds a R/W kVM module parameter 'mmu_audit', which allows
 	 auditing of KVM MMU events at runtime.
 
+config KVM_INTROSPECTION
+	bool "KVM Introspection"
+	depends on (KVM_INTEL || KVM_AMD)
+	default n
+	help
+	  Provides the introspection interface, which allows the control
+	  of any running VM. It must be explicitly enabled by setting
+	  the module parameter 'kvm.introspection'.
+
 endif # VIRTUALIZATION

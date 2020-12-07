@@ -1414,6 +1414,8 @@ void kvm_fire_mask_notifiers(struct kvm *kvm, unsigned irqchip, unsigned pin,
 
 extern bool tdp_enabled;
 
+extern bool enable_introspection;
+
 u64 vcpu_tsc_khz(struct kvm_vcpu *vcpu);
 
 /* control of guest tsc rate supported? */
