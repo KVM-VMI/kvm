@@ -1670,6 +1670,9 @@ static void svm_control_desc_intercept(struct kvm_vcpu *vcpu, bool enable)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 
+	if (kvmi_monitor_desc_intercept(vcpu, enable))
+		return;
+
 	if (enable) {
 		svm_set_intercept(svm, INTERCEPT_STORE_IDTR);
 		svm_set_intercept(svm, INTERCEPT_STORE_GDTR);
