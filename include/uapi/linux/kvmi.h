@@ -51,6 +51,7 @@ enum {
 	KVMI_VCPU_GET_MTRR_TYPE      = KVMI_VCPU_MESSAGE_ID(11),
 	KVMI_VCPU_CONTROL_MSR        = KVMI_VCPU_MESSAGE_ID(12),
 	KVMI_VCPU_CONTROL_SINGLESTEP = KVMI_VCPU_MESSAGE_ID(13),
+	KVMI_VCPU_TRANSLATE_GVA      = KVMI_VCPU_MESSAGE_ID(14),
 
 	KVMI_NEXT_VCPU_MESSAGE
 };
@@ -231,6 +232,14 @@ struct kvmi_vcpu_control_singlestep {
 struct kvmi_vcpu_event_singlestep {
 	__u8 failed;
 	__u8 padding[7];
+};
+
+struct kvmi_vcpu_translate_gva {
+	__u64 gva;
+};
+
+struct kvmi_vcpu_translate_gva_reply {
+	__u64 gpa;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */
