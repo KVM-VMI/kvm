@@ -4878,6 +4878,74 @@ Errors:
 This ioctl is used to free all introspection structures
 related to this VM.
 
+4.129 KVM_INTROSPECTION_COMMAND
+-------------------------------
+
+:Capability: KVM_CAP_INTROSPECTION
+:Architectures: x86
+:Type: vm ioctl
+:Parameters: struct kvm_introspection_feature (in)
+:Returns: 0 on success, a negative value on error
+
+Errors:
+
+  ======     ===========================================================
+  EFAULT     the VM is not introspected yet (use KVM_INTROSPECTION_HOOK)
+  EINVAL     the command is unknown
+  EPERM      the command can't be disallowed (e.g. KVMI_GET_VERSION)
+  EPERM      the introspection is disabled (kvm.introspection=0)
+  ======     ===========================================================
+
+This ioctl is used to allow or disallow introspection commands
+for the current VM. By default, almost all commands are disallowed
+except for those used to query the API features.
+
+::
+
+  struct kvm_introspection_feature {
+	__u32 allow;
+	__s32 id;
+  };
+
+If allow is 1, the command specified by id is allowed. If allow is 0,
+the command is disallowed.
+
+Unless set to -1 (meaning all commands), id must be a command ID
+(e.g. KVMI_GET_VERSION)
+
+4.130 KVM_INTROSPECTION_EVENT
+-----------------------------
+
+:Capability: KVM_CAP_INTROSPECTION
+:Architectures: x86
+:Type: vm ioctl
+:Parameters: struct kvm_introspection_feature (in)
+:Returns: 0 on success, a negative value on error
+
+Errors:
+
+  ======     ===========================================================
+  EFAULT     the VM is not introspected yet (use KVM_INTROSPECTION_HOOK)
+  EINVAL     the event is unknown
+  EPERM      the introspection is disabled (kvm.introspection=0)
+  ======     ===========================================================
+
+This ioctl is used to allow or disallow introspection events
+for the current VM. By default, all events are disallowed.
+
+::
+
+  struct kvm_introspection_feature {
+	__u32 allow;
+	__s32 id;
+  };
+
+If allow is 1, the event specified by id is allowed. If allow is 0,
+the event is disallowed.
+
+Unless set to -1 (meaning all events), id must be a event ID
+(e.g. KVMI_VM_EVENT_UNHOOK, KVMI_VCPU_EVENT_CR, etc.)
+
 5. The kvm_run structure
 ========================
 

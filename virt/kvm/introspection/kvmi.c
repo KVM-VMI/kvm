@@ -8,6 +8,11 @@
 #include <linux/kthread.h>
 #include "kvmi_int.h"
 
+#define KVMI_NUM_COMMANDS __cmp((int)KVMI_NEXT_VM_MESSAGE, \
+				(int)KVMI_NEXT_VCPU_MESSAGE, >)
+#define KVMI_NUM_EVENTS   __cmp((int)KVMI_NEXT_VM_EVENT, \
+				(int)KVMI_NEXT_VCPU_EVENT, >)
+
 int kvmi_init(void)
 {
 	return 0;
@@ -24,6 +29,9 @@ void kvmi_uninit(void)
 
 static void kvmi_free(struct kvm *kvm)
 {
+	bitmap_free(kvm->kvmi->cmd_allow_mask);
+	bitmap_free(kvm->kvmi->event_allow_mask);
+
 	kfree(kvm->kvmi);
 	kvm->kvmi = NULL;
 }
@@ -36,6 +44,15 @@ kvmi_alloc(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 	kvmi = kzalloc(sizeof(*kvmi), GFP_KERNEL);
 	if (!kvmi)
 		return NULL;
+
+	kvmi->cmd_allow_mask = bitmap_zalloc(KVMI_NUM_COMMANDS, GFP_KERNEL);
+	kvmi->event_allow_mask = bitmap_zalloc(KVMI_NUM_EVENTS, GFP_KERNEL);
+	if (!kvmi->cmd_allow_mask || !kvmi->event_allow_mask) {
+		bitmap_free(kvmi->cmd_allow_mask);
+		bitmap_free(kvmi->event_allow_mask);
+		kfree(kvmi);
+		return NULL;
+	}
 
 	BUILD_BUG_ON(sizeof(hook->uuid) != sizeof(kvmi->uuid));
 	memcpy(&kvmi->uuid, &hook->uuid, sizeof(kvmi->uuid));
@@ -182,4 +199,109 @@ void kvmi_create_vm(struct kvm *kvm)
 void kvmi_destroy_vm(struct kvm *kvm)
 {
 	kvmi_unhook(kvm);
+}
+
+static int
+kvmi_ioctl_get_feature(const struct kvm_introspection_feature *feat,
+		       bool *allow, s32 *id, unsigned int nbits)
+{
+	s32 all_bits = -1;
+
+	if (feat->id < 0 && feat->id != all_bits)
+		return -EINVAL;
+
+	if (feat->id > 0 && feat->id >= nbits)
+		return -EINVAL;
+
+	if (feat->allow > 1)
+		return -EINVAL;
+
+	*allow = feat->allow == 1;
+	*id = feat->id;
+
+	return 0;
+}
+
+static void kvmi_control_allowed_events(struct kvm_introspection *kvmi,
+					s32 id, bool allow)
+{
+	s32 all_events = -1;
+
+	if (allow) {
+		if (id == all_events)
+			bitmap_fill(kvmi->event_allow_mask, KVMI_NUM_EVENTS);
+		else
+			set_bit(id, kvmi->event_allow_mask);
+	} else {
+		if (id == all_events)
+			bitmap_zero(kvmi->event_allow_mask, KVMI_NUM_EVENTS);
+		else
+			clear_bit(id, kvmi->event_allow_mask);
+	}
+}
+
+int kvmi_ioctl_event(struct kvm *kvm,
+		     const struct kvm_introspection_feature *feat)
+{
+	struct kvm_introspection *kvmi;
+	bool allow;
+	int err;
+	s32 id;
+
+	err = kvmi_ioctl_get_feature(feat, &allow, &id, KVMI_NUM_EVENTS);
+	if (err)
+		return err;
+
+	mutex_lock(&kvm->kvmi_lock);
+
+	kvmi = KVMI(kvm);
+	if (kvmi)
+		kvmi_control_allowed_events(kvmi, id, allow);
+	else
+		err = -EFAULT;
+
+	mutex_unlock(&kvm->kvmi_lock);
+	return err;
+}
+
+static void kvmi_control_allowed_commands(struct kvm_introspection *kvmi,
+					  s32 id, bool allow)
+{
+	s32 all_commands = -1;
+
+	if (allow) {
+		if (id == all_commands)
+			bitmap_fill(kvmi->cmd_allow_mask, KVMI_NUM_COMMANDS);
+		else
+			set_bit(id, kvmi->cmd_allow_mask);
+	} else {
+		if (id == all_commands)
+			bitmap_zero(kvmi->cmd_allow_mask, KVMI_NUM_COMMANDS);
+		else
+			clear_bit(id, kvmi->cmd_allow_mask);
+	}
+}
+
+int kvmi_ioctl_command(struct kvm *kvm,
+		       const struct kvm_introspection_feature *feat)
+{
+	struct kvm_introspection *kvmi;
+	bool allow;
+	int err;
+	s32 id;
+
+	err = kvmi_ioctl_get_feature(feat, &allow, &id, KVMI_NUM_COMMANDS);
+	if (err)
+		return err;
+
+	mutex_lock(&kvm->kvmi_lock);
+
+	kvmi = KVMI(kvm);
+	if (kvmi)
+		kvmi_control_allowed_commands(kvmi, id, allow);
+	else
+		err = -EFAULT;
+
+	mutex_unlock(&kvm->kvmi_lock);
+	return err;
 }

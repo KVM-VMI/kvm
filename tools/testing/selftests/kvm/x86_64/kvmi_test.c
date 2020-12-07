@@ -44,11 +44,60 @@ static void do_hook_ioctl(struct kvm_vm *vm, __s32 fd, int expected_err)
 		errno, strerror(errno), expected_err, fd);
 }
 
+static void set_perm(struct kvm_vm *vm, __s32 id, __u32 allow,
+		     int expected_err, int ioctl_id,
+		     const char *ioctl_str)
+{
+	struct kvm_introspection_feature feat = {
+		.allow = allow,
+		.id = id
+	};
+	int r;
+
+	r = ioctl(vm->fd, ioctl_id, &feat);
+	TEST_ASSERT(r == 0 || errno == expected_err,
+		"%s failed, id %d, errno %d (%s), expected %d\n",
+		ioctl_str, id, errno, strerror(errno), expected_err);
+}
+
+static void set_event_perm(struct kvm_vm *vm, __s32 id, __u32 allow,
+			   int expected_err)
+{
+	set_perm(vm, id, allow, expected_err, KVM_INTROSPECTION_EVENT,
+		 "KVM_INTROSPECTION_EVENT");
+}
+
+static void allow_event(struct kvm_vm *vm, __s32 event_id)
+{
+	set_event_perm(vm, event_id, 1, 0);
+}
+
+static void set_command_perm(struct kvm_vm *vm, __s32 id, __u32 allow,
+			     int expected_err)
+{
+	set_perm(vm, id, allow, expected_err, KVM_INTROSPECTION_COMMAND,
+		 "KVM_INTROSPECTION_COMMAND");
+}
+
 static void hook_introspection(struct kvm_vm *vm)
 {
+	__u32 allow = 1, disallow = 0, allow_inval = 2;
+	__s32 all_IDs = -1;
+
+	set_command_perm(vm, all_IDs, allow, EFAULT);
+	set_event_perm(vm, all_IDs, allow, EFAULT);
+
 	do_hook_ioctl(vm, -1, EINVAL);
 	do_hook_ioctl(vm, Kvm_socket, 0);
 	do_hook_ioctl(vm, Kvm_socket, EEXIST);
+
+	set_command_perm(vm, all_IDs, allow_inval, EINVAL);
+	set_command_perm(vm, all_IDs, disallow, 0);
+	set_command_perm(vm, all_IDs, allow, 0);
+
+	set_event_perm(vm, all_IDs, allow_inval, EINVAL);
+	set_event_perm(vm, all_IDs, disallow, 0);
+	allow_event(vm, all_IDs);
 }
 
 static void unhook_introspection(struct kvm_vm *vm)
