@@ -24,6 +24,8 @@ enum {
 	KVMI_VM_CHECK_EVENT    = KVMI_VM_MESSAGE_ID(3),
 	KVMI_VM_GET_INFO       = KVMI_VM_MESSAGE_ID(4),
 	KVMI_VM_CONTROL_EVENTS = KVMI_VM_MESSAGE_ID(5),
+	KVMI_VM_READ_PHYSICAL  = KVMI_VM_MESSAGE_ID(6),
+	KVMI_VM_WRITE_PHYSICAL = KVMI_VM_MESSAGE_ID(7),
 
 	KVMI_NEXT_VM_MESSAGE
 };
@@ -88,6 +90,21 @@ struct kvmi_vm_control_events {
 	__u8 enable;
 	__u8 padding1;
 	__u32 padding2;
+};
+
+struct kvmi_vm_read_physical {
+	__u64 gpa;
+	__u16 size;
+	__u16 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_vm_write_physical {
+	__u64 gpa;
+	__u16 size;
+	__u16 padding1;
+	__u32 padding2;
+	__u8  data[0];
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

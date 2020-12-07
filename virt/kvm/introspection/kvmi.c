@@ -5,7 +5,9 @@
  * Copyright (C) 2017-2020 Bitdefender S.R.L.
  *
  */
+#include <linux/mmu_context.h>
 #include <linux/kthread.h>
+#include <linux/highmem.h>
 #include "kvmi_int.h"
 
 #define KVMI_NUM_COMMANDS __cmp((int)KVMI_NEXT_VM_MESSAGE, \
@@ -452,4 +454,100 @@ int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 		clear_bit(event_id, kvmi->vm_event_enable_mask);
 
 	return 0;
+}
+
+static long
+get_user_pages_remote_unlocked(struct mm_struct *mm, unsigned long start,
+				unsigned long nr_pages, unsigned int gup_flags,
+				struct page **pages)
+{
+	struct vm_area_struct **vmas = NULL;
+	int locked = 1;
+	long r;
+
+	mmap_read_lock(mm);
+	r = get_user_pages_remote(mm, start, nr_pages, gup_flags,
+				  pages, vmas, &locked);
+	if (locked)
+		mmap_read_unlock(mm);
+
+	return r;
+}
+
+static void *get_page_ptr(struct kvm *kvm, gpa_t gpa, struct page **page,
+			  bool write, int *srcu_idx)
+{
+	unsigned int flags = write ? FOLL_WRITE : 0;
+	unsigned long hva;
+
+	*page = NULL;
+
+	*srcu_idx = srcu_read_lock(&kvm->srcu);
+	hva = gfn_to_hva(kvm, gpa_to_gfn(gpa));
+
+	if (kvm_is_error_hva(hva))
+		goto out_err;
+
+	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, flags, page) != 1)
+		goto out_err;
+
+	return write ? kmap_atomic(*page) : kmap(*page);
+out_err:
+	srcu_read_unlock(&kvm->srcu, *srcu_idx);
+	return NULL;
+}
+
+static void put_page_ptr(struct kvm *kvm, void *ptr, struct page *page,
+			 bool write, int srcu_idx)
+{
+	if (write)
+		kunmap_atomic(ptr);
+	else
+		kunmap(ptr);
+
+	put_page(page);
+
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
+}
+
+int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, size_t size,
+			   int (*send)(struct kvm_introspection *,
+					const struct kvmi_msg_hdr *,
+					int err, const void *buf, size_t),
+			   const struct kvmi_msg_hdr *ctx)
+{
+	struct page *page;
+	void *ptr_page;
+	int srcu_idx;
+	int err;
+
+	ptr_page = get_page_ptr(kvm, gpa, &page, false, &srcu_idx);
+	if (!ptr_page) {
+		err = send(KVMI(kvm), ctx, -KVM_ENOENT, NULL, 0);
+	} else {
+		err = send(KVMI(kvm), ctx, 0,
+			   ptr_page + (gpa & ~PAGE_MASK), size);
+
+		put_page_ptr(kvm, ptr_page, page, false, srcu_idx);
+	}
+
+	return err;
+}
+
+int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, size_t size,
+			    const void *buf)
+{
+	int ec = -KVM_ENOENT;
+	struct page *page;
+	int srcu_idx;
+	void *ptr;
+
+	ptr = get_page_ptr(kvm, gpa, &page, true, &srcu_idx);
+	if (ptr) {
+		memcpy(ptr + (gpa & ~PAGE_MASK), buf, size);
+		put_page_ptr(kvm, ptr, page, true, srcu_idx);
+		ec = 0;
+	}
+
+	return ec;
 }
