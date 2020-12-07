@@ -174,11 +174,32 @@ static int handle_vcpu_inject_exception(const struct kvmi_vcpu_msg_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_get_xcr(const struct kvmi_vcpu_msg_job *job,
+			       const struct kvmi_msg_hdr *msg,
+			       const void *_req)
+{
+	const struct kvmi_vcpu_get_xcr *req = _req;
+	struct kvmi_vcpu_get_xcr_reply rpl;
+	int ec = 0;
+
+	memset(&rpl, 0, sizeof(rpl));
+
+	if (non_zero_padding(req->padding, ARRAY_SIZE(req->padding)))
+		ec = -KVM_EINVAL;
+	else if (req->xcr != 0)
+		ec = -KVM_EINVAL;
+	else
+		rpl.value = job->vcpu->arch.xcr0;
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, &rpl, sizeof(rpl));
+}
+
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
 	[KVMI_VCPU_CONTROL_CR]       = handle_vcpu_control_cr,
 	[KVMI_VCPU_GET_CPUID]        = handle_vcpu_get_cpuid,
 	[KVMI_VCPU_GET_INFO]         = handle_vcpu_get_info,
 	[KVMI_VCPU_GET_REGISTERS]    = handle_vcpu_get_registers,
+	[KVMI_VCPU_GET_XCR]          = handle_vcpu_get_xcr,
 	[KVMI_VCPU_INJECT_EXCEPTION] = handle_vcpu_inject_exception,
 	[KVMI_VCPU_SET_REGISTERS]    = handle_vcpu_set_registers,
 };

@@ -102,4 +102,13 @@ struct kvmi_vcpu_event_xsetbv {
 	__u64 new_value;
 };
 
+struct kvmi_vcpu_get_xcr {
+	__u8 xcr;
+	__u8 padding[7];
+};
+
+struct kvmi_vcpu_get_xcr_reply {
+	__u64 value;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */
