@@ -105,6 +105,15 @@ static int kvmi_msg_vm_reply(struct kvm_introspection *kvmi,
 	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
 }
 
+int kvmi_msg_vcpu_reply(const struct kvmi_vcpu_msg_job *job,
+			const struct kvmi_msg_hdr *msg, int err,
+			const void *rpl, size_t rpl_size)
+{
+	struct kvm_introspection *kvmi = KVMI(job->vcpu->kvm);
+
+	return kvmi_msg_reply(kvmi, msg, err, rpl, rpl_size);
+}
+
 static struct kvm_vcpu *kvmi_get_vcpu(struct kvm_introspection *kvmi,
 				      unsigned int vcpu_idx)
 {

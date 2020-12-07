@@ -31,6 +31,8 @@ enum {
 };
 
 enum {
+	KVMI_VCPU_GET_INFO = KVMI_VCPU_MESSAGE_ID(1),
+
 	KVMI_NEXT_VCPU_MESSAGE
 };
 
