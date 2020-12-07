@@ -29,6 +29,7 @@ enum {
 	KVMI_VM_WRITE_PHYSICAL  = KVMI_VM_MESSAGE_ID(7),
 	KVMI_VM_PAUSE_VCPU      = KVMI_VM_MESSAGE_ID(8),
 	KVMI_VM_CONTROL_CLEANUP = KVMI_VM_MESSAGE_ID(9),
+	KVMI_VM_GET_MAX_GFN     = KVMI_VM_MESSAGE_ID(10),
 
 	KVMI_NEXT_VM_MESSAGE
 };
@@ -175,6 +176,10 @@ struct kvmi_vcpu_event_breakpoint {
 struct kvmi_vm_control_cleanup {
 	__u8 enable;
 	__u8 padding[7];
+};
+
+struct kvmi_vm_get_max_gfn_reply {
+	__u64 gfn;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

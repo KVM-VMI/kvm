@@ -290,6 +290,18 @@ static int handle_vm_control_cleanup(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_vm_get_max_gfn(struct kvm_introspection *kvmi,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *req)
+{
+	struct kvmi_vm_get_max_gfn_reply rpl;
+
+	memset(&rpl, 0, sizeof(rpl));
+	rpl.gfn = kvm_get_max_gfn(kvmi->kvm);
+
+	return kvmi_msg_vm_reply(kvmi, msg, 0, &rpl, sizeof(rpl));
+}
+
 /*
  * These commands are executed by the receiving thread.
  */
@@ -300,6 +312,7 @@ static kvmi_vm_msg_fct const msg_vm[] = {
 	[KVMI_VM_CONTROL_CLEANUP] = handle_vm_control_cleanup,
 	[KVMI_VM_CONTROL_EVENTS]  = handle_vm_control_events,
 	[KVMI_VM_GET_INFO]        = handle_vm_get_info,
+	[KVMI_VM_GET_MAX_GFN]     = handle_vm_get_max_gfn,
 	[KVMI_VM_PAUSE_VCPU]      = handle_vm_pause_vcpu,
 	[KVMI_VM_READ_PHYSICAL]   = handle_vm_read_physical,
 	[KVMI_VM_WRITE_PHYSICAL]  = handle_vm_write_physical,
