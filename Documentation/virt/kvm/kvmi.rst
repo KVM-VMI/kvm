@@ -212,3 +212,41 @@ device-specific memory (DMA, emulated MMIO, reserved by a passthrough
 device etc.). It is up to the user to determine, using the guest operating
 system data structures, the areas that are safe to access (code, stack, heap
 etc.).
+
+Commands
+--------
+
+The following C structures are meant to be used directly when communicating
+over the wire. The peer that detects any size mismatch should simply close
+the connection and report the error.
+
+1. KVMI_GET_VERSION
+-------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters: none
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_get_version_reply {
+		__u32 version;
+		__u32 max_msg_size;
+	};
+
+Returns the introspection API version and the largest accepted message
+size (useful for variable length messages).
+
+This command is always allowed and successful.
+
+The messages used for introspection commands/events might be extended
+in future versions and while the kernel will accept commands with
+shorter messages (older versions) or larger messages (newer versions,
+ignoring the extra information), it will not accept event replies with
+larger messages.
+
+The introspection tool should use this command to identify the features
+supported by the kernel side and what messages must be used for event
+replies.

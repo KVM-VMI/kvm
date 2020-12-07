@@ -6,6 +6,9 @@
  * KVMI structures and definitions
  */
 
+#include <linux/kernel.h>
+#include <linux/types.h>
+
 enum {
 	KVMI_VERSION = 0x00000001
 };
@@ -14,6 +17,8 @@ enum {
 #define KVMI_VCPU_MESSAGE_ID(id) (((id) << 1) | 1)
 
 enum {
+	KVMI_GET_VERSION = KVMI_VM_MESSAGE_ID(1),
+
 	KVMI_NEXT_VM_MESSAGE
 };
 
@@ -41,6 +46,11 @@ struct kvmi_msg_hdr {
 struct kvmi_error_code {
 	__s32 err;
 	__u32 padding;
+};
+
+struct kvmi_get_version_reply {
+	__u32 version;
+	__u32 max_msg_size;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */
