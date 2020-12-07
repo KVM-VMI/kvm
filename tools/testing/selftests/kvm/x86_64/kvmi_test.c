@@ -948,6 +948,35 @@ static void test_cmd_vcpu_set_registers(struct kvm_vm *vm)
 	wait_vcpu_worker(vcpu_thread);
 }
 
+static void cmd_vcpu_get_cpuid(struct kvm_vm *vm,
+			       __u32 function, __u32 index,
+			       struct kvmi_vcpu_get_cpuid_reply *rpl)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_get_cpuid cmd;
+	} req = {};
+
+	req.cmd.function = function;
+	req.cmd.index = index;
+
+	test_vcpu0_command(vm, KVMI_VCPU_GET_CPUID, &req.hdr, sizeof(req),
+			   rpl, sizeof(*rpl), 0);
+}
+
+static void test_cmd_vcpu_get_cpuid(struct kvm_vm *vm)
+{
+	struct kvmi_vcpu_get_cpuid_reply rpl = {};
+	__u32 function = 0;
+	__u32 index = 0;
+
+	cmd_vcpu_get_cpuid(vm, function, index, &rpl);
+
+	pr_debug("cpuid(%u, %u) => eax 0x%.8x, ebx 0x%.8x, ecx 0x%.8x, edx 0x%.8x\n",
+	      function, index, rpl.eax, rpl.ebx, rpl.ecx, rpl.edx);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -967,6 +996,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_control_events(vm);
 	test_cmd_vcpu_get_registers(vm);
 	test_cmd_vcpu_set_registers(vm);
+	test_cmd_vcpu_get_cpuid(vm);
 
 	unhook_introspection(vm);
 }

@@ -6,6 +6,7 @@
  *
  */
 
+#include "cpuid.h"
 #include "../../../virt/kvm/introspection/kvmi_int.h"
 #include "kvmi.h"
 
@@ -110,7 +111,32 @@ static int handle_vcpu_set_registers(const struct kvmi_vcpu_msg_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_get_cpuid(const struct kvmi_vcpu_msg_job *job,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *_req)
+{
+	const struct kvmi_vcpu_get_cpuid *req = _req;
+	struct kvmi_vcpu_get_cpuid_reply rpl;
+	struct kvm_cpuid_entry2 *entry;
+	int ec = 0;
+
+	entry = kvm_find_cpuid_entry(job->vcpu, req->function, req->index);
+	if (!entry) {
+		ec = -KVM_ENOENT;
+	} else {
+		memset(&rpl, 0, sizeof(rpl));
+
+		rpl.eax = entry->eax;
+		rpl.ebx = entry->ebx;
+		rpl.ecx = entry->ecx;
+		rpl.edx = entry->edx;
+	}
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, &rpl, sizeof(rpl));
+}
+
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
+	[KVMI_VCPU_GET_CPUID]     = handle_vcpu_get_cpuid,
 	[KVMI_VCPU_GET_INFO]      = handle_vcpu_get_info,
 	[KVMI_VCPU_GET_REGISTERS] = handle_vcpu_get_registers,
 	[KVMI_VCPU_SET_REGISTERS] = handle_vcpu_set_registers,

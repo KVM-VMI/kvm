@@ -45,4 +45,16 @@ struct kvmi_vcpu_get_registers_reply {
 	struct kvm_msrs msrs;
 };
 
+struct kvmi_vcpu_get_cpuid {
+	__u32 function;
+	__u32 index;
+};
+
+struct kvmi_vcpu_get_cpuid_reply {
+	__u32 eax;
+	__u32 ebx;
+	__u32 ecx;
+	__u32 edx;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */
