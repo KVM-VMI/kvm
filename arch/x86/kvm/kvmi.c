@@ -93,3 +93,28 @@ void kvmi_arch_setup_vcpu_event(struct kvm_vcpu *vcpu,
 	ev->arch.mode = kvmi_vcpu_mode(vcpu, &event->sregs);
 	kvmi_get_msrs(vcpu, event);
 }
+
+int kvmi_arch_cmd_vcpu_get_registers(struct kvm_vcpu *vcpu,
+				const struct kvmi_vcpu_get_registers *req,
+				struct kvmi_vcpu_get_registers_reply *rpl)
+{
+	struct msr_data m = {.host_initiated = true};
+	int k, err = 0;
+
+	kvm_arch_vcpu_get_regs(vcpu, &rpl->regs);
+	kvm_arch_vcpu_get_sregs(vcpu, &rpl->sregs);
+	rpl->mode = kvmi_vcpu_mode(vcpu, &rpl->sregs);
+	rpl->msrs.nmsrs = req->nmsrs;
+
+	for (k = 0; k < req->nmsrs && !err; k++) {
+		m.index = req->msrs_idx[k];
+
+		err = kvm_x86_ops.get_msr(vcpu, &m);
+		if (!err) {
+			rpl->msrs.entries[k].index = m.index;
+			rpl->msrs.entries[k].data = m.data;
+		}
+	}
+
+	return err ? -KVM_EINVAL : 0;
+}

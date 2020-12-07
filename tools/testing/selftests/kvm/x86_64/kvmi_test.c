@@ -808,6 +808,64 @@ static void test_cmd_vcpu_control_events(struct kvm_vm *vm)
 
 }
 
+static void cmd_vcpu_get_registers(struct kvm_vm *vm, struct kvm_regs *regs)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_get_registers cmd;
+	} req = {};
+	struct kvmi_vcpu_get_registers_reply rpl;
+
+	test_vcpu0_command(vm, KVMI_VCPU_GET_REGISTERS, &req.hdr, sizeof(req),
+			   &rpl, sizeof(rpl), 0);
+
+	memcpy(regs, &rpl.regs, sizeof(*regs));
+}
+
+static void test_invalid_vcpu_get_registers(struct kvm_vm *vm)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_get_registers cmd;
+		__u32 msrs_idx[1];
+	} req = {};
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_get_registers cmd;
+	} *req_big;
+	struct kvmi_vcpu_get_registers_reply rpl;
+	struct kvmi_get_version_reply version;
+
+	req.cmd.nmsrs = 1;
+	req.cmd.msrs_idx[0] = 0xffffffff;
+	test_vcpu0_command(vm, KVMI_VCPU_GET_REGISTERS,
+			   &req.hdr, sizeof(req),
+			   &rpl, sizeof(rpl), -KVM_EINVAL);
+
+	cmd_vm_get_version(&version);
+
+	req_big = calloc(1, version.max_msg_size);
+	req_big->cmd.nmsrs = (version.max_msg_size - sizeof(*req_big)) / sizeof(__u32);
+	test_vcpu0_command(vm, KVMI_VCPU_GET_REGISTERS,
+			   &req.hdr, sizeof(req),
+			   &rpl, sizeof(rpl), -KVM_EINVAL);
+	free(req_big);
+}
+
+static void test_cmd_vcpu_get_registers(struct kvm_vm *vm)
+{
+	struct kvm_regs regs = {};
+
+	cmd_vcpu_get_registers(vm, &regs);
+
+	pr_debug("get_registers rip 0x%llx\n", regs.rip);
+
+	test_invalid_vcpu_get_registers(vm);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -825,6 +883,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_get_info(vm);
 	test_pause(vm);
 	test_cmd_vcpu_control_events(vm);
+	test_cmd_vcpu_get_registers(vm);
 
 	unhook_introspection(vm);
 }
