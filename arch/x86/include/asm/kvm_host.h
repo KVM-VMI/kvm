@@ -1448,6 +1448,10 @@ extern u64 kvm_mce_cap_supported;
  *			     retry native execution under certain conditions,
  *			     Can only be set in conjunction with EMULTYPE_PF.
  *
+ * EMULTYPE_GPA_AVAILABLE_PF - Set when the emulator can avoid a page walk
+ *                           to get the GPA.
+ *                           Can only be set in conjunction with EMULTYPE_PF.
+ *
  * EMULTYPE_TRAP_UD_FORCED - Set when emulating an intercepted #UD that was
  *			     triggered by KVM's magic "force emulation" prefix,
  *			     which is opt in via module param (off by default).
@@ -1470,6 +1474,7 @@ extern u64 kvm_mce_cap_supported;
 #define EMULTYPE_TRAP_UD_FORCED	    (1 << 4)
 #define EMULTYPE_VMWARE_GP	    (1 << 5)
 #define EMULTYPE_PF		    (1 << 6)
+#define EMULTYPE_GPA_AVAILABLE_PF   (1 << 7)
 
 int kvm_emulate_instruction(struct kvm_vcpu *vcpu, int emulation_type);
 int kvm_emulate_instruction_from_buffer(struct kvm_vcpu *vcpu,
