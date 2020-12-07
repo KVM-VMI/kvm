@@ -213,6 +213,25 @@ static int handle_vcpu_get_xsave(const struct kvmi_vcpu_msg_job *job,
 	return err;
 }
 
+static int handle_vcpu_set_xsave(const struct kvmi_vcpu_msg_job *job,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *req)
+{
+	const struct kvm_xsave *area = req;
+	size_t cmd_size;
+	int ec = 0;
+
+	cmd_size = sizeof(struct kvmi_vcpu_hdr) + sizeof(*area);
+
+	if (cmd_size > msg->size)
+		ec = -KVM_EINVAL;
+	else if (kvm_vcpu_ioctl_x86_set_xsave(job->vcpu,
+					      (struct kvm_xsave *) area))
+		ec = -KVM_EINVAL;
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
 	[KVMI_VCPU_CONTROL_CR]       = handle_vcpu_control_cr,
 	[KVMI_VCPU_GET_CPUID]        = handle_vcpu_get_cpuid,
@@ -222,6 +241,7 @@ static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
 	[KVMI_VCPU_GET_XSAVE]        = handle_vcpu_get_xsave,
 	[KVMI_VCPU_INJECT_EXCEPTION] = handle_vcpu_inject_exception,
 	[KVMI_VCPU_SET_REGISTERS]    = handle_vcpu_set_registers,
+	[KVMI_VCPU_SET_XSAVE]        = handle_vcpu_set_xsave,
 };
 
 kvmi_vcpu_msg_job_fct kvmi_arch_vcpu_msg_handler(u16 id)

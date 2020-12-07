@@ -859,6 +859,34 @@ Returns a buffer containing the XSAVE area.
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - there is not enough memory to allocate the reply
 
+20. KVMI_VCPU_SET_XSAVE
+-----------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_set_xsave {
+		struct kvm_xsave xsave;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Modifies the XSAVE area.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
 Events
 ======
 
