@@ -5062,7 +5062,8 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 			err = handle_set_cr0(vcpu, val);
 			return kvm_complete_insn_gp(vcpu, err);
 		case 3:
-			WARN_ON_ONCE(enable_unrestricted_guest);
+			WARN_ON_ONCE(enable_unrestricted_guest &&
+				     !kvmi_cr3_intercepted(vcpu));
 			err = kvm_set_cr3(vcpu, val);
 			return kvm_complete_insn_gp(vcpu, err);
 		case 4:
@@ -5095,7 +5096,8 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 	case 1: /*mov from cr*/
 		switch (cr) {
 		case 3:
-			WARN_ON_ONCE(enable_unrestricted_guest);
+			WARN_ON_ONCE(enable_unrestricted_guest &&
+				     !kvmi_cr3_intercepted(vcpu));
 			val = kvm_read_cr3(vcpu);
 			kvm_register_write(vcpu, reg, val);
 			trace_kvm_cr_read(cr, val);

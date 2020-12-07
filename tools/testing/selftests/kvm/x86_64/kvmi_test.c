@@ -54,6 +54,7 @@ struct vcpu_worker_data {
 enum {
 	GUEST_TEST_NOOP = 0,
 	GUEST_TEST_BP,
+	GUEST_TEST_CR,
 	GUEST_TEST_HYPERCALL,
 };
 
@@ -77,6 +78,11 @@ static void guest_bp_test(void)
 	asm volatile("int3");
 }
 
+static void guest_cr_test(void)
+{
+	set_cr4(get_cr4() | X86_CR4_OSXSAVE);
+}
+
 static void guest_hypercall_test(void)
 {
 	asm volatile("mov $34, %rax");
@@ -93,6 +99,9 @@ static void guest_code(void)
 			break;
 		case GUEST_TEST_BP:
 			guest_bp_test();
+			break;
+		case GUEST_TEST_CR:
+			guest_cr_test();
 			break;
 		case GUEST_TEST_HYPERCALL:
 			guest_hypercall_test();
@@ -1100,6 +1109,96 @@ static void test_cmd_vm_control_cleanup(struct kvm_vm *vm)
 	cmd_vm_control_cleanup(disable, 0);
 }
 
+static void cmd_vcpu_control_cr(struct kvm_vm *vm, __u8 cr, __u8 enable,
+				int expected_err)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_control_cr cmd;
+	} req = {};
+
+	req.cmd.cr = cr;
+	req.cmd.enable = enable;
+
+	test_vcpu0_command(vm, KVMI_VCPU_CONTROL_CR, &req.hdr, sizeof(req),
+			   NULL, 0, expected_err);
+}
+
+static void enable_cr_events(struct kvm_vm *vm, __u8 cr)
+{
+	enable_vcpu_event(vm, KVMI_VCPU_EVENT_CR);
+
+	cmd_vcpu_control_cr(vm, cr, 1, 0);
+}
+
+static void disable_cr_events(struct kvm_vm *vm, __u8 cr)
+{
+	cmd_vcpu_control_cr(vm, cr, 0, 0);
+
+	disable_vcpu_event(vm, KVMI_VCPU_EVENT_CR);
+}
+
+static void test_invalid_vcpu_control_cr(struct kvm_vm *vm)
+{
+	__u8 enable = 1, enable_inval = 2;
+	__u8 cr_inval = 99, cr = 0;
+
+	cmd_vcpu_control_cr(vm, cr,       enable_inval, -KVM_EINVAL);
+	cmd_vcpu_control_cr(vm, cr_inval, enable,       -KVM_EINVAL);
+}
+
+static void test_cmd_vcpu_control_cr(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {
+		.vm = vm,
+		.vcpu_id = VCPU_ID,
+		.test_id = GUEST_TEST_CR,
+	};
+	struct kvmi_msg_hdr hdr;
+	struct {
+		struct vcpu_event vcpu_ev;
+		struct kvmi_vcpu_event_cr cr;
+	} ev;
+	struct {
+		struct vcpu_reply common;
+		struct kvmi_vcpu_event_cr_reply cr;
+	} rpl = {};
+	__u16 event_id = KVMI_VCPU_EVENT_CR;
+	__u8 cr_no = 4;
+	struct kvm_sregs sregs;
+	pthread_t vcpu_thread;
+
+	enable_cr_events(vm, cr_no);
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_vcpu_event(&hdr, &ev.vcpu_ev, sizeof(ev), event_id);
+
+	pr_debug("CR%u, old 0x%llx, new 0x%llx\n",
+		 ev.cr.cr, ev.cr.old_value, ev.cr.new_value);
+
+	TEST_ASSERT(ev.cr.cr == cr_no,
+		"Unexpected CR event, received CR%u, expected CR%u",
+		ev.cr.cr, cr_no);
+
+	rpl.cr.new_val = ev.cr.old_value;
+
+	reply_to_event(&hdr, &ev.vcpu_ev, KVMI_EVENT_ACTION_CONTINUE,
+		       &rpl.common, sizeof(rpl));
+
+	wait_vcpu_worker(vcpu_thread);
+
+	disable_cr_events(vm, cr_no);
+
+	vcpu_sregs_get(vm, VCPU_ID, &sregs);
+	TEST_ASSERT(sregs.cr4 == ev.cr.old_value,
+		"Failed to block CR4 update, CR4 0x%llx, expected 0x%llx",
+		sregs.cr4, ev.cr.old_value);
+
+	test_invalid_vcpu_control_cr(vm);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1123,6 +1222,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_event_hypercall(vm);
 	test_event_breakpoint(vm);
 	test_cmd_vm_control_cleanup(vm);
+	test_cmd_vcpu_control_cr(vm);
 
 	unhook_introspection(vm);
 }

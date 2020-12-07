@@ -135,7 +135,26 @@ static int handle_vcpu_get_cpuid(const struct kvmi_vcpu_msg_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, &rpl, sizeof(rpl));
 }
 
+static int handle_vcpu_control_cr(const struct kvmi_vcpu_msg_job *job,
+				  const struct kvmi_msg_hdr *msg,
+				  const void *_req)
+{
+	const struct kvmi_vcpu_control_cr *req = _req;
+	int ec;
+
+	if (req->padding1 || req->padding2 || req->enable > 1)
+		ec = -KVM_EINVAL;
+	else if (req->cr != 0 && req->cr != 3 && req->cr != 4)
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_arch_cmd_vcpu_control_cr(job->vcpu, req->cr,
+						   req->enable == 1);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
+	[KVMI_VCPU_CONTROL_CR]    = handle_vcpu_control_cr,
 	[KVMI_VCPU_GET_CPUID]     = handle_vcpu_get_cpuid,
 	[KVMI_VCPU_GET_INFO]      = handle_vcpu_get_info,
 	[KVMI_VCPU_GET_REGISTERS] = handle_vcpu_get_registers,
@@ -145,4 +164,29 @@ static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
 kvmi_vcpu_msg_job_fct kvmi_arch_vcpu_msg_handler(u16 id)
 {
 	return id < ARRAY_SIZE(msg_vcpu) ? msg_vcpu[id] : NULL;
+}
+
+u32 kvmi_msg_send_cr(struct kvm_vcpu *vcpu, u32 cr, u64 old_value,
+		     u64 new_value, u64 *ret_value)
+{
+	struct kvmi_vcpu_event_cr e;
+	struct kvmi_vcpu_event_cr_reply r;
+	u32 action;
+	int err;
+
+	memset(&e, 0, sizeof(e));
+	e.cr = cr;
+	e.old_value = old_value;
+	e.new_value = new_value;
+
+	err = kvmi_send_vcpu_event(vcpu, KVMI_VCPU_EVENT_CR, &e, sizeof(e),
+				   &r, sizeof(r), &action);
+	if (err) {
+		action = KVMI_EVENT_ACTION_CONTINUE;
+		*ret_value = new_value;
+	} else {
+		*ret_value = r.new_val;
+	}
+
+	return action;
 }

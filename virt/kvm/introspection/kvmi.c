@@ -369,7 +369,7 @@ struct kvm_introspection * __must_check kvmi_get(struct kvm *kvm)
 	return NULL;
 }
 
-static void kvmi_put(struct kvm *kvm)
+void kvmi_put(struct kvm *kvm)
 {
 	if (refcount_dec_and_test(&kvm->kvmi_ref))
 		complete(&kvm->kvmi_complete);

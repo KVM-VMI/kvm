@@ -69,6 +69,8 @@ int kvmi_add_job(struct kvm_vcpu *vcpu,
 void kvmi_run_jobs(struct kvm_vcpu *vcpu);
 void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action);
 void kvmi_cmd_vm_control_cleanup(struct kvm_introspection *kvmi, bool enable);
+struct kvm_introspection * __must_check kvmi_get(struct kvm *kvm);
+void kvmi_put(struct kvm *kvm);
 int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 			       u16 event_id, bool enable);
 int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
