@@ -538,6 +538,7 @@ command) before returning to guest.
 Enables/disables vCPU introspection events. This command can be used with
 the following events::
 
+	KVMI_VCPU_EVENT_BREAKPOINT
 	KVMI_VCPU_EVENT_HYPERCALL
 
 When an event is enabled, the introspection tool is notified and
@@ -559,6 +560,9 @@ the *KVMI_VM_CONTROL_EVENTS* command.
 * -KVM_EINVAL - the event ID is unknown (use *KVMI_VM_CHECK_EVENT* first)
 * -KVM_EPERM - the access is disallowed (use *KVMI_VM_CHECK_EVENT* first)
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EBUSY - the event can't be intercepted right now
+               (e.g. KVMI_VCPU_EVENT_BREAKPOINT if the #BP event
+                is already intercepted by userspace)
 
 11. KVMI_VCPU_GET_REGISTERS
 ---------------------------
@@ -817,3 +821,47 @@ found during a scan.
 
 The most useful registers describing the vCPU state can be read from
 ``kvmi_vcpu_event.arch.regs``.
+
+4. KVMI_VCPU_EVENT_BREAKPOINT
+-----------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH, RETRY
+:Parameters:
+
+::
+
+	struct kvmi_event_hdr;
+	struct kvmi_vcpu_event;
+	struct kvmi_vcpu_event_breakpoint {
+		__u64 gpa;
+		__u8 insn_len;
+		__u8 padding[7];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply;
+
+This event is sent when a breakpoint was reached and the introspection has
+been enabled for this event (see *KVMI_VCPU_CONTROL_EVENTS*).
+
+Some of these breakpoints could have been injected by the introspection tool,
+placed in the slack space of various functions and used as notification
+for when the OS or an application has reached a certain state or is
+trying to perform a certain operation (like creating a process).
+
+``kvmi_vcpu_event`` (with the vCPU state), the guest physical address
+(``gpa``) where the breakpoint instruction is placed and the breakpoint
+instruction length (``insn_len``) are sent to the introspection tool.
+
+The *RETRY* action is used by the introspection tool for its own
+breakpoints. In most cases, the tool will change the instruction pointer
+before returning this action.
+
+The *CONTINUE* action will cause the breakpoint exception to be reinjected
+(the OS will handle it).
