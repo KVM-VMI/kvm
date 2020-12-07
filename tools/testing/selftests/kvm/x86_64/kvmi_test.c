@@ -671,6 +671,35 @@ static void test_cmd_vcpu_get_info(struct kvm_vm *vm)
 			&rpl, sizeof(rpl), -KVM_EINVAL);
 }
 
+static void cmd_vcpu_pause(__u8 wait, int expected_err)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_pause_vcpu cmd;
+	} req = {};
+	__u16 vcpu_idx = 0;
+
+	req.cmd.wait = wait;
+	req.cmd.vcpu = vcpu_idx;
+
+	test_vm_command(KVMI_VM_PAUSE_VCPU, &req.hdr, sizeof(req), NULL, 0, expected_err);
+}
+
+static void pause_vcpu(void)
+{
+	cmd_vcpu_pause(1, 0);
+}
+
+static void test_pause(struct kvm_vm *vm)
+{
+	__u8 wait = 1, wait_inval = 2;
+
+	pause_vcpu();
+
+	cmd_vcpu_pause(wait, 0);
+	cmd_vcpu_pause(wait_inval, -KVM_EINVAL);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -686,6 +715,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vm_control_events(vm);
 	test_memory_access(vm);
 	test_cmd_vcpu_get_info(vm);
+	test_pause(vm);
 
 	unhook_introspection(vm);
 }

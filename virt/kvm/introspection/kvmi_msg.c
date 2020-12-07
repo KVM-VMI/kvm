@@ -245,6 +245,29 @@ static int handle_vm_write_physical(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_vm_pause_vcpu(struct kvm_introspection *kvmi,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vm_pause_vcpu *req = _req;
+	struct kvm_vcpu *vcpu;
+	int ec;
+
+	if (req->wait > 1 || req->padding1 || req->padding2) {
+		ec = -KVM_EINVAL;
+		goto reply;
+	}
+
+	vcpu = kvmi_get_vcpu(kvmi, req->vcpu);
+	if (!vcpu)
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_cmd_vcpu_pause(vcpu, req->wait == 1);
+
+reply:
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread.
  */
@@ -254,6 +277,7 @@ static kvmi_vm_msg_fct const msg_vm[] = {
 	[KVMI_VM_CHECK_EVENT]    = handle_vm_check_event,
 	[KVMI_VM_CONTROL_EVENTS] = handle_vm_control_events,
 	[KVMI_VM_GET_INFO]       = handle_vm_get_info,
+	[KVMI_VM_PAUSE_VCPU]     = handle_vm_pause_vcpu,
 	[KVMI_VM_READ_PHYSICAL]  = handle_vm_read_physical,
 	[KVMI_VM_WRITE_PHYSICAL] = handle_vm_write_physical,
 };

@@ -18,6 +18,8 @@ struct kvm_vcpu_introspection {
 
 	struct list_head job_list;
 	spinlock_t job_lock;
+
+	atomic_t pause_requests;
 };
 
 struct kvm_introspection {

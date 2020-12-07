@@ -26,6 +26,7 @@ enum {
 	KVMI_VM_CONTROL_EVENTS = KVMI_VM_MESSAGE_ID(5),
 	KVMI_VM_READ_PHYSICAL  = KVMI_VM_MESSAGE_ID(6),
 	KVMI_VM_WRITE_PHYSICAL = KVMI_VM_MESSAGE_ID(7),
+	KVMI_VM_PAUSE_VCPU     = KVMI_VM_MESSAGE_ID(8),
 
 	KVMI_NEXT_VM_MESSAGE
 };
@@ -112,6 +113,13 @@ struct kvmi_vm_write_physical {
 struct kvmi_vcpu_hdr {
 	__u16 vcpu;
 	__u16 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_vm_pause_vcpu {
+	__u16 vcpu;
+	__u8 wait;
+	__u8 padding1;
 	__u32 padding2;
 };
 
