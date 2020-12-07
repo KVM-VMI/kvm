@@ -1585,6 +1585,9 @@ static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 	msr.index = index;
 	msr.host_initiated = host_initiated;
 
+	if (!host_initiated && !kvmi_msr_event(vcpu, &msr))
+		return 1;
+
 	return kvm_x86_ops.set_msr(vcpu, &msr);
 }
 

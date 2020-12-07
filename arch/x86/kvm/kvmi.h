@@ -17,5 +17,8 @@ u32 kvmi_msg_send_vcpu_trap(struct kvm_vcpu *vcpu);
 u32 kvmi_msg_send_vcpu_xsetbv(struct kvm_vcpu *vcpu, u8 xcr,
 			      u64 old_value, u64 new_value);
 u32 kvmi_msg_send_vcpu_descriptor(struct kvm_vcpu *vcpu, u8 desc, bool write);
+void kvmi_control_msrw_intercept(struct kvm_vcpu *vcpu, u32 msr, bool enable);
+u32 kvmi_msg_send_vcpu_msr(struct kvm_vcpu *vcpu, u32 msr, u64 old_value,
+			   u64 new_value, u64 *ret_value);
 
 #endif

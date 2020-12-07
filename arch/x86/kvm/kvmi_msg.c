@@ -248,8 +248,36 @@ static int handle_vcpu_get_mtrr_type(const struct kvmi_vcpu_msg_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, 0, &rpl, sizeof(rpl));
 }
 
+static bool is_valid_msr(unsigned int msr)
+{
+	return msr <= 0x1fff || (msr >= 0xc0000000 && msr <= 0xc0001fff);
+}
+
+static int handle_vcpu_control_msr(const struct kvmi_vcpu_msg_job *job,
+				   const struct kvmi_msg_hdr *msg,
+				   const void *_req)
+{
+	const struct kvmi_vcpu_control_msr *req = _req;
+	int ec = 0;
+
+	if (req->padding1 || req->padding2 || req->enable > 1)
+		ec = -KVM_EINVAL;
+	else if (!is_valid_msr(req->msr))
+		ec = -KVM_EINVAL;
+	else if (req->enable &&
+		 !kvm_msr_allowed(job->vcpu, req->msr,
+				  KVM_MSR_FILTER_WRITE))
+		ec = -KVM_EPERM;
+	else
+		kvmi_control_msrw_intercept(job->vcpu, req->msr,
+					    req->enable == 1);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
 	[KVMI_VCPU_CONTROL_CR]       = handle_vcpu_control_cr,
+	[KVMI_VCPU_CONTROL_MSR]      = handle_vcpu_control_msr,
 	[KVMI_VCPU_GET_CPUID]        = handle_vcpu_get_cpuid,
 	[KVMI_VCPU_GET_INFO]         = handle_vcpu_get_info,
 	[KVMI_VCPU_GET_MTRR_TYPE]    = handle_vcpu_get_mtrr_type,
@@ -348,4 +376,28 @@ u32 kvmi_msg_send_vcpu_descriptor(struct kvm_vcpu *vcpu, u8 desc, bool write)
 
 	return action;
 
+}
+
+u32 kvmi_msg_send_vcpu_msr(struct kvm_vcpu *vcpu, u32 msr, u64 old_value,
+			   u64 new_value, u64 *ret_value)
+{
+	struct kvmi_vcpu_event_msr e;
+	struct kvmi_vcpu_event_msr_reply r;
+	int err, action;
+
+	memset(&e, 0, sizeof(e));
+	e.msr = msr;
+	e.old_value = old_value;
+	e.new_value = new_value;
+
+	err = kvmi_send_vcpu_event(vcpu, KVMI_VCPU_EVENT_MSR, &e, sizeof(e),
+				   &r, sizeof(r), &action);
+	if (err) {
+		action = KVMI_EVENT_ACTION_CONTINUE;
+		*ret_value = new_value;
+	} else {
+		*ret_value = r.new_val;
+	}
+
+	return action;
 }

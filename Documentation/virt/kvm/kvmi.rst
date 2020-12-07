@@ -542,6 +542,7 @@ the following events::
 	KVMI_VCPU_EVENT_CR
 	KVMI_VCPU_EVENT_DESCRIPTOR
 	KVMI_VCPU_EVENT_HYPERCALL
+	KVMI_VCPU_EVENT_MSR
 	KVMI_VCPU_EVENT_XSETBV
 
 When an event is enabled, the introspection tool is notified and
@@ -922,6 +923,48 @@ Returns the guest memory type for a specific guest physical address (``gpa``).
 * -KVM_EINVAL - the padding is not zero
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 
+22. KVMI_VCPU_CONTROL_MSR
+-------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_control_msr {
+		__u8 enable;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 msr;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables/disables introspection for a specific MSR and must be used
+in addition to *KVMI_VCPU_CONTROL_EVENTS* with the *KVMI_VCPU_EVENT_MSR*
+ID set.
+
+Currently, only MSRs within the following two ranges are supported. Trying
+to control events for any other register will fail with -KVM_EINVAL::
+
+	0          ... 0x00001fff
+	0xc0000000 ... 0xc0001fff
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the specified MSR is invalid
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EPERM  - the interception of the selected MSR is disallowed
+                from userspace (KVM_X86_SET_MSR_FILTER)
+
 Events
 ======
 
@@ -1260,3 +1303,39 @@ introspection tool.
 	KVMI_DESC_TR
 
 ``write`` is 1 if the descriptor was written, 0 otherwise.
+
+9. KVMI_VCPU_EVENT_MSR
+----------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_event;
+	struct kvmi_vcpu_event_msr {
+		__u32 msr;
+		__u32 padding;
+		__u64 old_value;
+		__u64 new_value;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply;
+	struct kvmi_vcpu_event_msr_reply {
+		__u64 new_val;
+	};
+
+This event is sent when a model specific register is going to be changed
+and the introspection has been enabled for this event and for this specific
+register (see **KVMI_VCPU_CONTROL_EVENTS**).
+
+``kvmi_vcpu_event`` (with the vCPU state), the MSR number (``msr``),
+the old value (``old_value``) and the new value (``new_value``) are sent
+to the introspection tool. The *CONTINUE* action will set the ``new_val``.
