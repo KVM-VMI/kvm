@@ -299,6 +299,69 @@ static bool is_vm_command(u16 id)
 	return is_vm_message(id) && id != KVMI_VM_EVENT;
 }
 
+static int check_event_reply(const struct kvmi_msg_hdr *msg,
+			     const struct kvmi_vcpu_event_reply *reply,
+			     const struct kvmi_vcpu_reply *expected,
+			     u8 *action, size_t *received)
+{
+	size_t msg_size, common_size, event_size;
+	int err = -EINVAL;
+
+	if (unlikely(msg->seq != expected->seq))
+		return err;
+
+	msg_size = msg->size;
+	common_size = sizeof(struct kvmi_vcpu_hdr) + sizeof(*reply);
+
+	if (check_sub_overflow(msg_size, common_size, &event_size))
+		return err;
+
+	if (unlikely(event_size > expected->size))
+		return err;
+
+	if (unlikely(reply->padding1 || reply->padding2))
+		return err;
+
+	*received = event_size;
+	*action = reply->action;
+	return 0;
+}
+
+static int handle_vcpu_event_reply(const struct kvmi_vcpu_msg_job *job,
+				   const struct kvmi_msg_hdr *msg,
+				   const void *rpl)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(job->vcpu);
+	struct kvmi_vcpu_reply *expected = &vcpui->reply;
+	const struct kvmi_vcpu_event_reply *reply = rpl;
+	const void *reply_data = reply + 1;
+	size_t useful, received;
+	int err = -EINTR;
+	u8 action;
+
+	if (unlikely(!vcpui->waiting_for_reply))
+		goto out;
+
+	err = check_event_reply(msg, reply, expected, &action, &received);
+	if (unlikely(err))
+		goto out;
+
+	useful = min(received, expected->size);
+	if (useful)
+		memcpy(expected->data, reply_data, useful);
+
+	if (expected->size > useful)
+		memset((char *)expected->data + useful, 0,
+			expected->size - useful);
+
+	expected->action = action;
+
+out:
+	vcpui->waiting_for_reply = false;
+	expected->error = err;
+	return expected->error;
+}
+
 /*
  * These functions are executed from the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_msg_job'
@@ -306,6 +369,7 @@ static bool is_vm_command(u16 id)
  * sending back the reply).
  */
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
+	[KVMI_VCPU_EVENT] = handle_vcpu_event_reply,
 };
 
 static kvmi_vcpu_msg_job_fct get_vcpu_msg_handler(u16 id)
@@ -329,7 +393,7 @@ static bool is_vcpu_message(u16 id)
 
 static bool is_vcpu_command(u16 id)
 {
-	return is_vcpu_message(id);
+	return is_vcpu_message(id) && id != KVMI_VCPU_EVENT;
 }
 
 static void kvmi_job_vcpu_msg(struct kvm_vcpu *vcpu, void *ctx)
@@ -422,7 +486,8 @@ static int kvmi_msg_handle_vm_cmd(struct kvm_introspection *kvmi,
 
 static bool vcpu_can_handle_messages(struct kvm_vcpu *vcpu)
 {
-	return vcpu->arch.mp_state != KVM_MP_STATE_UNINITIALIZED;
+	return VCPUI(vcpu)->waiting_for_reply
+		|| vcpu->arch.mp_state != KVM_MP_STATE_UNINITIALIZED;
 }
 
 static int kvmi_get_vcpu_if_ready(struct kvm_introspection *kvmi,
@@ -467,7 +532,8 @@ static int kvmi_msg_handle_vcpu_msg(struct kvm_introspection *kvmi,
 	struct kvm_vcpu *vcpu = NULL;
 	int err, ec;
 
-	if (!kvmi_is_command_allowed(kvmi, msg->id))
+	if (msg->id != KVMI_VCPU_EVENT &&
+	    !kvmi_is_command_allowed(kvmi, msg->id))
 		return kvmi_msg_vm_reply_ec(kvmi, msg, -KVM_EPERM);
 
 	if (vcpu_hdr->padding1 || vcpu_hdr->padding2)
@@ -546,4 +612,93 @@ int kvmi_msg_send_unhook(struct kvm_introspection *kvmi)
 			   KVMI_VM_EVENT_UNHOOK, msg_size);
 
 	return kvmi_sock_write(kvmi, vec, n, msg_size);
+}
+
+static int kvmi_wait_for_reply(struct kvm_vcpu *vcpu)
+{
+	struct rcuwait *waitp = kvm_arch_vcpu_get_wait(vcpu);
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	int err = 0;
+
+	while (vcpui->waiting_for_reply && !err) {
+		kvmi_run_jobs(vcpu);
+
+		err = rcuwait_wait_event(waitp,
+			!vcpui->waiting_for_reply ||
+			!list_empty(&vcpui->job_list),
+			TASK_KILLABLE);
+	}
+
+	return err;
+}
+
+static void kvmi_setup_vcpu_reply(struct kvm_vcpu_introspection *vcpui,
+				  u32 msg_seq, void *rpl, size_t rpl_size)
+{
+	memset(&vcpui->reply, 0, sizeof(vcpui->reply));
+
+	vcpui->reply.seq = msg_seq;
+	vcpui->reply.data = rpl;
+	vcpui->reply.size = rpl_size;
+	vcpui->reply.error = -EINTR;
+	vcpui->waiting_for_reply = true;
+}
+
+static int kvmi_fill_and_sent_vcpu_event(struct kvm_vcpu *vcpu,
+					 u32 ev_id, void *ev,
+					 size_t ev_size, u32 msg_seq)
+{
+	struct kvmi_msg_hdr msg_hdr;
+	struct kvmi_event_hdr ev_hdr;
+	struct kvmi_vcpu_event common;
+	struct kvec vec[] = {
+		{.iov_base = &msg_hdr, .iov_len = sizeof(msg_hdr)},
+		{.iov_base = &ev_hdr,  .iov_len = sizeof(ev_hdr) },
+		{.iov_base = &common,  .iov_len = sizeof(common) },
+		{.iov_base = ev,       .iov_len = ev_size        },
+	};
+	size_t msg_size = sizeof(msg_hdr) + sizeof(ev_hdr)
+			+ sizeof(common) + ev_size;
+	size_t n = ARRAY_SIZE(vec) - (ev_size == 0 ? 1 : 0);
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+
+	kvmi_fill_ev_msg_hdr(kvmi, &msg_hdr, &ev_hdr, KVMI_VCPU_EVENT,
+			     msg_seq, msg_size, ev_id);
+
+	common.size = sizeof(common);
+	common.vcpu = kvm_vcpu_get_idx(vcpu);
+
+	kvmi_arch_setup_vcpu_event(vcpu, &common);
+
+	return kvmi_sock_write(kvmi, vec, n, msg_size);
+}
+
+int kvmi_send_vcpu_event(struct kvm_vcpu *vcpu, u32 ev_id,
+			 void *ev, size_t ev_size,
+			 void *rpl, size_t rpl_size, u32 *action)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
+	u32 msg_seq = atomic_inc_return(&kvmi->ev_seq);
+	int err;
+
+	kvmi_setup_vcpu_reply(vcpui, msg_seq, rpl, rpl_size);
+
+	err = kvmi_fill_and_sent_vcpu_event(vcpu, ev_id, ev, ev_size, msg_seq);
+	if (err)
+		goto out;
+
+	err = kvmi_wait_for_reply(vcpu);
+	if (!err)
+		err = vcpui->reply.error;
+
+out:
+	vcpui->waiting_for_reply = false;
+
+	if (err)
+		kvmi_sock_shutdown(kvmi);
+	else
+		*action = vcpui->reply.action;
+
+	return err;
 }

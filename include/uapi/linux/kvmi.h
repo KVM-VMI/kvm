@@ -8,6 +8,7 @@
 
 #include <linux/kernel.h>
 #include <linux/types.h>
+#include <asm/kvmi.h>
 
 enum {
 	KVMI_VERSION = 0x00000001
@@ -32,6 +33,8 @@ enum {
 };
 
 enum {
+	KVMI_VCPU_EVENT = KVMI_VCPU_MESSAGE_ID(0),
+
 	KVMI_VCPU_GET_INFO = KVMI_VCPU_MESSAGE_ID(1),
 
 	KVMI_NEXT_VCPU_MESSAGE
@@ -48,6 +51,12 @@ enum {
 
 enum {
 	KVMI_NEXT_VCPU_EVENT
+};
+
+enum {
+	KVMI_EVENT_ACTION_CONTINUE = 0,
+	KVMI_EVENT_ACTION_RETRY    = 1,
+	KVMI_EVENT_ACTION_CRASH    = 2,
 };
 
 struct kvmi_msg_hdr {
@@ -120,6 +129,20 @@ struct kvmi_vm_pause_vcpu {
 	__u16 vcpu;
 	__u8 wait;
 	__u8 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_vcpu_event {
+	__u16 size;
+	__u16 vcpu;
+	__u32 padding;
+	struct kvmi_vcpu_event_arch arch;
+};
+
+struct kvmi_vcpu_event_reply {
+	__u8 action;
+	__u8 event;
+	__u16 padding1;
 	__u32 padding2;
 };
 

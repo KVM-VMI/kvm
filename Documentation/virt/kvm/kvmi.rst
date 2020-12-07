@@ -521,7 +521,61 @@ The message data begins with a common structure having the event id::
 		__u16 padding[3];
 	};
 
-Specific event data can follow this common structure.
+The vCPU introspection events are sent using the KVMI_VCPU_EVENT message id.
+No event is sent unless it is explicitly enabled or requested
+(e.g. *KVMI_VCPU_EVENT_PAUSE*).
+A vCPU event begins with a common structure having the size of the
+structure and the vCPU index::
+
+	struct kvmi_vcpu_event {
+		__u16 size;
+		__u16 vcpu;
+		__u32 padding;
+		struct kvmi_vcpu_event_arch arch;
+	};
+
+On x86::
+
+	struct kvmi_vcpu_event_arch {
+		__u8 mode;
+		__u8 padding[7];
+		struct kvm_regs regs;
+		struct kvm_sregs sregs;
+		struct {
+			__u64 sysenter_cs;
+			__u64 sysenter_esp;
+			__u64 sysenter_eip;
+			__u64 efer;
+			__u64 star;
+			__u64 lstar;
+			__u64 cstar;
+			__u64 pat;
+			__u64 shadow_gs;
+		} msrs;
+	};
+
+It contains information about the vCPU state at the time of the event.
+
+A vCPU event reply begins with two common structures::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply {
+		__u8 action;
+		__u8 event;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+All events accept the KVMI_EVENT_ACTION_CRASH action, which stops the
+guest ungracefully, but as soon as possible.
+
+Most events accept the KVMI_EVENT_ACTION_CONTINUE action, which
+means that KVM will continue handling the event.
+
+Some events accept the KVMI_EVENT_ACTION_RETRY action, which means that
+KVM will stop handling the event and re-enter in guest.
+
+Specific event data can follow these common structures.
 
 1. KVMI_VM_EVENT_UNHOOK
 -----------------------
