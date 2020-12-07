@@ -1660,6 +1660,20 @@ static void svm_control_desc_intercept(struct kvm_vcpu *vcpu, bool enable)
 	}
 }
 
+static inline bool svm_desc_intercepted(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	return (svm_is_intercept(svm, INTERCEPT_STORE_IDTR) ||
+		svm_is_intercept(svm, INTERCEPT_STORE_GDTR) ||
+		svm_is_intercept(svm, INTERCEPT_STORE_LDTR) ||
+		svm_is_intercept(svm, INTERCEPT_STORE_TR) ||
+		svm_is_intercept(svm, INTERCEPT_LOAD_IDTR) ||
+		svm_is_intercept(svm, INTERCEPT_LOAD_GDTR) ||
+		svm_is_intercept(svm, INTERCEPT_LOAD_LDTR) ||
+		svm_is_intercept(svm, INTERCEPT_LOAD_TR));
+}
+
 static void update_cr0_intercept(struct vcpu_svm *svm)
 {
 	ulong gcr0 = svm->vcpu.arch.cr0;
@@ -4307,6 +4321,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.set_gdt = svm_set_gdt,
 	.desc_ctrl_supported = svm_desc_ctrl_supported,
 	.control_desc_intercept = svm_control_desc_intercept,
+	.desc_intercepted = svm_desc_intercepted,
 	.set_dr7 = svm_set_dr7,
 	.sync_dirty_debug_regs = svm_sync_dirty_debug_regs,
 	.cache_reg = svm_cache_reg,
