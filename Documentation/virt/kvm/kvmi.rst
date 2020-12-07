@@ -243,10 +243,21 @@ The vCPU commands start with::
 	struct kvmi_get_version_reply {
 		__u32 version;
 		__u32 max_msg_size;
+		struct kvmi_features features;
 	};
 
-Returns the introspection API version and the largest accepted message
-size (useful for variable length messages).
+For x86
+
+::
+
+	struct kvmi_features {
+		__u8 singlestep;
+		__u8 padding[7];
+	};
+
+Returns the introspection API version, the largest accepted message size
+(useful for variable length messages) and some of the hardware supported
+features.
 
 This command is always allowed and successful.
 
