@@ -107,4 +107,10 @@ struct kvmi_vm_write_physical {
 	__u8  data[0];
 };
 
+struct kvmi_vcpu_hdr {
+	__u16 vcpu;
+	__u16 padding1;
+	__u32 padding2;
+};
+
 #endif /* _UAPI__LINUX_KVMI_H */
