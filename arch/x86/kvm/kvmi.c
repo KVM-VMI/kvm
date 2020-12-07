@@ -919,3 +919,43 @@ bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
 
 	return ret;
 }
+
+static const struct {
+	unsigned int allow_bit;
+	enum kvm_page_track_mode track_mode;
+} track_modes[] = {
+	{ KVMI_PAGE_ACCESS_R, KVM_PAGE_TRACK_PREREAD },
+	{ KVMI_PAGE_ACCESS_W, KVM_PAGE_TRACK_PREWRITE },
+	{ KVMI_PAGE_ACCESS_X, KVM_PAGE_TRACK_PREEXEC },
+};
+
+void kvmi_arch_update_page_tracking(struct kvm *kvm,
+				    struct kvm_memory_slot *slot,
+				    struct kvmi_mem_access *m)
+{
+	struct kvmi_arch_mem_access *arch = &m->arch;
+	int i;
+
+	if (!slot) {
+		slot = gfn_to_memslot(kvm, m->gfn);
+		if (!slot)
+			return;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(track_modes); i++) {
+		unsigned int allow_bit = track_modes[i].allow_bit;
+		enum kvm_page_track_mode mode = track_modes[i].track_mode;
+		bool slot_tracked = test_bit(slot->id, arch->active[mode]);
+
+		if (m->access & allow_bit) {
+			if (slot_tracked) {
+				kvm_slot_page_track_remove_page(kvm, slot,
+								m->gfn, mode);
+				clear_bit(slot->id, arch->active[mode]);
+			}
+		} else if (!slot_tracked) {
+			kvm_slot_page_track_add_page(kvm, slot, m->gfn, mode);
+			set_bit(slot->id, arch->active[mode]);
+		}
+	}
+}

@@ -26,6 +26,12 @@ typedef int (*kvmi_vcpu_msg_job_fct)(const struct kvmi_vcpu_msg_job *job,
 				     const struct kvmi_msg_hdr *msg,
 				     const void *req);
 
+struct kvmi_mem_access {
+	gfn_t gfn;
+	u8 access;
+	struct kvmi_arch_mem_access arch;
+};
+
 static inline bool is_vcpu_event_enabled(struct kvm_vcpu *vcpu, u16 event_id)
 {
 	return test_bit(event_id, VCPUI(vcpu)->ev_enable_mask);
@@ -86,6 +92,7 @@ int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, size_t size,
 int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, size_t size,
 			    const void *buf);
 int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait);
+int kvmi_set_gfn_access(struct kvm *kvm, gfn_t gfn, u8 access);
 
 /* arch */
 void kvmi_arch_init_vcpu_events_mask(unsigned long *supported);
@@ -104,5 +111,8 @@ void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len);
 int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
 				    unsigned int event_id, bool enable);
 void kvmi_arch_send_pending_event(struct kvm_vcpu *vcpu);
+void kvmi_arch_update_page_tracking(struct kvm *kvm,
+				    struct kvm_memory_slot *slot,
+				    struct kvmi_mem_access *m);
 
 #endif

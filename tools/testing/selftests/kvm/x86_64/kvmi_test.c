@@ -1689,6 +1689,55 @@ static void test_cmd_vcpu_control_msr(struct kvm_vm *vm)
 	test_invalid_control_msr(vm, msr);
 }
 
+static int cmd_set_page_access(__u16 count, __u64 *gpa, __u8 *access)
+{
+	struct kvmi_page_access_entry *entry, *end;
+	struct kvmi_vm_set_page_access *cmd;
+	struct kvmi_msg_hdr *req;
+	size_t req_size;
+	int r;
+
+	req_size = sizeof(*req) + sizeof(*cmd) + count * sizeof(*entry);
+	req = calloc(1, req_size);
+
+	cmd = (struct kvmi_vm_set_page_access *)(req + 1);
+	cmd->count = count;
+
+	entry = cmd->entries;
+	end = cmd->entries + count;
+	for (; entry < end; entry++) {
+		entry->gpa = *gpa++;
+		entry->access = *access++;
+	}
+
+	r = do_command(KVMI_VM_SET_PAGE_ACCESS, req, req_size, NULL, 0);
+
+	free(req);
+	return r;
+}
+
+static void set_page_access(__u64 gpa, __u8 access)
+{
+	int r;
+
+	r = cmd_set_page_access(1, &gpa, &access);
+	TEST_ASSERT(r == 0,
+		"KVMI_VM_SET_PAGE_ACCESS failed, gpa 0x%llx, access 0x%x, error %d (%s)\n",
+		gpa, access, -r, kvm_strerror(-r));
+}
+
+static void test_cmd_vm_set_page_access(struct kvm_vm *vm)
+{
+	__u8 full_access = KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_W |
+			   KVMI_PAGE_ACCESS_X;
+	__u8 no_access = 0;
+	__u64 gpa = 0;
+
+	set_page_access(gpa, no_access);
+
+	set_page_access(gpa, full_access);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1721,6 +1770,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_get_mtrr_type(vm);
 	test_event_descriptor(vm);
 	test_cmd_vcpu_control_msr(vm);
+	test_cmd_vm_set_page_access(vm);
 
 	unhook_introspection(vm);
 }

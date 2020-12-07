@@ -302,6 +302,64 @@ static int handle_vm_get_max_gfn(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, 0, &rpl, sizeof(rpl));
 }
 
+static bool kvmi_is_visible_gfn(struct kvm *kvm, gfn_t gfn)
+{
+	bool visible;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	visible = kvm_is_visible_gfn(kvm, gfn);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return visible;
+}
+
+static int set_page_access_entry(struct kvm_introspection *kvmi,
+				 const struct kvmi_page_access_entry *entry)
+{
+	u8 unknown_bits = ~(KVMI_PAGE_ACCESS_R | KVMI_PAGE_ACCESS_W |
+			    KVMI_PAGE_ACCESS_X);
+	gfn_t gfn = gpa_to_gfn(entry->gpa);
+	struct kvm *kvm = kvmi->kvm;
+
+	if ((entry->access & unknown_bits) ||
+	     non_zero_padding(entry->padding, ARRAY_SIZE(entry->padding)))
+		return -KVM_EINVAL;
+
+	if (!kvmi_is_visible_gfn(kvm, gfn))
+		return -KVM_EINVAL;
+
+	return kvmi_set_gfn_access(kvm, gfn, entry->access);
+}
+
+static int handle_vm_set_page_access(struct kvm_introspection *kvmi,
+				     const struct kvmi_msg_hdr *msg,
+				     const void *_req)
+{
+	const struct kvmi_vm_set_page_access *req = _req;
+	const struct kvmi_page_access_entry *entry;
+	size_t n = req->count;
+	int ec = 0;
+
+	if (struct_size(req, entries, n) > msg->size)
+		return -EINVAL;
+
+	if (req->padding1 || req->padding2) {
+		ec = -KVM_EINVAL;
+		goto reply;
+	}
+
+	for (entry = req->entries; n; n--, entry++) {
+		int err = set_page_access_entry(kvmi, entry);
+
+		if (err && !ec)
+			ec = err;
+	}
+
+reply:
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread.
  */
@@ -315,6 +373,7 @@ static kvmi_vm_msg_fct const msg_vm[] = {
 	[KVMI_VM_GET_MAX_GFN]     = handle_vm_get_max_gfn,
 	[KVMI_VM_PAUSE_VCPU]      = handle_vm_pause_vcpu,
 	[KVMI_VM_READ_PHYSICAL]   = handle_vm_read_physical,
+	[KVMI_VM_SET_PAGE_ACCESS] = handle_vm_set_page_access,
 	[KVMI_VM_WRITE_PHYSICAL]  = handle_vm_write_physical,
 };
 

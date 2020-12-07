@@ -965,6 +965,65 @@ to control events for any other register will fail with -KVM_EINVAL::
 * -KVM_EPERM  - the interception of the selected MSR is disallowed
                 from userspace (KVM_X86_SET_MSR_FILTER)
 
+23. KVMI_VM_SET_PAGE_ACCESS
+---------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_set_page_access {
+		__u16 count;
+		__u16 padding1;
+		__u32 padding2;
+		struct kvmi_page_access_entry entries[0];
+	};
+
+where::
+
+	struct kvmi_page_access_entry {
+		__u64 gpa;
+		__u8 access;
+		__u8 padding[7];
+	};
+
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Sets the access bits (rwx) for an array of ``count`` guest physical
+addresses (``gpa``).
+
+The valid access bits are::
+
+	KVMI_PAGE_ACCESS_R
+	KVMI_PAGE_ACCESS_W
+	KVMI_PAGE_ACCESS_X
+
+
+The command will fail with -KVM_EINVAL if any of the specified combination
+of access bits is not supported or the address (``gpa``) is not valid
+(visible).
+
+The command will try to apply all changes and return the first error if
+some failed. The introspection tool should handle the rollback.
+
+In order to 'forget' an address, all three bits ('rwx') must be set.
+
+:Errors:
+
+* -KVM_EINVAL - the specified access bits combination is invalid
+* -KVM_EINVAL - the address is not valid
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EINVAL - the message size is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_ENOMEM - there is not enough memory to add the page tracking structures
+
 Events
 ======
 
