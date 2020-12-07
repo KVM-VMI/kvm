@@ -273,18 +273,36 @@ reply:
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_vm_control_cleanup(struct kvm_introspection *kvmi,
+				     const struct kvmi_msg_hdr *msg,
+				     const void *_req)
+{
+	const struct kvmi_vm_control_cleanup *req = _req;
+	int ec = 0;
+
+	if (non_zero_padding(req->padding, ARRAY_SIZE(req->padding)))
+		ec = -KVM_EINVAL;
+	else if (req->enable > 1)
+		ec = -KVM_EINVAL;
+	else
+		kvmi_cmd_vm_control_cleanup(kvmi, req->enable == 1);
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread.
  */
 static kvmi_vm_msg_fct const msg_vm[] = {
-	[KVMI_GET_VERSION]       = handle_get_version,
-	[KVMI_VM_CHECK_COMMAND]  = handle_vm_check_command,
-	[KVMI_VM_CHECK_EVENT]    = handle_vm_check_event,
-	[KVMI_VM_CONTROL_EVENTS] = handle_vm_control_events,
-	[KVMI_VM_GET_INFO]       = handle_vm_get_info,
-	[KVMI_VM_PAUSE_VCPU]     = handle_vm_pause_vcpu,
-	[KVMI_VM_READ_PHYSICAL]  = handle_vm_read_physical,
-	[KVMI_VM_WRITE_PHYSICAL] = handle_vm_write_physical,
+	[KVMI_GET_VERSION]        = handle_get_version,
+	[KVMI_VM_CHECK_COMMAND]   = handle_vm_check_command,
+	[KVMI_VM_CHECK_EVENT]     = handle_vm_check_event,
+	[KVMI_VM_CONTROL_CLEANUP] = handle_vm_control_cleanup,
+	[KVMI_VM_CONTROL_EVENTS]  = handle_vm_control_events,
+	[KVMI_VM_GET_INFO]        = handle_vm_get_info,
+	[KVMI_VM_PAUSE_VCPU]      = handle_vm_pause_vcpu,
+	[KVMI_VM_READ_PHYSICAL]   = handle_vm_read_physical,
+	[KVMI_VM_WRITE_PHYSICAL]  = handle_vm_write_physical,
 };
 
 static kvmi_vm_msg_fct get_vm_msg_handler(u16 id)

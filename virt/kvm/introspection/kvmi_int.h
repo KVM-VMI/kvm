@@ -31,6 +31,14 @@ static inline bool is_vcpu_event_enabled(struct kvm_vcpu *vcpu, u16 event_id)
 	return test_bit(event_id, VCPUI(vcpu)->ev_enable_mask);
 }
 
+static inline bool non_zero_padding(const u8 *addr, size_t len)
+{
+	while (len--)
+		if (*addr++)
+			return true;
+	return false;
+}
+
 /* kvmi_msg.c */
 bool kvmi_sock_get(struct kvm_introspection *kvmi, int fd);
 void kvmi_sock_shutdown(struct kvm_introspection *kvmi);
@@ -60,6 +68,7 @@ int kvmi_add_job(struct kvm_vcpu *vcpu,
 		 void *ctx, void (*free_fct)(void *ctx));
 void kvmi_run_jobs(struct kvm_vcpu *vcpu);
 void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action);
+void kvmi_cmd_vm_control_cleanup(struct kvm_introspection *kvmi, bool enable);
 int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 			       u16 event_id, bool enable);
 int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
@@ -81,7 +90,8 @@ void kvmi_arch_setup_vcpu_event(struct kvm_vcpu *vcpu,
 bool kvmi_arch_vcpu_alloc_interception(struct kvm_vcpu *vcpu);
 void kvmi_arch_vcpu_free_interception(struct kvm_vcpu *vcpu);
 bool kvmi_arch_vcpu_introspected(struct kvm_vcpu *vcpu);
-void kvmi_arch_request_interception_cleanup(struct kvm_vcpu *vcpu);
+void kvmi_arch_request_interception_cleanup(struct kvm_vcpu *vcpu,
+				bool restore_interception);
 bool kvmi_arch_clean_up_interception(struct kvm_vcpu *vcpu);
 void kvmi_arch_post_reply(struct kvm_vcpu *vcpu);
 bool kvmi_arch_is_agent_hypercall(struct kvm_vcpu *vcpu);
