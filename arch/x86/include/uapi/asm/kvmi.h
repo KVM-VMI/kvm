@@ -8,6 +8,10 @@
 
 #include <asm/kvm.h>
 
+enum {
+	KVM_HC_XEN_HVM_OP_GUEST_REQUEST_VM_EVENT = 24,
+};
+
 struct kvmi_vcpu_get_info_reply {
 	__u64 tsc_speed;
 };
