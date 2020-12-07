@@ -93,6 +93,8 @@ static void hook_introspection(struct kvm_vm *vm)
 	do_hook_ioctl(vm, Kvm_socket, EEXIST);
 
 	set_command_perm(vm, KVMI_GET_VERSION, disallow, EPERM);
+	set_command_perm(vm, KVMI_VM_CHECK_COMMAND, disallow, EPERM);
+	set_command_perm(vm, KVMI_VM_CHECK_EVENT, disallow, EPERM);
 	set_command_perm(vm, all_IDs, allow_inval, EINVAL);
 	set_command_perm(vm, all_IDs, disallow, 0);
 	set_command_perm(vm, all_IDs, allow, 0);
@@ -241,6 +243,47 @@ static void test_cmd_get_version(void)
 	pr_debug("Max message size: %u\n", rpl.max_msg_size);
 }
 
+static void cmd_vm_check_command(__u16 id, int expected_err)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_check_command cmd;
+	} req = {};
+
+	req.cmd.id = id;
+
+	test_vm_command(KVMI_VM_CHECK_COMMAND, &req.hdr, sizeof(req), NULL, 0,
+			expected_err);
+}
+
+static void test_cmd_vm_check_command(void)
+{
+	__u16 valid_id = KVMI_GET_VERSION, invalid_id = 0xffff;
+
+	cmd_vm_check_command(valid_id, 0);
+	cmd_vm_check_command(invalid_id, -KVM_ENOENT);
+}
+
+static void cmd_vm_check_event(__u16 id, int expected_err)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_check_event cmd;
+	} req = {};
+
+	req.cmd.id = id;
+
+	test_vm_command(KVMI_VM_CHECK_EVENT, &req.hdr, sizeof(req), NULL, 0,
+			expected_err);
+}
+
+static void test_cmd_vm_check_event(void)
+{
+	__u16 invalid_id = 0xffff;
+
+	cmd_vm_check_event(invalid_id, -KVM_ENOENT);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	setup_socket();
@@ -248,6 +291,8 @@ static void test_introspection(struct kvm_vm *vm)
 
 	test_cmd_invalid();
 	test_cmd_get_version();
+	test_cmd_vm_check_command();
+	test_cmd_vm_check_event();
 
 	unhook_introspection(vm);
 }
