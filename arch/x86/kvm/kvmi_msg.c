@@ -153,12 +153,34 @@ static int handle_vcpu_control_cr(const struct kvmi_vcpu_msg_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_inject_exception(const struct kvmi_vcpu_msg_job *job,
+					const struct kvmi_msg_hdr *msg,
+					const void *_req)
+{
+	const struct kvmi_vcpu_inject_exception *req = _req;
+	struct kvm_vcpu *vcpu = job->vcpu;
+	int ec;
+
+	if (!kvmi_is_event_allowed(KVMI(vcpu->kvm), KVMI_VCPU_EVENT_TRAP))
+		ec = -KVM_EPERM;
+	else if (req->padding1 || req->padding2)
+		ec = -KVM_EINVAL;
+	else if (VCPUI(vcpu)->arch.exception.pending ||
+			VCPUI(vcpu)->arch.exception.send_event)
+		ec = -KVM_EBUSY;
+	else
+		ec = kvmi_arch_cmd_vcpu_inject_exception(vcpu, req);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
-	[KVMI_VCPU_CONTROL_CR]    = handle_vcpu_control_cr,
-	[KVMI_VCPU_GET_CPUID]     = handle_vcpu_get_cpuid,
-	[KVMI_VCPU_GET_INFO]      = handle_vcpu_get_info,
-	[KVMI_VCPU_GET_REGISTERS] = handle_vcpu_get_registers,
-	[KVMI_VCPU_SET_REGISTERS] = handle_vcpu_set_registers,
+	[KVMI_VCPU_CONTROL_CR]       = handle_vcpu_control_cr,
+	[KVMI_VCPU_GET_CPUID]        = handle_vcpu_get_cpuid,
+	[KVMI_VCPU_GET_INFO]         = handle_vcpu_get_info,
+	[KVMI_VCPU_GET_REGISTERS]    = handle_vcpu_get_registers,
+	[KVMI_VCPU_INJECT_EXCEPTION] = handle_vcpu_inject_exception,
+	[KVMI_VCPU_SET_REGISTERS]    = handle_vcpu_set_registers,
 };
 
 kvmi_vcpu_msg_job_fct kvmi_arch_vcpu_msg_handler(u16 id)
@@ -187,6 +209,26 @@ u32 kvmi_msg_send_vcpu_cr(struct kvm_vcpu *vcpu, u32 cr, u64 old_value,
 	} else {
 		*ret_value = r.new_val;
 	}
+
+	return action;
+}
+
+u32 kvmi_msg_send_vcpu_trap(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	struct kvmi_vcpu_event_trap e;
+	u32 action;
+	int err;
+
+	memset(&e, 0, sizeof(e));
+	e.nr = vcpui->arch.exception.nr;
+	e.error_code = vcpui->arch.exception.error_code;
+	e.address = vcpui->arch.exception.address;
+
+	err = __kvmi_send_vcpu_event(vcpu, KVMI_VCPU_EVENT_TRAP,
+				     &e, sizeof(e), NULL, 0, &action);
+	if (err)
+		action = KVMI_EVENT_ACTION_CONTINUE;
 
 	return action;
 }

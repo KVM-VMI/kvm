@@ -48,6 +48,9 @@ int kvmi_msg_send_unhook(struct kvm_introspection *kvmi);
 int kvmi_send_vcpu_event(struct kvm_vcpu *vcpu, u32 ev_id,
 			 void *ev, size_t ev_size,
 			 void *rpl, size_t rpl_size, u32 *action);
+int __kvmi_send_vcpu_event(struct kvm_vcpu *vcpu, u32 ev_id,
+			   void *ev, size_t ev_size,
+			   void *rpl, size_t rpl_size, u32 *action);
 int kvmi_msg_vcpu_reply(const struct kvmi_vcpu_msg_job *job,
 			const struct kvmi_msg_hdr *msg, int err,
 			const void *rpl, size_t rpl_size);
@@ -100,5 +103,6 @@ bool kvmi_arch_is_agent_hypercall(struct kvm_vcpu *vcpu);
 void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len);
 int kvmi_arch_cmd_control_intercept(struct kvm_vcpu *vcpu,
 				    unsigned int event_id, bool enable);
+void kvmi_arch_send_pending_event(struct kvm_vcpu *vcpu);
 
 #endif
