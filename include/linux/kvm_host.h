@@ -513,6 +513,11 @@ struct kvm {
 	pid_t userspace_pid;
 	unsigned int max_halt_poll_ns;
 	u32 dirty_ring_size;
+
+	struct mutex kvmi_lock;
+	refcount_t kvmi_ref;
+	struct completion kvmi_complete;
+	struct kvm_introspection *kvmi;
 };
 
 #define kvm_err(fmt, ...) \

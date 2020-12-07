@@ -57,6 +57,7 @@
 #include <linux/sched/isolation.h>
 #include <linux/mem_encrypt.h>
 #include <linux/entry-kvm.h>
+#include <linux/kvmi_host.h>
 
 #include <trace/events/kvm.h>
 
@@ -3824,6 +3825,10 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		break;
 	case KVM_CAP_STEAL_TIME:
 		r = sched_info_on();
+		break;
+	case KVM_CAP_INTROSPECTION:
+		if (enable_introspection)
+			r = kvmi_version();
 		break;
 	default:
 		break;
