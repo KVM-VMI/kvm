@@ -896,3 +896,20 @@ u32 kvmi_msg_send_vcpu_pf(struct kvm_vcpu *vcpu, u64 gpa, u64 gva, u8 access)
 
 	return action;
 }
+
+u32 kvmi_msg_send_vcpu_singlestep(struct kvm_vcpu *vcpu, bool success)
+{
+	struct kvmi_vcpu_event_singlestep e;
+	u32 action;
+	int err;
+
+	memset(&e, 0, sizeof(e));
+	e.failed = success ? 0 : 1;
+
+	err = kvmi_send_vcpu_event(vcpu, KVMI_VCPU_EVENT_SINGLESTEP,
+				   &e, sizeof(e), NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}

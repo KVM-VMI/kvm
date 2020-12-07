@@ -74,6 +74,7 @@ enum {
 	KVMI_VCPU_EVENT_DESCRIPTOR = KVMI_VCPU_EVENT_ID(6),
 	KVMI_VCPU_EVENT_MSR        = KVMI_VCPU_EVENT_ID(7),
 	KVMI_VCPU_EVENT_PF         = KVMI_VCPU_EVENT_ID(8),
+	KVMI_VCPU_EVENT_SINGLESTEP = KVMI_VCPU_EVENT_ID(9),
 
 	KVMI_NEXT_VCPU_EVENT
 };
@@ -224,6 +225,11 @@ struct kvmi_vcpu_event_pf {
 
 struct kvmi_vcpu_control_singlestep {
 	__u8 enable;
+	__u8 padding[7];
+};
+
+struct kvmi_vcpu_event_singlestep {
+	__u8 failed;
 	__u8 padding[7];
 };
 

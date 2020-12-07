@@ -565,6 +565,7 @@ because these are sent as a result of certain commands (but they can be
 disallowed by the device manager) ::
 
 	KVMI_VCPU_EVENT_PAUSE
+	KVMI_VCPU_EVENT_SINGLESTEP
 	KVMI_VCPU_EVENT_TRAP
 
 The VM events (e.g. *KVMI_VM_EVENT_UNHOOK*) are controlled with
@@ -1063,8 +1064,12 @@ Enables/disables singlestep for the selected vCPU.
 The introspection tool should use *KVMI_GET_VERSION*, to check
 if the hardware supports singlestep (see **KVMI_GET_VERSION**).
 
+After every instruction, a *KVMI_VCPU_EVENT_SINGLESTEP* event is sent
+to the introspection tool.
+
 :Errors:
 
+* -KVM_EPERM  - the *KVMI_VCPU_EVENT_SINGLESTEP* event is disallowed
 * -KVM_EOPNOTSUPP - the hardware doesn't support singlestep
 * -KVM_EINVAL - the padding is not zero
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
@@ -1508,3 +1513,29 @@ emulation).
 The *RETRY* action is used by the introspection tool to retry the
 execution of the current instruction, usually because it changed the
 instruction pointer or the page restrictions.
+
+11. KVMI_VCPU_EVENT_SINGLESTEP
+------------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply;
+	struct kvmi_vcpu_event_singlestep {
+		__u8 failed;
+		__u8 padding[7];
+	};
+
+This event is sent after each instruction, as long as the singlestep is
+enabled for the current vCPU (see **KVMI_VCPU_CONTROL_SINGLESTEP**).

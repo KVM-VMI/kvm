@@ -18,6 +18,7 @@ void kvmi_arch_init_vcpu_events_mask(unsigned long *supported)
 	set_bit(KVMI_VCPU_EVENT_DESCRIPTOR, supported);
 	set_bit(KVMI_VCPU_EVENT_MSR, supported);
 	set_bit(KVMI_VCPU_EVENT_PF, supported);
+	set_bit(KVMI_VCPU_EVENT_SINGLESTEP, supported);
 	set_bit(KVMI_VCPU_EVENT_TRAP, supported);
 	set_bit(KVMI_VCPU_EVENT_XSETBV, supported);
 }

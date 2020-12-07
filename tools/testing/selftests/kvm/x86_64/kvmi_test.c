@@ -1834,12 +1834,60 @@ static void cmd_vcpu_singlestep(struct kvm_vm *vm, __u8 enable,
 			   &req.hdr, sizeof(req), NULL, 0, expected_err);
 }
 
+static void __control_singlestep(bool enable)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_control_singlestep cmd;
+	} req = {};
+	int r;
+
+	req.cmd.enable = enable ? 1 : 0;
+
+	r = __do_vcpu0_command(KVMI_VCPU_CONTROL_SINGLESTEP,
+			     &req.hdr, sizeof(req), NULL, 0);
+	TEST_ASSERT(r == 0,
+		"KVMI_VCPU_CONTROL_SINGLESTEP failed, error %d(%s)\n",
+		-r, kvm_strerror(-r));
+}
+
+static void test_singlestep_event(__u16 event_id)
+{
+	struct {
+		struct vcpu_event vcpu_ev;
+		struct kvmi_vcpu_event_singlestep singlestep;
+	} ev;
+	bool enable = true, disable = false;
+	struct vcpu_reply rpl = { };
+	struct kvmi_msg_hdr hdr;
+
+	__control_singlestep(enable);
+
+	receive_vcpu_event(&hdr, &ev.vcpu_ev, sizeof(ev), event_id);
+
+	pr_debug("SINGLESTEP event, rip 0x%llx success %d\n",
+		 ev.vcpu_ev.common.arch.regs.rip, !ev.singlestep.failed);
+	TEST_ASSERT(!ev.singlestep.failed, "Singlestep failed");
+
+	__control_singlestep(disable);
+
+	reply_to_event(&hdr, &ev.vcpu_ev, KVMI_EVENT_ACTION_CONTINUE,
+		       &rpl, sizeof(rpl));
+}
+
 static void test_supported_singlestep(struct kvm_vm *vm)
 {
-	__u8 disable = 0, enable = 1, enable_inval = 2;
+	struct vcpu_worker_data data = {.vm = vm, .vcpu_id = VCPU_ID };
+	__u16 event_id = KVMI_VCPU_EVENT_SINGLESTEP;
+	__u8 enable_inval = 2;
+	pthread_t vcpu_thread;
 
-	cmd_vcpu_singlestep(vm, enable, 0);
-	cmd_vcpu_singlestep(vm, disable, 0);
+	enable_vcpu_event(vm, event_id);
+	vcpu_thread = start_vcpu_worker(&data);
+	test_singlestep_event(event_id);
+	wait_vcpu_worker(vcpu_thread);
+	disable_vcpu_event(vm, event_id);
 
 	cmd_vcpu_singlestep(vm, enable_inval, -KVM_EINVAL);
 }

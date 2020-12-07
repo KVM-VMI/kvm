@@ -284,6 +284,12 @@ static int handle_vcpu_control_singlestep(const struct kvmi_vcpu_msg_job *job,
 	struct kvm_vcpu *vcpu = job->vcpu;
 	int ec = 0;
 
+	if (!kvmi_is_event_allowed(KVMI(vcpu->kvm),
+				   KVMI_VCPU_EVENT_SINGLESTEP)) {
+		ec = -KVM_EPERM;
+		goto reply;
+	}
+
 	if (non_zero_padding(req->padding, ARRAY_SIZE(req->padding)) ||
 	    req->enable > 1) {
 		ec = -KVM_EINVAL;
