@@ -4,6 +4,10 @@
 
 #include <asm/kvmi.h>
 
+struct kvmi_interception {
+	bool restore_interception;
+};
+
 struct kvm_vcpu_arch_introspection {
 	struct kvm_regs delayed_regs;
 	bool have_delayed_regs;

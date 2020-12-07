@@ -816,6 +816,9 @@ struct kvm_vcpu_arch {
 
 	/* #PF translated error code from EPT/NPT exit reason */
 	u64 error_code;
+
+	/* Control the interception of MSRs/CRs/BP... */
+	struct kvmi_interception *kvmi;
 };
 
 struct kvm_lpage_info {
