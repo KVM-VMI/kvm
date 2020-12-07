@@ -23,6 +23,7 @@ static DECLARE_BITMAP(Kvmi_known_vm_events, KVMI_NUM_EVENTS);
 static DECLARE_BITMAP(Kvmi_known_vcpu_events, KVMI_NUM_EVENTS);
 
 static struct kmem_cache *msg_cache;
+static struct kmem_cache *job_cache;
 
 void *kvmi_msg_alloc(void)
 {
@@ -39,14 +40,19 @@ static void kvmi_cache_destroy(void)
 {
 	kmem_cache_destroy(msg_cache);
 	msg_cache = NULL;
+	kmem_cache_destroy(job_cache);
+	job_cache = NULL;
 }
 
 static int kvmi_cache_create(void)
 {
 	msg_cache = kmem_cache_create("kvmi_msg", KVMI_MSG_SIZE_ALLOC,
 				      4096, SLAB_ACCOUNT, NULL);
+	job_cache = kmem_cache_create("kvmi_job",
+				      sizeof(struct kvmi_job),
+				      0, SLAB_ACCOUNT, NULL);
 
-	if (!msg_cache) {
+	if (!msg_cache || !job_cache) {
 		kvmi_cache_destroy();
 
 		return -1;
@@ -118,6 +124,48 @@ void kvmi_uninit(void)
 	kvmi_cache_destroy();
 }
 
+static int __kvmi_add_job(struct kvm_vcpu *vcpu,
+			  void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
+			  void *ctx, void (*free_fct)(void *ctx))
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	struct kvmi_job *job;
+
+	job = kmem_cache_zalloc(job_cache, GFP_KERNEL);
+	if (unlikely(!job))
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&job->link);
+	job->fct = fct;
+	job->ctx = ctx;
+	job->free_fct = free_fct;
+
+	spin_lock(&vcpui->job_lock);
+	list_add_tail(&job->link, &vcpui->job_list);
+	spin_unlock(&vcpui->job_lock);
+
+	return 0;
+}
+
+int kvmi_add_job(struct kvm_vcpu *vcpu,
+		 void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
+		 void *ctx, void (*free_fct)(void *ctx))
+{
+	int err;
+
+	err = __kvmi_add_job(vcpu, fct, ctx, free_fct);
+
+	return err;
+}
+
+static void kvmi_free_job(struct kvmi_job *job)
+{
+	if (job->free_fct)
+		job->free_fct(job->ctx);
+
+	kmem_cache_free(job_cache, job);
+}
+
 static bool kvmi_alloc_vcpui(struct kvm_vcpu *vcpu)
 {
 	struct kvm_vcpu_introspection *vcpui;
@@ -125,6 +173,9 @@ static bool kvmi_alloc_vcpui(struct kvm_vcpu *vcpu)
 	vcpui = kzalloc(sizeof(*vcpui), GFP_KERNEL);
 	if (!vcpui)
 		return false;
+
+	INIT_LIST_HEAD(&vcpui->job_list);
+	spin_lock_init(&vcpui->job_lock);
 
 	vcpu->kvmi = vcpui;
 
@@ -139,9 +190,26 @@ static int kvmi_create_vcpui(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static void kvmi_free_vcpu_jobs(struct kvm_vcpu_introspection *vcpui)
+{
+	struct kvmi_job *cur, *next;
+
+	list_for_each_entry_safe(cur, next, &vcpui->job_list, link) {
+		list_del(&cur->link);
+		kvmi_free_job(cur);
+	}
+}
+
 static void kvmi_free_vcpui(struct kvm_vcpu *vcpu)
 {
-	kfree(vcpu->kvmi);
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+
+	if (!vcpui)
+		return;
+
+	kvmi_free_vcpu_jobs(vcpui);
+
+	kfree(vcpui);
 	vcpu->kvmi = NULL;
 }
 
