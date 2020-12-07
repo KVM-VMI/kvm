@@ -1707,6 +1707,19 @@ void svm_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 		kvm_update_cpuid_runtime(vcpu);
 }
 
+static void svm_control_cr3_intercept(struct kvm_vcpu *vcpu, int type,
+				      bool enable)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+
+	if (type & CR_TYPE_R)
+		enable ? svm_set_intercept(svm, INTERCEPT_CR3_READ) :
+			 svm_clr_intercept(svm, INTERCEPT_CR3_READ);
+	if (type & CR_TYPE_W)
+		enable ? svm_set_intercept(svm, INTERCEPT_CR3_WRITE) :
+			 svm_clr_intercept(svm, INTERCEPT_CR3_WRITE);
+}
+
 static void svm_set_segment(struct kvm_vcpu *vcpu,
 			    struct kvm_segment *var, int seg)
 {
@@ -4233,6 +4246,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.set_cr0 = svm_set_cr0,
 	.is_valid_cr4 = svm_is_valid_cr4,
 	.set_cr4 = svm_set_cr4,
+	.control_cr3_intercept = svm_control_cr3_intercept,
 	.set_efer = svm_set_efer,
 	.get_idt = svm_get_idt,
 	.set_idt = svm_set_idt,
