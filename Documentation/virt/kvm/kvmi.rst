@@ -183,9 +183,10 @@ becomes necessary to remove them before the guest is suspended, moved
 (migrated) or a snapshot with memory is created.
 
 The actions are normally performed by the device manager. In the case
-of QEMU, it will use another ioctl to notify the introspection tool and
-wait for a limited amount of time (a few seconds) for a confirmation that
-is OK to proceed (the introspection tool will close the connection).
+of QEMU, it will use the *KVM_INTROSPECTION_PREUNHOOK* ioctl to trigger
+the *KVMI_VM_EVENT_UNHOOK* event and wait for a limited amount of time (a
+few seconds) for a confirmation that is OK to proceed. The introspection
+tool will close the connection to signal this.
 
 Live migrations
 ---------------
