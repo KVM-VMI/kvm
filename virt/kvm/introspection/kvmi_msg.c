@@ -150,6 +150,18 @@ static int handle_vm_check_event(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_vm_get_info(struct kvm_introspection *kvmi,
+			      const struct kvmi_msg_hdr *msg,
+			      const void *req)
+{
+	struct kvmi_vm_get_info_reply rpl;
+
+	memset(&rpl, 0, sizeof(rpl));
+	rpl.vcpu_count = atomic_read(&kvmi->kvm->online_vcpus);
+
+	return kvmi_msg_vm_reply(kvmi, msg, 0, &rpl, sizeof(rpl));
+}
+
 /*
  * These commands are executed by the receiving thread.
  */
@@ -157,6 +169,7 @@ static kvmi_vm_msg_fct const msg_vm[] = {
 	[KVMI_GET_VERSION]      = handle_get_version,
 	[KVMI_VM_CHECK_COMMAND] = handle_vm_check_command,
 	[KVMI_VM_CHECK_EVENT]   = handle_vm_check_event,
+	[KVMI_VM_GET_INFO]      = handle_vm_get_info,
 };
 
 static kvmi_vm_msg_fct get_vm_msg_handler(u16 id)
