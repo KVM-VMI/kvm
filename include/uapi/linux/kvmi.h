@@ -19,10 +19,11 @@ enum {
 enum {
 	KVMI_VM_EVENT = KVMI_VM_MESSAGE_ID(0),
 
-	KVMI_GET_VERSION      = KVMI_VM_MESSAGE_ID(1),
-	KVMI_VM_CHECK_COMMAND = KVMI_VM_MESSAGE_ID(2),
-	KVMI_VM_CHECK_EVENT   = KVMI_VM_MESSAGE_ID(3),
-	KVMI_VM_GET_INFO      = KVMI_VM_MESSAGE_ID(4),
+	KVMI_GET_VERSION       = KVMI_VM_MESSAGE_ID(1),
+	KVMI_VM_CHECK_COMMAND  = KVMI_VM_MESSAGE_ID(2),
+	KVMI_VM_CHECK_EVENT    = KVMI_VM_MESSAGE_ID(3),
+	KVMI_VM_GET_INFO       = KVMI_VM_MESSAGE_ID(4),
+	KVMI_VM_CONTROL_EVENTS = KVMI_VM_MESSAGE_ID(5),
 
 	KVMI_NEXT_VM_MESSAGE
 };
@@ -80,6 +81,13 @@ struct kvmi_vm_get_info_reply {
 struct kvmi_event_hdr {
 	__u16 event;
 	__u16 padding[3];
+};
+
+struct kvmi_vm_control_events {
+	__u16 event_id;
+	__u8 enable;
+	__u8 padding1;
+	__u32 padding2;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

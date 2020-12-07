@@ -68,6 +68,16 @@ bool kvmi_is_known_event(u16 id)
 	return id < KVMI_NUM_EVENTS && test_bit(id, Kvmi_known_events);
 }
 
+bool kvmi_is_known_vm_event(u16 id)
+{
+	return id < KVMI_NUM_EVENTS && test_bit(id, Kvmi_known_vm_events);
+}
+
+static bool kvmi_is_vm_event_enabled(struct kvm_introspection *kvmi, u16 id)
+{
+	return id < KVMI_NUM_EVENTS && test_bit(id, kvmi->vm_event_enable_mask);
+}
+
 static void kvmi_init_always_allowed_commands(void)
 {
 	bitmap_zero(Kvmi_always_allowed_commands, KVMI_NUM_COMMANDS);
@@ -110,6 +120,7 @@ static void kvmi_free(struct kvm *kvm)
 {
 	bitmap_free(kvm->kvmi->cmd_allow_mask);
 	bitmap_free(kvm->kvmi->event_allow_mask);
+	bitmap_free(kvm->kvmi->vm_event_enable_mask);
 
 	kfree(kvm->kvmi);
 	kvm->kvmi = NULL;
@@ -126,9 +137,12 @@ kvmi_alloc(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 
 	kvmi->cmd_allow_mask = bitmap_zalloc(KVMI_NUM_COMMANDS, GFP_KERNEL);
 	kvmi->event_allow_mask = bitmap_zalloc(KVMI_NUM_EVENTS, GFP_KERNEL);
-	if (!kvmi->cmd_allow_mask || !kvmi->event_allow_mask) {
+	kvmi->vm_event_enable_mask = bitmap_zalloc(KVMI_NUM_EVENTS, GFP_KERNEL);
+	if (!kvmi->cmd_allow_mask || !kvmi->event_allow_mask ||
+	    !kvmi->vm_event_enable_mask) {
 		bitmap_free(kvmi->cmd_allow_mask);
 		bitmap_free(kvmi->event_allow_mask);
+		bitmap_free(kvmi->vm_event_enable_mask);
 		kfree(kvmi);
 		return NULL;
 	}
@@ -400,6 +414,9 @@ static bool kvmi_unhook_event(struct kvm_introspection *kvmi)
 {
 	int err;
 
+	if (!kvmi_is_vm_event_enabled(kvmi, KVMI_VM_EVENT_UNHOOK))
+		return false;
+
 	err = kvmi_msg_send_unhook(kvmi);
 
 	return !err;
@@ -424,4 +441,15 @@ int kvmi_ioctl_preunhook(struct kvm *kvm)
 out:
 	mutex_unlock(&kvm->kvmi_lock);
 	return err;
+}
+
+int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
+			       u16 event_id, bool enable)
+{
+	if (enable)
+		set_bit(event_id, kvmi->vm_event_enable_mask);
+	else
+		clear_bit(event_id, kvmi->vm_event_enable_mask);
+
+	return 0;
 }
