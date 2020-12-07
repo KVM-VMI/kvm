@@ -72,6 +72,7 @@ enum {
 	KVMI_VCPU_EVENT_XSETBV     = KVMI_VCPU_EVENT_ID(5),
 	KVMI_VCPU_EVENT_DESCRIPTOR = KVMI_VCPU_EVENT_ID(6),
 	KVMI_VCPU_EVENT_MSR        = KVMI_VCPU_EVENT_ID(7),
+	KVMI_VCPU_EVENT_PF         = KVMI_VCPU_EVENT_ID(8),
 
 	KVMI_NEXT_VCPU_EVENT
 };
@@ -208,6 +209,15 @@ struct kvmi_vm_set_page_access {
 	__u16 padding1;
 	__u32 padding2;
 	struct kvmi_page_access_entry entries[0];
+};
+
+struct kvmi_vcpu_event_pf {
+	__u64 gva;
+	__u64 gpa;
+	__u8 access;
+	__u8 padding1;
+	__u16 padding2;
+	__u32 padding3;
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

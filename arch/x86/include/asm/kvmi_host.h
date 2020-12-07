@@ -53,6 +53,7 @@ struct kvm_vcpu_arch_introspection {
 };
 
 struct kvm_arch_introspection {
+	struct kvm_page_track_notifier_node kptn_node;
 };
 
 #define SLOTS_SIZE BITS_TO_LONGS(KVM_MEM_SLOTS_NUM)

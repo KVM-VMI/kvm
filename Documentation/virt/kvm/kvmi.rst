@@ -543,6 +543,7 @@ the following events::
 	KVMI_VCPU_EVENT_DESCRIPTOR
 	KVMI_VCPU_EVENT_HYPERCALL
 	KVMI_VCPU_EVENT_MSR
+	KVMI_VCPU_EVENT_PF
 	KVMI_VCPU_EVENT_XSETBV
 
 When an event is enabled, the introspection tool is notified and
@@ -1398,3 +1399,68 @@ register (see **KVMI_VCPU_CONTROL_EVENTS**).
 ``kvmi_vcpu_event`` (with the vCPU state), the MSR number (``msr``),
 the old value (``old_value``) and the new value (``new_value``) are sent
 to the introspection tool. The *CONTINUE* action will set the ``new_val``.
+
+10. KVMI_VCPU_EVENT_PF
+----------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH, RETRY
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_event;
+	struct kvmi_vcpu_event_pf {
+		__u64 gva;
+		__u64 gpa;
+		__u8 access;
+		__u8 padding1;
+		__u16 padding2;
+		__u32 padding3;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply;
+
+This event is sent when a hypervisor page fault occurs due to a failed
+permission checks, the introspection has been enabled for this event
+(see *KVMI_VCPU_CONTROL_EVENTS*) and the event was generated for a
+page in which the introspection tool has shown interest (ie. has
+previously touched it by adjusting the spte permissions; see
+*KVMI_VM_SET_PAGE_ACCESS*).
+
+These permissions can be used by the introspection tool to guarantee
+the purpose of code areas inside the guest (code, rodata, stack, heap
+etc.) Each attempt at an operation unfitting for a certain memory
+range (eg. execute code in heap) triggers a page fault and gives the
+introspection tool the chance to audit the code attempting the operation.
+
+``kvmi_vcpu_event`` (with the vCPU state), guest virtual address (``gva``)
+if available or ~0 (UNMAPPED_GVA), guest physical address (``gpa``)
+and the ``access`` flags (e.g. KVMI_PAGE_ACCESS_R) are sent to the
+introspection tool.
+
+In case of a restricted read access, the guest address is the location
+of the memory being read. On write access, the guest address is the
+location of the memory being written. On execute access, the guest
+address is the location of the instruction being executed
+(``gva == kvmi_vcpu_event.arch.regs.rip``).
+
+In the current implementation, most of these events are sent during
+emulation. If the page fault has set more than one access bit
+(e.g. r-x/-rw), the introspection tool may receive more than one
+KVMI_VCPU_EVENT_PF and the order depends on the KVM emulator. Another
+cause of multiple events is when the page fault is triggered on access
+crossing the page boundary.
+
+The *CONTINUE* action will continue the page fault handling (e.g. via
+emulation).
+
+The *RETRY* action is used by the introspection tool to retry the
+execution of the current instruction, usually because it changed the
+instruction pointer or the page restrictions.
