@@ -63,6 +63,9 @@ enum {
 #define HOST_SEND_TEST(uc)       (uc.cmd == UCALL_SYNC && uc.args[1] == 0)
 #define HOST_TEST_DONE(uc)       (uc.cmd == UCALL_SYNC && uc.args[1] == 1)
 
+static pthread_t start_vcpu_worker(struct vcpu_worker_data *data);
+static void wait_vcpu_worker(pthread_t vcpu_thread);
+
 static int guest_test_id(void)
 {
 	GUEST_REQUEST_TEST();
@@ -172,13 +175,24 @@ static void allow_command(struct kvm_vm *vm, __s32 id)
 
 static void hook_introspection(struct kvm_vm *vm)
 {
+	struct vcpu_worker_data data = {.vm = vm, .vcpu_id = VCPU_ID };
 	__u32 allow = 1, disallow = 0, allow_inval = 2;
+	pthread_t vcpu_thread;
 	__s32 all_IDs = -1;
 
 	set_command_perm(vm, all_IDs, allow, EFAULT);
 	set_event_perm(vm, all_IDs, allow, EFAULT);
 
 	do_hook_ioctl(vm, -1, EINVAL);
+
+	/*
+	 * The last call failed "too late".
+	 * We have to let the vCPU run and clean up its structures,
+	 * otherwise the next call will fail with EEXIST.
+	 */
+	vcpu_thread = start_vcpu_worker(&data);
+	wait_vcpu_worker(vcpu_thread);
+
 	do_hook_ioctl(vm, Kvm_socket, 0);
 	do_hook_ioctl(vm, Kvm_socket, EEXIST);
 
