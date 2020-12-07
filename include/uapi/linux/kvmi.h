@@ -35,7 +35,8 @@ enum {
 enum {
 	KVMI_VCPU_EVENT = KVMI_VCPU_MESSAGE_ID(0),
 
-	KVMI_VCPU_GET_INFO = KVMI_VCPU_MESSAGE_ID(1),
+	KVMI_VCPU_GET_INFO       = KVMI_VCPU_MESSAGE_ID(1),
+	KVMI_VCPU_CONTROL_EVENTS = KVMI_VCPU_MESSAGE_ID(2),
 
 	KVMI_NEXT_VCPU_MESSAGE
 };
@@ -145,6 +146,13 @@ struct kvmi_vcpu_event_reply {
 	__u8 action;
 	__u8 event;
 	__u16 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_vcpu_control_events {
+	__u16 event_id;
+	__u8 enable;
+	__u8 padding1;
 	__u32 padding2;
 };
 

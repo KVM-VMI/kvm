@@ -367,6 +367,27 @@ out:
 	return expected->error;
 }
 
+static int handle_vcpu_control_events(const struct kvmi_vcpu_msg_job *job,
+				      const struct kvmi_msg_hdr *msg,
+				      const void *_req)
+{
+	struct kvm_introspection *kvmi = KVMI(job->vcpu->kvm);
+	const struct kvmi_vcpu_control_events *req = _req;
+	int ec;
+
+	if (req->padding1 || req->padding2 || req->enable > 1)
+		ec = -KVM_EINVAL;
+	else if (!kvmi_is_known_vcpu_event(req->event_id))
+		ec = -KVM_EINVAL;
+	else if (!kvmi_is_event_allowed(kvmi, req->event_id))
+		ec = -KVM_EPERM;
+	else
+		ec = kvmi_cmd_vcpu_control_events(job->vcpu, req->event_id,
+						  req->enable == 1);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 /*
  * These functions are executed from the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_msg_job'
@@ -374,7 +395,8 @@ out:
  * sending back the reply).
  */
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
-	[KVMI_VCPU_EVENT] = handle_vcpu_event_reply,
+	[KVMI_VCPU_EVENT]          = handle_vcpu_event_reply,
+	[KVMI_VCPU_CONTROL_EVENTS] = handle_vcpu_control_events,
 };
 
 static kvmi_vcpu_msg_job_fct get_vcpu_msg_handler(u16 id)
