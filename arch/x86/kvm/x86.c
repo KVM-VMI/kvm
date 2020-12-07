@@ -8954,9 +8954,15 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			goto out;
 		}
 
-		inject_pending_event(vcpu, &req_immediate_exit);
-		if (req_int_win)
-			kvm_x86_ops.enable_irq_window(vcpu);
+		if (!kvmi_vcpu_running_singlestep(vcpu)) {
+			/*
+			 * We cannot inject events during single-stepping.
+			 * Try again later.
+			 */
+			inject_pending_event(vcpu, &req_immediate_exit);
+			if (req_int_win)
+				kvm_x86_ops.enable_irq_window(vcpu);
+		}
 
 		if (kvm_lapic_enabled(vcpu)) {
 			update_cr8_intercept(vcpu);

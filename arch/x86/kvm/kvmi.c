@@ -776,7 +776,9 @@ void kvmi_enter_guest(struct kvm_vcpu *vcpu)
 	if (kvmi) {
 		vcpui = VCPUI(vcpu);
 
-		if (vcpui->arch.exception.pending)
+		if (vcpui->singlestep.loop)
+			kvmi_arch_start_singlestep(vcpu);
+		else if (vcpui->arch.exception.pending)
 			kvmi_inject_pending_exception(vcpu);
 
 		kvmi_put(vcpu->kvm);
@@ -1085,4 +1087,14 @@ static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
 void kvmi_arch_features(struct kvmi_features *feat)
 {
 	feat->singlestep = !!kvm_x86_ops.control_singlestep;
+}
+
+void kvmi_arch_start_singlestep(struct kvm_vcpu *vcpu)
+{
+	kvm_x86_ops.control_singlestep(vcpu, true);
+}
+
+void kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu)
+{
+	kvm_x86_ops.control_singlestep(vcpu, false);
 }

@@ -1819,6 +1819,44 @@ static void test_event_pf(struct kvm_vm *vm)
 	test_pf(vm, cbk_test_event_pf);
 }
 
+static void cmd_vcpu_singlestep(struct kvm_vm *vm, __u8 enable,
+				int expected_err)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vcpu_hdr vcpu_hdr;
+		struct kvmi_vcpu_control_singlestep cmd;
+	} req = {};
+
+	req.cmd.enable = enable;
+
+	test_vcpu0_command(vm, KVMI_VCPU_CONTROL_SINGLESTEP,
+			   &req.hdr, sizeof(req), NULL, 0, expected_err);
+}
+
+static void test_supported_singlestep(struct kvm_vm *vm)
+{
+	__u8 disable = 0, enable = 1, enable_inval = 2;
+
+	cmd_vcpu_singlestep(vm, enable, 0);
+	cmd_vcpu_singlestep(vm, disable, 0);
+
+	cmd_vcpu_singlestep(vm, enable_inval, -KVM_EINVAL);
+}
+
+static void test_unsupported_singlestep(struct kvm_vm *vm)
+{
+	cmd_vcpu_singlestep(vm, 1, -KVM_EOPNOTSUPP);
+}
+
+static void test_cmd_vcpu_control_singlestep(struct kvm_vm *vm)
+{
+	if (features.singlestep)
+		test_supported_singlestep(vm);
+	else
+		test_unsupported_singlestep(vm);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
@@ -1853,6 +1891,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_control_msr(vm);
 	test_cmd_vm_set_page_access(vm);
 	test_event_pf(vm);
+	test_cmd_vcpu_control_singlestep(vm);
 
 	unhook_introspection(vm);
 }
