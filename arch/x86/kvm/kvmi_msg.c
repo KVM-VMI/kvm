@@ -90,9 +90,30 @@ reply:
 	return err;
 }
 
+static int handle_vcpu_set_registers(const struct kvmi_vcpu_msg_job *job,
+				     const struct kvmi_msg_hdr *msg,
+				     const void *req)
+{
+	const struct kvm_regs *regs = req;
+	size_t cmd_size;
+	int ec = 0;
+
+	cmd_size = sizeof(struct kvmi_vcpu_hdr) + sizeof(*regs);
+
+	if (cmd_size > msg->size)
+		ec = -KVM_EINVAL;
+	else if (!VCPUI(job->vcpu)->waiting_for_reply)
+		ec = -KVM_EOPNOTSUPP;
+	else
+		kvmi_arch_cmd_vcpu_set_registers(job->vcpu, regs);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static kvmi_vcpu_msg_job_fct const msg_vcpu[] = {
 	[KVMI_VCPU_GET_INFO]      = handle_vcpu_get_info,
 	[KVMI_VCPU_GET_REGISTERS] = handle_vcpu_get_registers,
+	[KVMI_VCPU_SET_REGISTERS] = handle_vcpu_set_registers,
 };
 
 kvmi_vcpu_msg_job_fct kvmi_arch_vcpu_msg_handler(u16 id)
