@@ -258,6 +258,11 @@ static int handle_vm_pause_vcpu(struct kvm_introspection *kvmi,
 		goto reply;
 	}
 
+	if (!kvmi_is_event_allowed(kvmi, KVMI_VCPU_EVENT_PAUSE)) {
+		ec = -KVM_EPERM;
+		goto reply;
+	}
+
 	vcpu = kvmi_get_vcpu(kvmi, req->vcpu);
 	if (!vcpu)
 		ec = -KVM_EINVAL;
@@ -701,4 +706,17 @@ out:
 		*action = vcpui->reply.action;
 
 	return err;
+}
+
+u32 kvmi_msg_send_vcpu_pause(struct kvm_vcpu *vcpu)
+{
+	u32 action;
+	int err;
+
+	err = kvmi_send_vcpu_event(vcpu, KVMI_VCPU_EVENT_PAUSE, NULL, 0,
+				   NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
 }

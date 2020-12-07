@@ -34,6 +34,17 @@ static vm_paddr_t test_gpa;
 
 static int page_size;
 
+struct vcpu_event {
+	struct kvmi_event_hdr hdr;
+	struct kvmi_vcpu_event common;
+};
+
+struct vcpu_reply {
+	struct kvmi_msg_hdr hdr;
+	struct kvmi_vcpu_hdr vcpu_hdr;
+	struct kvmi_vcpu_event_reply reply;
+};
+
 struct vcpu_worker_data {
 	struct kvm_vm *vm;
 	int vcpu_id;
@@ -690,14 +701,66 @@ static void pause_vcpu(void)
 	cmd_vcpu_pause(1, 0);
 }
 
+static void reply_to_event(struct kvmi_msg_hdr *ev_hdr, struct vcpu_event *ev,
+			   __u8 action, struct vcpu_reply *rpl, size_t rpl_size)
+{
+	ssize_t r;
+
+	rpl->hdr.id = ev_hdr->id;
+	rpl->hdr.seq = ev_hdr->seq;
+	rpl->hdr.size = rpl_size - sizeof(rpl->hdr);
+
+	rpl->vcpu_hdr.vcpu = ev->common.vcpu;
+
+	rpl->reply.action = action;
+	rpl->reply.event = ev->hdr.event;
+
+	r = send(Userspace_socket, rpl, rpl_size, 0);
+	TEST_ASSERT(r == rpl_size,
+		"send() failed, sending %zd, result %zd, errno %d (%s)\n",
+		rpl_size, r, errno, strerror(errno));
+}
+
+static void receive_vcpu_event(struct kvmi_msg_hdr *msg_hdr,
+			       struct vcpu_event *ev,
+			       size_t ev_size, u16 ev_id)
+{
+	receive_event(msg_hdr, KVMI_VCPU_EVENT,
+		      &ev->hdr, ev_id, ev_size);
+}
+
+static void discard_pause_event(struct kvm_vm *vm)
+{
+	struct vcpu_worker_data data = {.vm = vm, .vcpu_id = VCPU_ID};
+	struct vcpu_reply rpl = {};
+	struct kvmi_msg_hdr hdr;
+	pthread_t vcpu_thread;
+	struct vcpu_event ev;
+
+	vcpu_thread = start_vcpu_worker(&data);
+
+	receive_vcpu_event(&hdr, &ev, sizeof(ev), KVMI_VCPU_EVENT_PAUSE);
+
+	reply_to_event(&hdr, &ev, KVMI_EVENT_ACTION_CONTINUE,
+			&rpl, sizeof(rpl));
+
+	wait_vcpu_worker(vcpu_thread);
+}
+
 static void test_pause(struct kvm_vm *vm)
 {
-	__u8 wait = 1, wait_inval = 2;
+	__u8 no_wait = 0, wait = 1, wait_inval = 2;
 
 	pause_vcpu();
+	discard_pause_event(vm);
 
 	cmd_vcpu_pause(wait, 0);
+	discard_pause_event(vm);
 	cmd_vcpu_pause(wait_inval, -KVM_EINVAL);
+
+	disallow_event(vm, KVMI_VCPU_EVENT_PAUSE);
+	cmd_vcpu_pause(no_wait, -KVM_EPERM);
+	allow_event(vm, KVMI_VCPU_EVENT_PAUSE);
 }
 
 static void test_introspection(struct kvm_vm *vm)
