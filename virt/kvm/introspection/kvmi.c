@@ -752,6 +752,10 @@ void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action)
 	struct kvm *kvm = vcpu->kvm;
 
 	switch (action) {
+	case KVMI_EVENT_ACTION_CRASH:
+		vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
+		break;
+
 	default:
 		kvmi_handle_unsupported_event_action(kvm);
 	}
