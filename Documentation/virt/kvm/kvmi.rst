@@ -65,6 +65,74 @@ been used on that guest (if requested). Obviously, whether the guest can
 really continue normal execution depends on whether the introspection
 tool has made any modifications that require an active KVMI channel.
 
+All messages (commands or events) have a common header::
+
+	struct kvmi_msg_hdr {
+		__u16 id;
+		__u16 size;
+		__u32 seq;
+	};
+
+The replies have the same header, with the sequence number (``seq``)
+and message id (``id``) matching the command/event.
+
+After ``kvmi_msg_hdr``, ``id`` specific data of ``size`` bytes will
+follow.
+
+The message header and its data must be sent with one ``sendmsg()`` call
+to the socket. This simplifies the receiver loop and avoids
+the reconstruction of messages on the other side.
+
+The wire protocol uses the host native byte-order. The introspection tool
+must check this during the handshake and do the necessary conversion.
+
+A command reply begins with::
+
+	struct kvmi_error_code {
+		__s32 err;
+		__u32 padding;
+	}
+
+followed by the command specific data if the error code ``err`` is zero.
+
+The error code -KVM_ENOSYS is returned for unsupported commands.
+
+The error code -KVM_EPERM is returned for disallowed commands (see **Hooking**).
+
+Other error codes can be returned during message handling, but for
+some errors (incomplete messages, wrong sequence numbers, socket errors
+etc.) the socket will be closed. The device manager should reconnect.
+
+When a vCPU thread sends an introspection event, it will wait (and handle
+any related introspection command) until it gets the event reply::
+
+   Host kernel               Introspection tool
+   -----------               ------------------
+   event 1 ->
+                             <- command 1
+   command 1 reply ->
+                             <- command 2
+   command 2 reply ->
+                             <- event 1 reply
+
+As it can be seen below, the wire protocol specifies occasional padding. This
+is to permit working with the data by directly using C structures or to round
+the structure size to a multiple of 8 bytes (64bit) to improve the copy
+operations that happen during ``recvmsg()`` or ``sendmsg()``. The members
+should have the native alignment of the host. All padding must be
+initialized with zero otherwise the respective command will fail with
+-KVM_EINVAL.
+
+To describe the commands/events, we reuse some conventions from api.rst:
+
+  - Architectures: which instruction set architectures provide this command/event
+
+  - Versions: which versions provide this command/event
+
+  - Parameters: incoming message data
+
+  - Returns: outgoing/reply message data
+
 Handshake
 ---------
 
@@ -98,6 +166,13 @@ or features supported by the host kernel).
 In the end, the device manager will pass the file descriptor (plus
 the allowed commands/events) to KVM. It will detect when the socket is
 shutdown and it will reinitiate the handshake.
+
+Once the file descriptor reaches KVM, the introspection tool should
+use the *KVMI_GET_VERSION* command to get the API version and/or the
+*KVMI_VM_CHECK_COMMAND* and *KVMI_VM_CHECK_EVENT* commands to see which
+commands/events are allowed for this guest. The error code -KVM_EPERM
+will be returned if the introspection tool uses a command or tries to
+enable an event which is disallowed.
 
 Unhooking
 ---------

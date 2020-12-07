@@ -15,6 +15,7 @@
 #include "processor.h"
 #include "../lib/kvm_util_internal.h"
 
+#include "linux/kvm_para.h"
 #include "linux/kvmi.h"
 
 #define VCPU_ID 1
@@ -110,10 +111,109 @@ static void unhook_introspection(struct kvm_vm *vm)
 		errno, strerror(errno));
 }
 
+static void receive_data(void *dest, size_t size)
+{
+	ssize_t r;
+
+	r = recv(Userspace_socket, dest, size, MSG_WAITALL);
+	TEST_ASSERT(r == size,
+		"recv() failed, expected %zd, result %zd, errno %d (%s)\n",
+		size, r, errno, strerror(errno));
+}
+
+static int receive_cmd_reply(struct kvmi_msg_hdr *req, void *rpl,
+			     size_t rpl_size)
+{
+	struct kvmi_msg_hdr hdr;
+	struct kvmi_error_code ec;
+
+	receive_data(&hdr, sizeof(hdr));
+
+	TEST_ASSERT(hdr.seq == req->seq,
+		"Unexpected messages sequence 0x%x, expected 0x%x\n",
+		hdr.seq, req->seq);
+
+	TEST_ASSERT(hdr.size >= sizeof(ec),
+		"Invalid message size %d, expected %zd bytes (at least)\n",
+		hdr.size, sizeof(ec));
+
+	receive_data(&ec, sizeof(ec));
+
+	if (ec.err) {
+		TEST_ASSERT(hdr.size == sizeof(ec),
+			"Invalid command reply on error\n");
+	} else {
+		TEST_ASSERT(hdr.size == sizeof(ec) + rpl_size,
+			"Invalid command reply\n");
+
+		if (rpl && rpl_size)
+			receive_data(rpl, rpl_size);
+	}
+
+	return ec.err;
+}
+
+static unsigned int new_seq(void)
+{
+	static unsigned int seq;
+
+	return seq++;
+}
+
+static void send_message(int msg_id, struct kvmi_msg_hdr *hdr, size_t size)
+{
+	ssize_t r;
+
+	hdr->id = msg_id;
+	hdr->seq = new_seq();
+	hdr->size = size - sizeof(*hdr);
+
+	r = send(Userspace_socket, hdr, size, 0);
+	TEST_ASSERT(r == size,
+		"send() failed, sending %zd, result %zd, errno %d (%s)\n",
+		size, r, errno, strerror(errno));
+}
+
+static const char *kvm_strerror(int error)
+{
+	switch (error) {
+	case KVM_ENOSYS:
+		return "Invalid system call number";
+	case KVM_EOPNOTSUPP:
+		return "Operation not supported on transport endpoint";
+	case KVM_EAGAIN:
+		return "Try again";
+	default:
+		return strerror(error);
+	}
+}
+
+static int do_command(int cmd_id, struct kvmi_msg_hdr *req,
+		      size_t req_size, void *rpl, size_t rpl_size)
+{
+	send_message(cmd_id, req, req_size);
+	return receive_cmd_reply(req, rpl, rpl_size);
+}
+
+static void test_cmd_invalid(void)
+{
+	int invalid_msg_id = 0xffff;
+	struct kvmi_msg_hdr req;
+	int r;
+
+	r = do_command(invalid_msg_id, &req, sizeof(req), NULL, 0);
+	TEST_ASSERT(r == -KVM_ENOSYS,
+		"Invalid command didn't failed with KVM_ENOSYS, error %d (%s)\n",
+		-r, kvm_strerror(-r));
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	setup_socket();
 	hook_introspection(vm);
+
+	test_cmd_invalid();
+
 	unhook_introspection(vm);
 }
 
