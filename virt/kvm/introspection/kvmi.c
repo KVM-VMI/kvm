@@ -118,8 +118,41 @@ void kvmi_uninit(void)
 	kvmi_cache_destroy();
 }
 
+static bool kvmi_alloc_vcpui(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui;
+
+	vcpui = kzalloc(sizeof(*vcpui), GFP_KERNEL);
+	if (!vcpui)
+		return false;
+
+	vcpu->kvmi = vcpui;
+
+	return true;
+}
+
+static int kvmi_create_vcpui(struct kvm_vcpu *vcpu)
+{
+	if (!kvmi_alloc_vcpui(vcpu))
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void kvmi_free_vcpui(struct kvm_vcpu *vcpu)
+{
+	kfree(vcpu->kvmi);
+	vcpu->kvmi = NULL;
+}
+
 static void kvmi_free(struct kvm *kvm)
 {
+	struct kvm_vcpu *vcpu;
+	int i;
+
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		kvmi_free_vcpui(vcpu);
+
 	bitmap_free(kvm->kvmi->cmd_allow_mask);
 	bitmap_free(kvm->kvmi->event_allow_mask);
 	bitmap_free(kvm->kvmi->vm_event_enable_mask);
@@ -128,10 +161,19 @@ static void kvmi_free(struct kvm *kvm)
 	kvm->kvmi = NULL;
 }
 
+void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu)
+{
+	mutex_lock(&vcpu->kvm->kvmi_lock);
+	kvmi_free_vcpui(vcpu);
+	mutex_unlock(&vcpu->kvm->kvmi_lock);
+}
+
 static struct kvm_introspection *
 kvmi_alloc(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 {
 	struct kvm_introspection *kvmi;
+	struct kvm_vcpu *vcpu;
+	int i;
 
 	kvmi = kzalloc(sizeof(*kvmi), GFP_KERNEL);
 	if (!kvmi)
@@ -156,6 +198,15 @@ kvmi_alloc(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 		    KVMI_NUM_COMMANDS);
 
 	atomic_set(&kvmi->ev_seq, 0);
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		int err = kvmi_create_vcpui(vcpu);
+
+		if (err) {
+			kvmi_free(kvm);
+			return NULL;
+		}
+	}
 
 	kvmi->kvm = kvm;
 
