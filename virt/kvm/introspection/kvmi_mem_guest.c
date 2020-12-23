@@ -839,9 +839,3 @@ static void __exit kvm_intro_guest_exit(void)
 
 module_init(kvm_intro_guest_init)
 module_exit(kvm_intro_guest_exit)
-
-// TODO: dax/kmem.c:68 seteaza o resursa si cheama
-// add_memory(numa_node, new_res->start, resource_size(new_res))
-// si s-ar putea sa se loveasca de override
-// (cand scopu e clar sa adauge System RAM)
-// Trebuie sa cheme add_memory_resource(nid, res)
