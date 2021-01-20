@@ -13,6 +13,8 @@
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
+#include <linux/mount.h>
+#include <linux/pseudo_fs.h>
 #include <linux/mm.h>
 #include <linux/sched/mm.h>
 #include <linux/types.h>
@@ -22,629 +24,817 @@
 #include <linux/slab.h>
 #include <linux/sched.h>
 #include <linux/list.h>
-#include <linux/spinlock.h>
-#include <linux/rwlock.h>
-#include <linux/hashtable.h>
+#include <linux/mutex.h>
+#include <linux/lockdep.h>
 #include <linux/refcount.h>
-#include <linux/ioctl.h>
+#include <linux/mman.h>
+#include <linux/list.h>
+#include <linux/notifier.h>
+#include <linux/memory.h>
+#include <linux/memory_hotplug.h>
+#include <linux/uuid.h>
+#include <linux/pagemap.h>
+#include <linux/pfn_t.h>
 
+#include <uapi/linux/magic.h>
 #include <uapi/linux/kvmi.h>
 #include <asm/kvmi_guest.h>
 
+#include "kvmi_int.h"
+
 #define ASSERT(exp) BUG_ON(!(exp))
-#define DB_HASH_BITS 4
 
-static struct kmem_cache *proc_map_cachep;
-static struct kmem_cache *file_map_cachep;
-static struct kmem_cache *page_map_cachep;
 
-/* process/mm to proc_map */
-static DEFINE_HASHTABLE(db_hash, DB_HASH_BITS);
-static DEFINE_SPINLOCK(db_hash_lock);
+static DECLARE_WAIT_QUEUE_HEAD(ready_wait_queue);
 
-struct proc_map {
-	struct mm_struct *mm;		/* database key */
-	struct hlist_node db_link;	/* database link */
-	refcount_t refcnt;
-
-	struct rb_root entries;		/* mapping entries for this mm */
-	rwlock_t entries_lock;
+struct kvmi_mem_dev {
+	struct device dev;
+	struct dev_pagemap pgmap;
+	struct resource *res;
+	void *addr;
+	bool ready;
 };
 
-struct file_map {
-	struct proc_map *proc;
+static inline struct kvmi_mem_dev *dev_to_kvmi_mem_dev(struct device *dev)
+{
+	return container_of(dev, struct kvmi_mem_dev , dev);
+}
 
-	struct list_head entries;	/* mapping entries for this file */
-	spinlock_t entries_lock;
+static inline struct kvmi_mem_dev *pgmap_to_kvmi_mem_dev(struct dev_pagemap *pgmap)
+{
+	return container_of(pgmap, struct kvmi_mem_dev , pgmap);
+}
+
+static struct vfsmount *kvmi_mem_mnt;
+static struct super_block *kvmi_mem_superblock;
+
+/* this is assigned to VMA */
+struct kvmi_mem_map_range {
+	gpa_t req_start;
+	size_t req_length;
+	gpa_t map_start;
+
+	struct list_head link;
+	atomic_t users;
 };
 
-struct page_map {
-	struct rb_node proc_link;	/* link to struct proc_map */
-	struct list_head file_link;	/* link to struct file_map */
+/* this is assigned to file */
+struct kvmi_mem_map_ctx {
+	uuid_t dom_id;
+	bool started;
 
-	gpa_t gpa;			/* target GPA */
-	gva_t vaddr;			/* local GVA */
+	struct list_head ranges;
+	struct mutex lock;
+
+	struct inode inode;
 };
 
-static void proc_map_init(struct proc_map *pmap)
+static struct kvmi_mem_map_ctx *to_kvmi_mem_ctx(struct inode *inode)
 {
-	pmap->mm = NULL;
-	INIT_HLIST_NODE(&pmap->db_link);
-	refcount_set(&pmap->refcnt, 0);
-
-	pmap->entries = RB_ROOT;
-	rwlock_init(&pmap->entries_lock);
+	return container_of(inode, struct kvmi_mem_map_ctx, inode);
 }
 
-static struct proc_map *proc_map_alloc(void)
+static inline gpa_t kvmi_mem_range_start(struct kvmi_mem_map_range *range)
 {
-	struct proc_map *obj;
-
-	obj = kmem_cache_alloc(proc_map_cachep, GFP_KERNEL);
-	if (obj != NULL)
-		proc_map_init(obj);
-
-	return obj;
+	return range->req_start;
 }
 
-static void proc_map_free(struct proc_map *pmap)
+static inline gpa_t kvmi_mem_range_end(struct kvmi_mem_map_range *range)
 {
-	ASSERT(hlist_unhashed(&pmap->db_link));
-	ASSERT(refcount_read(&pmap->refcnt) == 0);
-	ASSERT(RB_EMPTY_ROOT(&pmap->entries));
-
-	kmem_cache_free(proc_map_cachep, pmap);
+	return range->req_start + range->req_length;
 }
 
-static void file_map_init(struct file_map *fmp)
+static int
+kvmi_mem_add_range(struct kvmi_mem_map_ctx *ctx, struct kvmi_mem_map *mapinfo)
 {
-	INIT_LIST_HEAD(&fmp->entries);
-	spin_lock_init(&fmp->entries_lock);
-}
+	struct kvmi_mem_map_range *range;
 
-static struct file_map *file_map_alloc(void)
-{
-	struct file_map *obj;
+	lockdep_assert_held(&ctx->lock);
 
-	obj = kmem_cache_alloc(file_map_cachep, GFP_KERNEL);
-	if (obj != NULL)
-		file_map_init(obj);
-
-	return obj;
-}
-
-static void file_map_free(struct file_map *fmp)
-{
-	ASSERT(list_empty(&fmp->entries));
-
-	kmem_cache_free(file_map_cachep, fmp);
-}
-
-static void page_map_init(struct page_map *pmp)
-{
-	memset(pmp, 0, sizeof(*pmp));
-
-	RB_CLEAR_NODE(&pmp->proc_link);
-	INIT_LIST_HEAD(&pmp->file_link);
-}
-
-static struct page_map *page_map_alloc(void)
-{
-	struct page_map *obj;
-
-	obj = kmem_cache_alloc(page_map_cachep, GFP_KERNEL);
-	if (obj != NULL)
-		page_map_init(obj);
-
-	return obj;
-}
-
-static void page_map_free(struct page_map *pmp)
-{
-	ASSERT(RB_EMPTY_NODE(&pmp->proc_link));
-
-	kmem_cache_free(page_map_cachep, pmp);
-}
-
-static struct proc_map *get_proc_map(void)
-{
-	struct proc_map *pmap, *allocated;
-	struct mm_struct *mm;
-	bool found = false;
-
-	if (!mmget_not_zero(current->mm))
-		return NULL;
-	mm = current->mm;
-
-	allocated = proc_map_alloc();	/* may be NULL */
-
-	spin_lock(&db_hash_lock);
-
-	hash_for_each_possible(db_hash, pmap, db_link, (unsigned long)mm)
-		if (pmap->mm == mm && refcount_inc_not_zero(&pmap->refcnt)) {
-			found = true;
-			break;
-		}
-
-	if (!found && allocated != NULL) {
-		pmap = allocated;
-		allocated = NULL;
-
-		pmap->mm = mm;
-		hash_add(db_hash, &pmap->db_link, (unsigned long)mm);
-		refcount_set(&pmap->refcnt, 1);
-	} else
-		mmput(mm);
-
-	spin_unlock(&db_hash_lock);
-
-	if (allocated != NULL)
-		proc_map_free(allocated);
-
-	return pmap;
-}
-
-static void put_proc_map(struct proc_map *pmap)
-{
-	if (refcount_dec_and_test(&pmap->refcnt)) {
-		mmput(pmap->mm);
-
-		/* remove from hash table */
-		spin_lock(&db_hash_lock);
-		hash_del(&pmap->db_link);
-		spin_unlock(&db_hash_lock);
-
-		proc_map_free(pmap);
-	}
-}
-
-static bool proc_map_insert(struct proc_map *pmap, struct page_map *pmp)
-{
-	struct rb_root *root = &pmap->entries;
-	struct rb_node **new = &root->rb_node;
-	struct rb_node *parent = NULL;
-	struct page_map *this;
-	bool inserted = true;
-
-	write_lock(&pmap->entries_lock);
-
-	/* Figure out where to put new node */
-	while (*new) {
-		this = rb_entry(*new, struct page_map, proc_link);
-
-		parent = *new;
-		if (pmp->vaddr < this->vaddr)
-			new = &((*new)->rb_left);
-		else if (pmp->vaddr > this->vaddr)
-			new = &((*new)->rb_right);
-		else {
-			/* Already have this address */
-			inserted = false;
-			goto out;
-		}
-	}
-
-	/* Add new node and rebalance tree. */
-	rb_link_node(&pmp->proc_link, parent, new);
-	rb_insert_color(&pmp->proc_link, root);
-
-out:
-	write_unlock(&pmap->entries_lock);
-
-	return inserted;
-}
-
-#if 0 /* will use this later */
-static struct page_map *proc_map_search(struct proc_map *pmap,
-					unsigned long vaddr)
-{
-	struct rb_root *root = &pmap->entries;
-	struct rb_node *node;
-	struct page_map *pmp;
-
-	read_lock(&pmap->entries_lock);
-
-	node = root->rb_node;
-
-	while (node) {
-		pmp = rb_entry(node, struct page_map, proc_link);
-
-		if (vaddr < pmp->vaddr)
-			node = node->rb_left;
-		else if (vaddr > pmp->vaddr)
-			node = node->rb_right;
-		else
-			break;
-	}
-
-	if (!node)
-		pmp = NULL;
-
-	read_unlock(&pmap->entries_lock);
-
-	return pmp;
-}
-#endif
-
-static struct page_map *proc_map_search_extract(struct proc_map *pmap,
-						unsigned long vaddr)
-{
-	struct rb_root *root = &pmap->entries;
-	struct rb_node *node;
-	struct page_map *pmp;
-
-	write_lock(&pmap->entries_lock);
-
-	node = root->rb_node;
-
-	while (node) {
-		pmp = rb_entry(node, struct page_map, proc_link);
-
-		if (vaddr < pmp->vaddr)
-			node = node->rb_left;
-		else if (vaddr > pmp->vaddr)
-			node = node->rb_right;
-		else
-			break;
-	}
-
-	if (node) {
-		rb_erase(&pmp->proc_link, &pmap->entries);
-		RB_CLEAR_NODE(&pmp->proc_link);
-	} else
-		pmp = NULL;
-
-	write_unlock(&pmap->entries_lock);
-
-	return pmp;
-}
-
-static void proc_map_remove(struct proc_map *pmap, struct page_map *pmp)
-{
-	write_lock(&pmap->entries_lock);
-	rb_erase(&pmp->proc_link, &pmap->entries);
-	RB_CLEAR_NODE(&pmp->proc_link);
-	write_unlock(&pmap->entries_lock);
-}
-
-static void file_map_insert(struct file_map *fmp, struct page_map *pmp)
-{
-	spin_lock(&fmp->entries_lock);
-	list_add(&pmp->file_link, &fmp->entries);
-	spin_unlock(&fmp->entries_lock);
-}
-
-static void file_map_remove(struct file_map *fmp, struct page_map *pmp)
-{
-	spin_lock(&fmp->entries_lock);
-	list_del(&pmp->file_link);
-	spin_unlock(&fmp->entries_lock);
-}
-
-/*
- * Opens the device for map/unmap operations. The mm of this process is
- * associated with these files in a 1:many relationship.
- * Operations on this file must be done within the same process that opened it.
- */
-static int kvm_dev_open(struct inode *inodep, struct file *filp)
-{
-	struct proc_map *pmap;
-	struct file_map *fmp;
-
-	pr_debug("kvmi: file %016lx opened by mm %016lx\n",
-		 (unsigned long) filp, (unsigned long)current->mm);
-
-	pmap = get_proc_map();
-	if (pmap == NULL)
-		return -ENOENT;
-
-	/* link the file 1:1 with such a structure */
-	fmp = file_map_alloc();
-	if (fmp == NULL)
+	range = kmalloc(sizeof(*range), GFP_KERNEL);
+	if (!range)
 		return -ENOMEM;
 
-	fmp->proc = pmap;
-	filp->private_data = fmp;
+	range->req_start = mapinfo->req_start;
+	range->req_length = mapinfo->req_length;
+	range->map_start = mapinfo->map_start;
+
+	list_add(&range->link, &ctx->ranges);
+	atomic_set(&range->users, 0);
 
 	return 0;
 }
 
-static long _do_mapping(struct kvmi_mem_map *map_req, struct page_map *pmp)
+static struct kvmi_mem_map_range *
+kvmi_mem_find_range(struct kvmi_mem_map_ctx *ctx, gpa_t req_gpa)
 {
-	struct page *page;
-	phys_addr_t paddr;
-	long nrpages;
-	long result = 0;
+	struct kvmi_mem_map_range *range;
 
-	down_read(&current->mm->mmap_sem);
+	lockdep_assert_held(&ctx->lock);
 
-	/* pin the page to be replaced (also swaps in the page) */
-	nrpages = get_user_pages_locked(map_req->gva, 1,
-					FOLL_SPLIT | FOLL_MIGRATION,
-					&page, NULL);
-	if (unlikely(nrpages == 0)) {
-		result = -ENOENT;
-		pr_err("kvmi: found no page for %016llx\n", map_req->gva);
-		goto out;
-	} else if (IS_ERR_VALUE(nrpages)) {
-		result = nrpages;
-		pr_err("kvmi: get_user_pages_locked() failed (%ld)\n", result);
-		goto out;
-	}
+	list_for_each_entry(range, &ctx->ranges, link)
+		if (req_gpa >= kvmi_mem_range_start(range) &&
+		    req_gpa < kvmi_mem_range_end(range))
+			return range;
 
-	paddr = page_to_phys(page);
-	pr_debug("%s: page phys addr %016llx\n", __func__, paddr);
-
-	/* last thing to do is host mapping */
-	result = kvmi_arch_map_hc(&map_req->token, map_req->gpa, paddr);
-	if (IS_ERR_VALUE(result)) {
-		pr_warn("kvmi: mapping failed for %016llx -> %016lx (%ld)\n",
-			pmp->gpa, pmp->vaddr, result);
-
-		/* don't need this page anymore */
-		put_page(page);
-	}
-
-out:
-	up_read(&current->mm->mmap_sem);
-
-	return result;
+	return NULL;
 }
 
-static long _do_unmapping(struct mm_struct *mm, struct page_map *pmp)
+static void
+kvmi_mem_del_range(struct kvmi_mem_map_range *range, struct kvmi_mem_map_ctx *ctx)
 {
-	struct vm_area_struct *vma;
-	struct page *page;
-	phys_addr_t paddr;
-	long result = 0;
-
-	down_read(&mm->mmap_sem);
-
-	/* find the VMA for the virtual address */
-	vma = find_vma(mm, pmp->vaddr);
-	if (vma == NULL) {
-		result = -ENOENT;
-		pr_err("kvmi: find_vma() found no VMA\n");
-		goto out;
-	}
-
-	/* the page is pinned, thus easy to access */
-	page = follow_page(vma, pmp->vaddr, 0);
-	if (IS_ERR_VALUE(page)) {
-		result = PTR_ERR(page);
-		pr_err("kvmi: follow_page() failed (%ld)\n", result);
-		goto out;
-	} else if (page == NULL) {
-		result = -ENOENT;
-		pr_err("kvmi: follow_page() found no page\n");
-		goto out;
-	}
-
-	paddr = page_to_phys(page);
-	pr_debug("%s: page phys addr %016llx\n", __func__, paddr);
-
-	/* last thing to do is host unmapping */
-	result = kvmi_arch_unmap_hc(paddr);
-	if (IS_ERR_VALUE(result))
-		pr_warn("kvmi: unmapping failed for %016lx (%ld)\n",
-			pmp->vaddr, result);
-
-	/* finally unpin the page */
-	put_page(page);
-
-out:
-	up_read(&mm->mmap_sem);
-
-	return result;
-}
-
-static noinline long kvm_dev_ioctl_map(struct file_map *fmp,
-				       struct kvmi_mem_map *map)
-{
-	struct proc_map *pmap = fmp->proc;
-	struct page_map *pmp;
-	bool added;
-	long result = 0;
-
-	pr_debug("kvmi: mm %016lx map request %016llx -> %016llx\n",
-		(unsigned long)current->mm, map->gpa, map->gva);
-
-	if (!access_ok(map->gva, PAGE_SIZE))
-		return -EINVAL;
-
-	/* prepare list entry */
-	pmp = page_map_alloc();
-	if (pmp == NULL)
-		return -ENOMEM;
-
-	pmp->gpa = map->gpa;
-	pmp->vaddr = map->gva;
-
-	added = proc_map_insert(pmap, pmp);
-	if (added == false) {
-		result = -EALREADY;
-		pr_warn("kvmi: address %016llx already mapped\n", map->gva);
-		goto out_free;
-	}
-	file_map_insert(fmp, pmp);
-
-	/* actual mapping here */
-	result = _do_mapping(map, pmp);
-	if (IS_ERR_VALUE(result))
-		goto out_remove;
-
-	return 0;
-
-out_remove:
-	proc_map_remove(pmap, pmp);
-	file_map_remove(fmp, pmp);
-
-out_free:
-	page_map_free(pmp);
-
-	return result;
-}
-
-static noinline long kvm_dev_ioctl_unmap(struct file_map *fmp,
-					 unsigned long vaddr)
-{
-	struct proc_map *pmap = fmp->proc;
-	struct page_map *pmp;
-	long result = 0;
-
-	pr_debug("kvmi: mm %016lx unmap request %016lx\n",
-		(unsigned long)current->mm, vaddr);
-
-	pmp = proc_map_search_extract(pmap, vaddr);
-	if (pmp == NULL) {
-		pr_warn("kvmi: address %016lx not mapped\n", vaddr);
-		return -ENOENT;
-	}
-
-	/* actual unmapping here */
-	result = _do_unmapping(current->mm, pmp);
-
-	file_map_remove(fmp, pmp);
-	page_map_free(pmp);
-
-	return result;
-}
-
-/*
- * Operations on this file must be done within the same process that opened it.
- */
-static long kvm_dev_ioctl(struct file *filp,
-			  unsigned int ioctl, unsigned long arg)
-{
-	void __user *argp = (void __user *) arg;
-	struct file_map *fmp = filp->private_data;
-	struct proc_map *pmap = fmp->proc;
+	struct kvmi_mem_unmap request;
 	long result;
 
-	/* this helps keep my code simpler */
-	if (current->mm != pmap->mm) {
-		pr_warn("kvmi: ioctl request by different process\n");
-		return -EINVAL;
+	/* this can happen if remap failed in the middle */
+	if (range->map_start != 0) {
+		/* request unmapping from host */
+		uuid_copy(&request.dom_id, &ctx->dom_id);
+		request.map_gpa = range->map_start;
+
+		result = kvmi_arch_guest_unmap(&request);
+		if (result)
+			pr_warn("%s: kvmi_arch_guest_unmap() failed: %ld\n",
+				__func__, result);
 	}
+
+	/* delete range from database and free */
+	list_del(&range->link);
+	kfree(range);
+}
+
+
+static vm_fault_t kvmi_mem_vm_fault(struct vm_fault *vmf)
+{
+	struct kvmi_mem_map_range *range = vmf->vma->vm_private_data;
+	struct page *page;
+	unsigned long pfn;
+	pfn_t pfn_flags;
+	int result = 0;
+
+	BUG_ON(range->map_start == 0);
+	pfn = PHYS_PFN(range->map_start) + (vmf->pgoff - PHYS_PFN(range->req_start));
+	pfn_flags = __pfn_to_pfn_t(pfn, PFN_DEV | PFN_MAP);
+
+	result = vmf_insert_mixed(vmf->vma, vmf->address, pfn_flags);
+	if (result != VM_FAULT_NOPAGE)
+		return result;
+
+	page = pfn_to_page(pfn);
+	BUG_ON(!page);
+
+	/* rmap */
+	page->mapping = vmf->vma->vm_file->f_mapping;
+	page->index = linear_page_index(vmf->vma, vmf->address);
+
+	return result;
+}
+
+/* called internally during kvmi_mem_unmap() */
+static void kvmi_mem_vm_close(struct vm_area_struct *vma)
+{
+	struct kvmi_mem_map_range *range = vma->vm_private_data;
+
+	pr_debug("%s: vma %lx-%lx closing\n", __func__,
+		 vma->vm_start, vma->vm_end);
+
+	atomic_dec(&range->users);
+}
+
+/* don't allow splitting these VMAs (partial unmap) */
+static int kvmi_mem_vm_split(struct vm_area_struct *vma, unsigned long addr)
+{
+	return -EINVAL;
+}
+
+static const struct vm_operations_struct kvmi_mem_vmops = {
+	.fault = kvmi_mem_vm_fault,
+	.close = kvmi_mem_vm_close,
+	.split = kvmi_mem_vm_split,
+};
+
+static int kvmi_mem_open(struct inode *inode, struct file *file)
+{
+	struct kvmi_mem_map_ctx *ctx;
+	struct inode *dom_inode;
+
+	pr_debug("%s: file %lx opened\n", __func__, (long)file);
+
+	dom_inode = iget_locked(kvmi_mem_superblock, get_next_ino());
+	if (!dom_inode)
+		return -ENOMEM;
+
+	ASSERT(dom_inode->i_state & I_NEW);
+	ctx = to_kvmi_mem_ctx(dom_inode);
+
+	INIT_LIST_HEAD(&ctx->ranges);
+	mutex_init(&ctx->lock);
+
+	file->private_data = ctx;
+
+	dom_inode->i_mode = S_IFCHR;
+	dom_inode->i_flags = S_DAX;
+	dom_inode->i_rdev = 0;
+	dom_inode->i_mapping = &dom_inode->i_data;
+	dom_inode->i_mapping->host = dom_inode;
+	file->f_mapping = dom_inode->i_mapping;
+	mapping_set_gfp_mask(&dom_inode->i_data, GFP_USER);
+	unlock_new_inode(dom_inode);
+
+	return 0;
+}
+
+/*
+ * This will tell the host that introspection started for the given domain ID.
+ */
+static noinline long kvmi_mem_start(struct file *file)
+{
+	struct kvmi_mem_map_ctx *ctx = file->private_data;
+	long result;
+
+	mutex_lock(&ctx->lock);
+
+	if (ctx->started) {
+		pr_err("memory introspection already started\n");
+		result = -EALREADY;
+		goto out;
+	}
+
+	result = kvmi_arch_guest_start(&ctx->dom_id);
+	if (result) {
+		pr_err("%s: kvmi_arch_guest_start() failed: %d\n",
+			__func__, (int) result);
+		goto out;
+	}
+
+	ctx->started = true;
+	pr_debug("%s: domain introspection started\n", __func__);
+
+out:
+	mutex_unlock(&ctx->lock);
+
+	return result;
+}
+
+/*
+ * This will request a mapping from the host.
+ * The host will map a memory range from another guest and will hotplug it.
+ * The result of the operation will be communicated in the mapinfo struct.
+ */
+static noinline long kvmi_mem_map(struct file *file,
+				  struct kvmi_guest_mem_map *request)
+{
+	struct kvmi_mem_map_ctx *ctx = file->private_data;
+	struct kvmi_mem_map mapinfo;
+	struct kvmi_mem_map_range *range;
+	long result = 0;
+
+	pr_debug("%s: req gpa %016llx\n", __func__, request->gpa);
+
+	mutex_lock(&ctx->lock);
+
+	if (!ctx->started) {
+		pr_err("memory introspection not started\n");
+		result = -EINVAL;
+		goto out;
+	}
+
+	/* test if range was already mapped */
+	range = kvmi_mem_find_range(ctx, request->gpa);
+	if (range) {
+		pr_err("gpa %016llx already mapped in %016llx+%lx\n",
+			request->gpa, range->req_start, range->req_length);
+		result = -EALREADY;
+		goto out;
+	}
+
+	/* prepare mapping request args */
+	memset(&mapinfo, 0, sizeof(mapinfo));
+	uuid_copy(&mapinfo.dom_id, &ctx->dom_id);
+	mapinfo.req_gpa = request->gpa;
+	mapinfo.min_map = get_hotplug_granularity() << PAGE_SHIFT;
+
+	/* request mapping from host */
+	result = kvmi_arch_guest_map(&request->token, &mapinfo);
+	if (result) {
+		pr_err("%s: kvmi_arch_guest_map(%016llx) failed: %d\n",
+			__func__, mapinfo.req_gpa, (int) result);
+		goto out;
+	}
+
+	pr_debug("%s: HC range start %lx, length %lx, mapped @ %lx\n", __func__,
+		(long)mapinfo.req_start, (long)mapinfo.req_length,
+		(long)mapinfo.map_start);
+
+	/* add range to database */
+	result = kvmi_mem_add_range(ctx, &mapinfo);
+	if (result)
+		goto out;
+
+	/* return mapped range to the user */
+	request->gpa = mapinfo.req_start;
+	request->length = mapinfo.req_length;
+
+out:
+	mutex_unlock(&ctx->lock);
+
+	return result;
+}
+
+static noinline long kvmi_mem_unmap(struct file *file, unsigned long gpa)
+{
+	struct kvmi_mem_map_ctx *ctx = file->private_data;
+	struct kvmi_mem_map_range *range;
+	long result = 0;
+
+	pr_debug("%s: gpa %lx\n", __func__, gpa);
+
+	mutex_lock(&ctx->lock);
+
+	if (!ctx->started) {
+		pr_err("memory introspection not started\n");
+		result = -EINVAL;
+		goto out;
+	}
+
+	range = kvmi_mem_find_range(ctx, gpa);
+	if (!range) {
+		pr_err("range starting at %lx not found\n", gpa);
+		result = -ENOENT;
+		goto out;
+	}
+
+	if (range->req_start != gpa) {
+		pr_err("range doesn't start at %lx\n", gpa);
+		result = -EINVAL;
+		goto out;
+	}
+
+	if (atomic_read(&range->users) != 0) {
+		pr_err("range starting at %lx still used\n", gpa);
+		result = -EINVAL;
+		goto out;
+	}
+
+	/* this wll also do the hypercall */
+	kvmi_mem_del_range(range, ctx);
+
+out:
+	mutex_unlock(&ctx->lock);
+
+	return result;
+}
+
+static long kvmi_mem_ioctl(struct file *file,
+			   unsigned int ioctl, unsigned long arg)
+{
+	long result;
 
 	switch (ioctl) {
-	case KVM_INTRO_MEM_MAP: {
-		struct kvmi_mem_map map;
+
+	case KVM_GUEST_MEM_START: {
+		struct kvmi_mem_map_ctx *ctx = file->private_data;
+		void __user *argp = (void __user *) arg;
 
 		result = -EFAULT;
-		if (copy_from_user(&map, argp, sizeof(map)))
+		if (copy_from_user(&ctx->dom_id, argp, sizeof(uuid_t)))
 			break;
 
-		result = kvm_dev_ioctl_map(fmp, &map);
-		break;
-	}
-	case KVM_INTRO_MEM_UNMAP: {
-		unsigned long vaddr = (unsigned long) arg;
+		result = kvmi_mem_start(file);
+		if (result)
+			break;
 
-		result = kvm_dev_ioctl_unmap(fmp, vaddr);
+		result = 0;
 		break;
 	}
+
+	case KVM_GUEST_MEM_MAP: {
+		void __user *argp = (void __user *) arg;
+		struct kvmi_guest_mem_map request;
+
+		result = -EFAULT;
+		if (copy_from_user(&request, argp, sizeof(request)))
+			break;
+
+		result = kvmi_mem_map(file, &request);
+		if (result)
+			break;
+
+		result = -EFAULT;
+		if (copy_to_user(argp, &request, sizeof(request)))
+			break;
+
+		result = 0;
+		break;
+	}
+
+	case KVM_GUEST_MEM_UNMAP: {
+		unsigned long gpa = arg;
+		result = kvmi_mem_unmap(file, gpa);
+		break;
+	}
+
 	default:
 		pr_warn("kvmi: ioctl %d not implemented\n", ioctl);
 		result = -ENOTTY;
+		break;
 	}
 
 	return result;
 }
 
-/*
- * No constraint on closing the device.
- */
-static int kvm_dev_release(struct inode *inodep, struct file *filp)
+#define ready(__pfn, __pgmap)							\
+({										\
+	__label__ __out;							\
+	bool __result = false;							\
+	struct kvmi_mem_dev *__kvmi_dev;					\
+										\
+	__pgmap = get_dev_pagemap(__pfn, __pgmap);				\
+	if (!__pgmap)								\
+		goto __out;							\
+										\
+	__kvmi_dev = pgmap_to_kvmi_mem_dev(__pgmap);				\
+	if (__kvmi_dev->ready)							\
+		__result = true;						\
+										\
+__out:	__result;								\
+})
+
+static int wait_pgmap_ready(gpa_t phys_addr)
 {
-	struct file_map *fmp = filp->private_data;
-	struct proc_map *pmap = fmp->proc;
-	struct page_map *pmp, *temp;
+	unsigned long pfn;
+	struct dev_pagemap *pgmap = NULL;
+	int result;
 
-	pr_debug("kvmi: file %016lx closed by mm %016lx\n",
-		 (unsigned long) filp, (unsigned long)current->mm);
+	/* wait for the dev_pgmap containing range to become ready */
+	pfn = PHYS_PFN(phys_addr);
+	result = wait_event_interruptible(ready_wait_queue, ready(pfn, pgmap));
+	if (result) {
+		/* pgmap may be pinned, but not yet ready */
+		if (pgmap)
+			put_dev_pagemap(pgmap);
 
-	/* this file_map has no more users, thus no more concurrent access */
-	list_for_each_entry_safe(pmp, temp, &fmp->entries, file_link) {
-		proc_map_remove(pmap, pmp);
-		list_del(&pmp->file_link);
-
-		_do_unmapping(pmap->mm, pmp);
-
-		page_map_free(pmp);
+		return result;
 	}
 
-	file_map_free(fmp);
-	put_proc_map(pmap);
+	put_dev_pagemap(pgmap);
+
+	return result;
+}
+
+static int kvmi_mem_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	struct kvmi_mem_map_ctx *ctx = file->private_data;
+	unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
+	struct kvmi_mem_map_range *range;
+
+	pr_debug("%s: vma %lx-%lx\n", __func__, vma->vm_start, vma->vm_end);
+
+	/* must hit do_shared_fault() */
+	if (!(vma->vm_flags & VM_SHARED))
+		return -EINVAL;
+
+	mutex_lock(&ctx->lock);
+
+	/* look up the database & associate the entry with the VMA */
+	range = kvmi_mem_find_range(ctx, offset);
+	if (!range) {
+		mutex_unlock(&ctx->lock);
+		pr_err("range containing %lx not found\n", offset);
+		return -EINVAL;
+	}
+	atomic_inc(&range->users);
+
+	mutex_unlock(&ctx->lock);
+
+	/* set basic VMA properties */
+	vma->vm_flags |= VM_DONTCOPY | VM_DONTDUMP | VM_PFNMAP;
+	vma->vm_ops = &kvmi_mem_vmops;
+	vma->vm_private_data = range;
+
+	/* wait for the dev_pgmap containing range to become ready */
+	return wait_pgmap_ready(range->map_start);
+}
+
+static int kvmi_mem_release(struct inode *inode, struct file *file)
+{
+	struct kvmi_mem_map_ctx *ctx = file->private_data;
+	struct kvmi_mem_map_range *range, *temp;
+
+	pr_debug("%s: file %lx closing\n", __func__, (long)file);
+
+	/* don't need to take mutex anymore */
+	if (!ctx->started)
+		goto out;
+
+	/*
+	 * maps get established by kvmi_mem_map() !!
+	 * maps are torn down by kvmi_mem_unmap() !!
+	 * mmap() only gets access to the mapped ranges !!
+	 * if we ended up here with mappings still present, undo them
+	 *  before calling kvmi_arch_guest_end()
+	 */
+	if (!list_empty(&ctx->ranges)) {
+		list_for_each_entry_safe(range, temp, &ctx->ranges, link)
+			kvmi_mem_del_range(range, ctx);
+	}
+
+	kvmi_arch_guest_end(&ctx->dom_id);
+
+out:
+	mutex_destroy(&ctx->lock);
+	iput(&ctx->inode);
 
 	return 0;
 }
 
-static const struct file_operations kvmmem_ops = {
-	.open		= kvm_dev_open,
-	.unlocked_ioctl = kvm_dev_ioctl,
-	.compat_ioctl   = kvm_dev_ioctl,
-	.release	= kvm_dev_release,
+static const struct file_operations kvmi_mem_fops = {
+	.open = kvmi_mem_open,
+	.unlocked_ioctl = kvmi_mem_ioctl,
+	.compat_ioctl = kvmi_mem_ioctl,
+	.mmap = kvmi_mem_mmap,
+	.release = kvmi_mem_release,
 };
 
-static struct miscdevice kvm_mem_dev = {
-	.minor		= MISC_DYNAMIC_MINOR,
-	.name		= "kvmmem",
-	.fops		= &kvmmem_ops,
+static struct miscdevice kvmi_mem_dev = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "kvmmem",
+	.fops = &kvmi_mem_fops,
 };
+
+
+static struct bus_type kvmi_mem_subsys = {
+	.name = "kvmi_mem",
+	.dev_name = "kvmi_mem",
+};
+
+static void kvmi_mem_dev_release(struct device *dev)
+{
+	struct kvmi_mem_dev *kvmi_dev = dev_to_kvmi_mem_dev(dev);
+
+	pr_debug("%s: kvmi_dev %lx\n", __func__, (long)kvmi_dev);
+
+	kfree(kvmi_dev);
+}
+
+static struct kvmi_mem_dev *kvmi_mem_dev_alloc(int nid, u64 start, u64 size)
+{
+	struct kvmi_mem_dev *kvmi_dev;
+	struct device *dev;
+	int result;
+
+	kvmi_dev = kzalloc(sizeof(*kvmi_dev), GFP_KERNEL);
+	if (!kvmi_dev)
+		return ERR_PTR(-ENOMEM);
+
+	dev = &kvmi_dev->dev;
+	device_initialize(dev);
+	dev->bus = &kvmi_mem_subsys;
+	dev->release = kvmi_mem_dev_release;
+	dev->offline_disabled = true;
+	set_dev_node(dev, nid);
+	dev->id = PHYS_PFN(start);
+	dev_set_name(dev, "kvmi-mem-%lx", PHYS_PFN(start));
+
+	pr_debug("%s: kvmi_dev %lx\n", __func__, (long)kvmi_dev);
+
+	result = device_add(dev);
+	if (result) {
+		put_device(dev);
+		return ERR_PTR(result);
+	}
+
+	return kvmi_dev;
+}
+
+static int kvmi_memory_add(int nid, u64 start, u64 size)
+{
+	struct kvmi_mem_dev *kvmi_dev;
+	struct device *dev;
+	int result;
+
+	pr_debug("%s: node %d, start %llx, size %llx\n", __func__, nid, start, size);
+
+	kvmi_dev = kvmi_mem_dev_alloc(nid, start, size);
+	if (IS_ERR(kvmi_dev))
+		return PTR_ERR(kvmi_dev);
+	dev = &kvmi_dev->dev;
+
+	kvmi_dev->res = devm_request_mem_region(dev, start, size, "KVMI Mem");
+	if (!kvmi_dev->res) {
+		pr_err("%s: devm_request_mem_region() failed", __func__);
+		result = -EBUSY;
+		goto out_dev;
+	}
+
+	memcpy(&kvmi_dev->pgmap.res, kvmi_dev->res, sizeof(*kvmi_dev->res));
+	kvmi_dev->pgmap.type = MEMORY_DEVICE_DEVDAX;
+
+	kvmi_dev->addr = devm_memremap_pages(dev, &kvmi_dev->pgmap);
+	if (IS_ERR(kvmi_dev->addr)) {
+		pr_err("%s: devm_memremap_pages() failed", __func__);
+		result = PTR_ERR(kvmi_dev->addr);
+		goto out_mem;
+	}
+
+	kvmi_dev->ready = true;
+	// TODO: barrier ??
+	wake_up(&ready_wait_queue);
+
+	put_device(dev);		/* usage reference */
+
+	return 0;
+
+out_mem:
+	devm_release_mem_region(dev, start, size);
+out_dev:
+	device_del(dev);
+	put_device(dev);
+
+	return result;
+}
+
+static int kvmi_memory_remove(int nid, u64 start, u64 size)
+{
+	struct kvmi_mem_dev *kvmi_dev;
+	struct device *dev;
+	struct resource *res;
+
+	pr_debug("%s: node %d, start %llx, size %llx\n", __func__, nid, start, size);
+
+	/* look for device */
+	dev = subsys_find_device_by_id(&kvmi_mem_subsys, PHYS_PFN(start), NULL);
+	if (!dev) {
+		pr_warn("%s: subsys_find_device_by_id(%lx) found nothing",
+			__func__, PHYS_PFN(start));
+		return -ENODEV;
+	}
+
+	/* test if device matches range/node */
+	kvmi_dev = dev_to_kvmi_mem_dev(dev);
+	res = kvmi_dev->res;
+	if (res->start != start || resource_size(res) != size ||
+		(dev_to_node(dev) != NUMA_NO_NODE && dev_to_node(dev) != nid)) {
+		pr_warn("%s: range or node differs", __func__);
+		return -EINVAL;
+	}
+
+	devm_memunmap_pages(dev, &kvmi_dev->pgmap);
+	devm_release_mem_region(dev, start, size);
+
+	device_del(dev);
+	put_device(dev);		/* usage reference */
+
+	return 0;
+}
+
+static int kvmi_hotplug_notifier(struct notifier_block *nb, unsigned long val, void *v)
+{
+	struct hotplug_notify *arg = v;
+	int ret = 0;
+
+	switch (val) {
+	case MEM_ADD:
+		ret = kvmi_memory_add(arg->nid, arg->start, arg->size);
+		break;
+
+	case MEM_REMOVE:
+		ret = kvmi_memory_remove(arg->nid, arg->start, arg->size);
+		break;
+
+	default:
+		return NOTIFY_DONE;
+	}
+
+	if (ret) {
+		pr_warn("%s: failed: %d\n", __func__, ret);
+		return notifier_from_errno(ret);
+	}
+
+	arg->handled = true;
+	return NOTIFY_STOP;
+}
+
+static struct notifier_block kvmi_hotplug_nb = {
+	.notifier_call = kvmi_hotplug_notifier,
+	.priority = 1
+};
+
+
+static struct inode *kvmi_mem_alloc_inode(struct super_block *sb)
+{
+	struct kvmi_mem_map_ctx *ctx;
+	struct inode *inode;
+
+	pr_debug("%s: superblock %s\n", __func__, sb->s_id);
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return ERR_PTR(ENOMEM);
+
+	inode = &ctx->inode;
+	inode_init_once(inode);
+
+	return inode;
+}
+
+static void kvmi_mem_free_inode(struct inode *inode)
+{
+	struct kvmi_mem_map_ctx *ctx = to_kvmi_mem_ctx(inode);
+
+	pr_debug("%s: inode %lx\n", __func__, inode->i_ino);
+
+	kfree(ctx);
+}
+
+static const struct super_operations kvmi_mem_sops = {
+	.statfs = simple_statfs,
+	.alloc_inode = kvmi_mem_alloc_inode,
+	.free_inode = kvmi_mem_free_inode,
+	.drop_inode = generic_delete_inode,
+};
+
+static int kvmi_mem_init_fs_context(struct fs_context *fc)
+{
+	struct pseudo_fs_context *ctx = init_pseudo(fc, KVMIMEM_FS_MAGIC);
+	if (!ctx)
+		return -ENOMEM;
+	ctx->ops = &kvmi_mem_sops;
+	return 0;
+}
+
+static struct file_system_type kvmi_mem_fs_type = {
+	.name = "kvmi_mem",
+	.init_fs_context = kvmi_mem_init_fs_context,
+	.kill_sb = kill_anon_super,
+};
+
 
 static int __init kvm_intro_guest_init(void)
 {
 	int result = 0;
 
 	if (!kvm_para_available()) {
-		pr_warn("kvmi: paravirt not available\n");
-		return -EPERM;
+		pr_err("paravirt not available, driver won't work\n");
+		return -EINVAL;
 	}
 
-	proc_map_cachep = KMEM_CACHE(proc_map, SLAB_PANIC | SLAB_ACCOUNT);
-	if (proc_map_cachep == NULL) {
-		result = -ENOMEM;
-		goto out_err;
-	}
-
-	file_map_cachep = KMEM_CACHE(file_map, SLAB_PANIC | SLAB_ACCOUNT);
-	if (file_map_cachep == NULL) {
-		result = -ENOMEM;
-		goto out_err;
-	}
-
-	page_map_cachep = KMEM_CACHE(page_map, SLAB_PANIC | SLAB_ACCOUNT);
-	if (page_map_cachep == NULL) {
-		result = -ENOMEM;
-		goto out_err;
-	}
-
-	result = misc_register(&kvm_mem_dev);
+	result = misc_register(&kvmi_mem_dev);
 	if (result) {
-		pr_err("kvmi: misc device register failed (%d)\n", result);
-		goto out_err;
+		pr_err("misc_register() failed: %d\n", result);
+		return result;
 	}
 
-	pr_debug("kvmi: guest memory introspection device created\n");
+	kvmi_mem_subsys.dev_root = root_device_register("kvmi_mem");
+	if (!kvmi_mem_subsys.dev_root) {
+		pr_err("root_device_register() failed: %d\n", result);
+		goto out_dev;
+	}
+
+	result = bus_register(&kvmi_mem_subsys);
+	if (result) {
+		pr_err("subsys_system_register() failed: %d\n", result);
+		goto out_root;
+	}
+
+	result = register_hotplug_notifier(&kvmi_hotplug_nb);
+	if (result) {
+		pr_err("subsys_system_register() failed: %d\n", result);
+		goto out_bus;
+	}
+
+	kvmi_mem_mnt = kern_mount(&kvmi_mem_fs_type);
+	if (IS_ERR(kvmi_mem_mnt)) {
+		result = PTR_ERR(kvmi_mem_mnt);
+		goto out_ntf;
+	}
+	kvmi_mem_superblock = kvmi_mem_mnt->mnt_sb;
+
+	pr_debug("memory introspect dev created\n");
 
 	return 0;
 
-out_err:
-	kmem_cache_destroy(page_map_cachep);
-	kmem_cache_destroy(file_map_cachep);
-	kmem_cache_destroy(proc_map_cachep);
+out_ntf:
+	unregister_hotplug_notifier(&kvmi_hotplug_nb);
+out_bus:
+	bus_unregister(&kvmi_mem_subsys);
+out_root:
+	root_device_unregister(kvmi_mem_subsys.dev_root);
+out_dev:
+	misc_deregister(&kvmi_mem_dev);
 
 	return result;
 }
 
 static void __exit kvm_intro_guest_exit(void)
 {
-	misc_deregister(&kvm_mem_dev);
+	kern_unmount(kvmi_mem_mnt);
 
-	kmem_cache_destroy(page_map_cachep);
-	kmem_cache_destroy(file_map_cachep);
-	kmem_cache_destroy(proc_map_cachep);
+	unregister_hotplug_notifier(&kvmi_hotplug_nb);
+
+	bus_unregister(&kvmi_mem_subsys);
+
+	misc_deregister(&kvmi_mem_dev);
 }
 
 module_init(kvm_intro_guest_init)

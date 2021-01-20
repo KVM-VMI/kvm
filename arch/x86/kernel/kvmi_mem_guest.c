@@ -13,14 +13,26 @@
 #include <linux/kvm_types.h>
 #include <asm/kvm_para.h>
 
-long kvmi_arch_map_hc(struct kvmi_map_mem_token *tknp,
-		       gpa_t req_gpa, gpa_t map_gpa)
+long kvmi_arch_guest_start(void *request)
 {
-	return kvm_hypercall3(KVM_HC_MEM_MAP, (unsigned long)tknp,
-			      req_gpa, map_gpa);
+        return kvm_hypercall2(KVM_HC_INTROSPECTION, KVMI_HC_START,
+                              (unsigned long)request);
 }
 
-long kvmi_arch_unmap_hc(gpa_t map_gpa)
+long kvmi_arch_guest_map(struct kvmi_map_mem_token *token, void *request)
 {
-	return kvm_hypercall1(KVM_HC_MEM_UNMAP, map_gpa);
+	return kvm_hypercall3(KVM_HC_INTROSPECTION, KVMI_HC_MAP,
+			      (unsigned long)token, (unsigned long)request);
+}
+
+long kvmi_arch_guest_unmap(void *request)
+{
+	return kvm_hypercall2(KVM_HC_INTROSPECTION, KVMI_HC_UNMAP,
+		              (unsigned long)request);
+}
+
+long kvmi_arch_guest_end(void *request)
+{
+        return kvm_hypercall2(KVM_HC_INTROSPECTION, KVMI_HC_END,
+                              (unsigned long)request);
 }

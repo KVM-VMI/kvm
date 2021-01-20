@@ -15,6 +15,17 @@ struct memory_block;
 struct resource;
 struct vmem_altmap;
 
+/* Override entire mem hotplug */
+#define MEM_ADD			(1 << 0)
+#define MEM_REMOVE		(1 << 1)
+
+struct hotplug_notify {
+	int nid;
+	u64 start;
+	u64 size;
+	bool handled;
+};
+
 #ifdef CONFIG_MEMORY_HOTPLUG
 /*
  * Return page for the valid pfn only if the page is online. All pfn
@@ -232,6 +243,12 @@ void mem_hotplug_done(void);
 extern void set_zone_contiguous(struct zone *zone);
 extern void clear_zone_contiguous(struct zone *zone);
 
+extern int register_hotplug_notifier(struct notifier_block *nb);
+extern void unregister_hotplug_notifier(struct notifier_block *nb);
+extern int hotplug_notify(unsigned long val, void *v);
+
+extern unsigned long get_hotplug_granularity(void);
+
 #else /* ! CONFIG_MEMORY_HOTPLUG */
 #define pfn_to_online_page(pfn)			\
 ({						\
@@ -278,6 +295,23 @@ static inline void mem_hotplug_done(void) {}
 static inline bool movable_node_is_enabled(void)
 {
 	return false;
+}
+
+static inline int register_hotplug_notifier(struct notifier_block *nb)
+{
+	return 0;
+}
+static inline void unregister_hotplug_notifier(struct notifier_block *nb)
+{
+}
+static inline int hotplug_notify(unsigned long val, void *v)
+{
+	return 0;
+}
+
+static inline unsigned long get_hotplug_granularity(void)
+{
+	return 0;
 }
 #endif /* ! CONFIG_MEMORY_HOTPLUG */
 

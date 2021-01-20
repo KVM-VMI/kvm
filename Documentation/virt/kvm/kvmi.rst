@@ -563,14 +563,16 @@ the following events::
 	KVMI_EVENT_MSR
 	KVMI_EVENT_PF
 	KVMI_EVENT_SINGLESTEP
-	KVMI_EVENT_TRAP
 	KVMI_EVENT_XSETBV
 
 When an event is enabled, the introspection tool is notified and it
 must reply with: continue, retry, crash, etc. (see **Events** below).
 
-The *KVMI_EVENT_PAUSE_VCPU* event is always allowed,
+The *KVMI_EVENT_PAUSE_VCPU* event is always enabled,
 because it is triggered by the *KVMI_VCPU_PAUSE* command.
+
+The *KVMI_EVENT_TRAP* event is always enabled,
+because it is triggered by the *KVMI_VCPU_INJECT_EXCEPTION* command.
 
 The *KVMI_EVENT_CREATE_VCPU* and *KVMI_EVENT_UNHOOK* events are controlled
 by the *KVMI_VM_CONTROL_EVENTS* command.
@@ -757,8 +759,7 @@ ID set.
 Injects a vCPU exception with or without an error code. In case of page fault
 exception, the guest virtual address has to be specified.
 
-The introspection tool should enable the *KVMI_EVENT_TRAP* event in
-order to be notified about the effective injected expection.
+An *KVMI_EVENT_TRAP* event will be send as soon as possible.
 
 :Errors:
 
@@ -926,7 +927,7 @@ where::
 	struct kvmi_error_code
 
 Sets the spte access bits (rwx) for an array of ``count`` guest physical
-addresses, for the selecte EPT view.
+addresses, for the selected EPT view.
 
 The valid access bits are::
 
@@ -946,10 +947,9 @@ In order to 'forget' an address, all the access bits ('rwx') must be set.
 :Errors:
 
 * -KVM_EINVAL - the specified access bits combination is invalid
-* -KVM_EINVAL - the selected SPT view is invalid
-* -KVM_EINVAL - padding is not zero
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EINVAL - the selected EPT view is invalid (see *KVM_MAX_EPT_VIEWS*)
 * -KVM_EINVAL - the message size is invalid
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
@@ -1082,9 +1082,8 @@ EPTP switching mechanism (see **KVMI_GET_VERSION**).
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_EINVAL - padding is not zero
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
-* -KVM_EINVAL - the selected EPT view is invalid
+* -KVM_EINVAL - the selected EPT view is invalid (see *KVM_MAX_EPT_VIEWS*)
 
 24. KVMI_VCPU_CONTROL_EPT_VIEW
 ------------------------------
@@ -1124,6 +1123,7 @@ is terminated.
 * -KVM_EINVAL - the selected EPT view is not valid
 * -KVM_EOPNOTSUPP - SPP is enabled for this VM
 * -KVM_EOPNOTSUPP - a non-zero EPT view was made visible but SPP is enabled for this VM
+* -KVM_EINVAL - the selected EPT view is not valid (see *KVM_MAX_EPT_VIEWS*)
 
 25. KVMI_VCPU_SET_VE_INFO
 -------------------------
@@ -1227,7 +1227,7 @@ mechanism (see **KVMI_GET_VERSION**).
 
 * -KVM_EINVAL - padding is not zero
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
+* -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EINVAL - the selected EPT view is not valid
 
 25. KVMI_VM_GET_MAP_TOKEN
@@ -1437,6 +1437,121 @@ corresponding bit set to 1.
 * -KVM_EINVAL - the write access is already allowed for the whole 4KB page
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
+
+29. KVMI_VCPU_GET_XCR
+---------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_get_xcr {
+		__u8 xcr;
+		__u8 padding[7];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_vcpu_get_xcr_reply {
+		__u64 value;
+	};
+
+Returns the value of the extended special register ``xcr`` for the
+specified vCPU. Currently, only XCR0 is supported.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the selected register is not supported.
+* -KVM_EINVAL - padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
+30. KVMI_VCPU_SET_XSAVE
+-----------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_set_xsave {
+		__u32 region[0];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Modifies the XSAVE area.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
+31. KVMI_VCPU_CHANGE_GFN
+------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_change_gfn {
+		__u64 old_gfn;
+		__u64 new_gfn;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Changes the content of ``old_gfn`` with the one provided through ``new_gfn``,
+inside the current EPT view. Usage:
+
+* change{gfn_1, gfn_2} - alters page table entries for gfn_1 so they point to
+        the pfn that gfn_2 is mapped to; page table entries mapping gfn_2 must
+        already be present
+
+* change{gfn_1, gfn_1} - restores page table entries so they point to the pfn
+        that gfn_1 was initially mapped to; page table entries mapping gfn_1
+        must already be present
+
+* change{gfn_1, ~0ULL} - reserved for future use
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EPERM - reserved operation, ``new_gfn`` must not be (~0ULL)
+* -KVM_EINVAL - provided gfn is not visible by KVM, meaning one of the following:
+                a. the memory slot holding the gfn is marked as invalid
+                b. the memory slot holding the gfn is not exposed to userspace
+                c. the gfn does not belong to any memory slot
+* -KVM_EINVAL - ``new_gfn`` (first case) or ``old_gfn`` (second case) has no
+                mapping inside the current EPT view, no r/w access has been made
+* -KVM_EINVAL - internal KVM error: provided gfn can't be translated
+                to a valid pfn
+* -KVM_ENOMEM - not enough memory to allocate new page tables for
+                the current EPT view
+* -KVM_EAGAIN - internal KVM error inside the MMU notifier subsystem
+* -KVM_EFAULT - internal KVM error: one of the created page table
+                entries points to a MMIO region
+* -KVM_EAGAIN - internal KVM error: current root page table is invalid
 
 Events
 ======
@@ -1688,8 +1803,7 @@ are sent to the introspection tool. The *CONTINUE* action will set the ``new_val
 	struct kvmi_event_reply;
 
 This event is sent if a previous *KVMI_VCPU_INJECT_EXCEPTION* command
-took place and the introspection has been enabled for this event
-(see *KVMI_VCPU_CONTROL_EVENTS*).
+took place.
 
 ``kvmi_event``, exception/interrupt number (vector), exception code
 (``error_code``) and CR2 are sent to the introspection tool,

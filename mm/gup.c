@@ -853,6 +853,8 @@ retry:
 			case -EFAULT:
 			case -ENOMEM:
 			case -EHWPOISON:
+			case -ESIGBUS:
+			case -ESIGSEGV:
 				goto out;
 			case -ENOENT:
 				goto next_page;

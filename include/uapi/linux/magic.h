@@ -95,4 +95,6 @@
 #define DMA_BUF_MAGIC		0x444d4142	/* "DMAB" */
 #define Z3FOLD_MAGIC		0x33
 
+#define KVMIMEM_FS_MAGIC	0x4B564D49	/* "KVMI" */
+
 #endif /* __LINUX_MAGIC_H__ */

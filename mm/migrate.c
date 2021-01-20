@@ -48,7 +48,6 @@
 #include <linux/page_owner.h>
 #include <linux/sched/mm.h>
 #include <linux/ptrace.h>
-#include <linux/remote_mapping.h>
 
 #include <asm/tlbflush.h>
 
@@ -217,7 +216,7 @@ static bool remove_migration_pte(struct page *page, struct vm_area_struct *vma,
 
 	VM_BUG_ON_PAGE(PageTail(page), page);
 	while (page_vma_mapped_walk(&pvmw)) {
-		if (PageKsm(page) || PageRemote(page))
+		if (PageKsm(page))
 			new = page;
 		else
 			new = page - pvmw.page->index +
@@ -1067,7 +1066,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	 * because that implies that the anon page is no longer mapped
 	 * (and cannot be remapped so long as we hold the page lock).
 	 */
-	if (PageAnon(page) && !PageKsm(page) && !PageRemote(page))
+	if (PageAnon(page) && !PageKsm(page))
 		anon_vma = page_get_anon_vma(page);
 
 	/*
@@ -1107,7 +1106,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	} else if (page_mapped(page)) {
 		/* Establish migration ptes */
 		VM_BUG_ON_PAGE(PageAnon(page) && !PageKsm(page) &&
-				!PageRemote(page) && !anon_vma, page);
+				!anon_vma, page);
 		try_to_unmap(page,
 			TTU_MIGRATION|TTU_IGNORE_MLOCK|TTU_IGNORE_ACCESS);
 		page_was_mapped = 1;

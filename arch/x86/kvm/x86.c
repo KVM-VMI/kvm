@@ -4068,8 +4068,8 @@ void kvm_vcpu_ioctl_x86_get_xsave(struct kvm_vcpu *vcpu,
 
 #define XSAVE_MXCSR_OFFSET 24
 
-static int kvm_vcpu_ioctl_x86_set_xsave(struct kvm_vcpu *vcpu,
-					struct kvm_xsave *guest_xsave)
+int kvm_vcpu_ioctl_x86_set_xsave(struct kvm_vcpu *vcpu,
+				 struct kvm_xsave *guest_xsave)
 {
 	u64 xstate_bv =
 		*(u64 *)&guest_xsave->region[XSAVE_HDR_OFFSET / sizeof(u32)];
@@ -7813,12 +7813,9 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		if (!kvmi_hypercall_event(vcpu))
 			ret = -KVM_ENOSYS;
 		break;
-	case KVM_HC_MEM_MAP:
-		ret = kvmi_host_mem_map(vcpu, (gva_t)a0, (gpa_t)a1, (gpa_t)a2);
-		break;
-	case KVM_HC_MEM_UNMAP:
-		ret = kvmi_host_mem_unmap(vcpu, (gpa_t)a0);
-		break;
+	case KVM_HC_INTROSPECTION:
+		/* we'll take it from here */
+		return kvmi_introspection_hc(vcpu, a0, a1, a2, a3);
 #endif /* CONFIG_KVM_INTROSPECTION */
 	default:
 		ret = -KVM_ENOSYS;
@@ -8562,8 +8559,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
-	if (!kvmi_enter_guest(vcpu))
-		req_immediate_exit = true;
+	kvmi_enter_guest(vcpu);
 
 	if (req_immediate_exit) {
 		kvm_make_request(KVM_REQ_EVENT, vcpu);

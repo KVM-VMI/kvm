@@ -1185,13 +1185,15 @@ gfn_t kvm_get_max_gfn(struct kvm *kvm)
 {
 	u32 skip_mask = KVM_MEM_READONLY | KVM_MEMSLOT_INVALID;
 	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
 	gfn_t max_gfn = 0;
 	int idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
 	spin_lock(&kvm->mmu_lock);
 
-	kvm_for_each_memslot(memslot, kvm_memslots(kvm))
+	slots = kvm_memslots(kvm);
+	kvm_for_each_memslot(memslot, slots)
 		if (memslot->id < KVM_USER_MEM_SLOTS &&
 		   (memslot->flags & skip_mask) == 0)
 			max_gfn = max(max_gfn, memslot->base_gfn
@@ -1533,14 +1535,6 @@ unsigned long kvm_vcpu_gfn_to_hva_prot(struct kvm_vcpu *vcpu, gfn_t gfn, bool *w
 	return gfn_to_hva_memslot_prot(slot, gfn, writable);
 }
 
-static inline int check_user_page_hwpoison(unsigned long addr)
-{
-	int rc, flags = FOLL_HWPOISON | FOLL_WRITE;
-
-	rc = get_user_pages(addr, 1, flags, NULL, NULL);
-	return rc == -EHWPOISON;
-}
-
 /*
  * The fast path to get the writable pfn which will be stored in @pfn,
  * true indicates success, otherwise false is returned.  It's also the
@@ -1576,10 +1570,10 @@ static bool hva_to_pfn_fast(unsigned long addr, bool write_fault,
  * The slow path to get the pfn of the specified host virtual address,
  * 1 indicates success, -errno is returned if error is detected.
  */
-static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
+static int hva_to_pfn_slow(unsigned long addr, int *locked, bool write_fault,
 			   bool *writable, kvm_pfn_t *pfn)
 {
-	unsigned int flags = FOLL_HWPOISON;
+	unsigned int flags = FOLL_HWPOISON | FOLL_SIGNAL;
 	struct page *page;
 	int npages = 0;
 
@@ -1590,10 +1584,12 @@ static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
 
 	if (write_fault)
 		flags |= FOLL_WRITE;
-	if (async)
+	if (locked)
 		flags |= FOLL_NOWAIT;
 
-	npages = get_user_pages_unlocked(addr, 1, &page, flags);
+	npages = get_user_pages_locked(addr, 1, flags, &page, locked);
+	if (npages == 0)
+		return -EBUSY;
 	if (npages != 1)
 		return npages;
 
@@ -1608,11 +1604,14 @@ static int hva_to_pfn_slow(unsigned long addr, bool *async, bool write_fault,
 		}
 	}
 	*pfn = page_to_pfn(page);
-	return npages;
+	return 0;
 }
 
 static bool vma_is_valid(struct vm_area_struct *vma, bool write_fault)
 {
+	if (unlikely(vma == NULL))
+		return false;
+
 	if (unlikely(!(vma->vm_flags & VM_READ)))
 		return false;
 
@@ -1622,8 +1621,7 @@ static bool vma_is_valid(struct vm_area_struct *vma, bool write_fault)
 	return true;
 }
 
-static int hva_to_pfn_remapped(struct vm_area_struct *vma,
-			       unsigned long addr, bool *async,
+static int hva_to_pfn_remapped(struct vm_area_struct *vma, unsigned long addr,
 			       bool write_fault, bool *writable,
 			       kvm_pfn_t *p_pfn)
 {
@@ -1641,7 +1639,7 @@ static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 				     (write_fault ? FAULT_FLAG_WRITE : 0),
 				     &unlocked);
 		if (unlocked)
-			return -EAGAIN;
+			return -EBUSY;
 		if (r)
 			return r;
 
@@ -1671,6 +1669,20 @@ static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 	return 0;
 }
 
+static kvm_pfn_t fault_error_to_pfn(int err)
+{
+	switch (-err) {
+	case EHWPOISON:
+		return KVM_PFN_ERR_HWPOISON;
+	case ESIGBUS:
+		return KVM_PFN_ERR_SIGBUS;
+	case ESIGSEGV:
+		return KVM_PFN_ERR_SIGSEGV;
+	default:
+		return KVM_PFN_ERR_FAULT;
+	}
+}
+
 /*
  * Pin guest page in memory and return its pfn.
  * @addr: host virtual address which maps memory to the guest
@@ -1689,8 +1701,10 @@ static kvm_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool *async,
 			bool write_fault, bool *writable)
 {
 	struct vm_area_struct *vma;
-	kvm_pfn_t pfn = 0;
-	int npages, r;
+	kvm_pfn_t pfn = KVM_PFN_ERR_FAULT;
+	int err = -EFAULT;
+	int locked = 1;				/* mmap_sem is locked */
+	int *plocked = async ? &locked : NULL;	/* control if fault retries */ 
 
 	/* we can do it either atomically or asynchronously, not both */
 	BUG_ON(atomic && async);
@@ -1701,35 +1715,27 @@ static kvm_pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool *async,
 	if (atomic)
 		return KVM_PFN_ERR_FAULT;
 
-	npages = hva_to_pfn_slow(addr, async, write_fault, writable, &pfn);
-	if (npages == 1)
-		return pfn;
-
 	down_read(&current->mm->mmap_sem);
-	if (npages == -EHWPOISON ||
-	      (!async && check_user_page_hwpoison(addr))) {
-		pfn = KVM_PFN_ERR_HWPOISON;
-		goto exit;
-	}
 
-retry:
 	vma = find_vma_intersection(current->mm, addr, addr + 1);
+	if (!vma_is_valid(vma, write_fault))
+		goto out;			/* err == -EFAULT */
 
-	if (vma == NULL)
-		pfn = KVM_PFN_ERR_FAULT;
-	else if (vma->vm_flags & (VM_IO | VM_PFNMAP)) {
-		r = hva_to_pfn_remapped(vma, addr, async, write_fault, writable, &pfn);
-		if (r == -EAGAIN)
-			goto retry;
-		if (r < 0)
-			pfn = KVM_PFN_ERR_FAULT;
-	} else {
-		if (async && vma_is_valid(vma, write_fault))
-			*async = true;
-		pfn = KVM_PFN_ERR_FAULT;
-	}
-exit:
-	up_read(&current->mm->mmap_sem);
+	if (vma->vm_flags & (VM_IO | VM_PFNMAP))
+		err = hva_to_pfn_remapped(vma, addr, write_fault, writable, &pfn);
+	else
+		err = hva_to_pfn_slow(addr, plocked, write_fault, writable, &pfn);
+
+out:
+	if (locked)
+		up_read(&current->mm->mmap_sem);
+
+	if (err)
+		pfn = fault_error_to_pfn(err);
+
+	if (async && err == -EBUSY)
+		*async = true;
+
 	return pfn;
 }
 
@@ -3111,6 +3117,12 @@ out_free1:
 		r = kvm_arch_vcpu_ioctl_set_fpu(vcpu, fpu);
 		break;
 	}
+#ifdef CONFIG_KVM_INTROSPECTION
+	case KVM_INTROSPECTION_MAP: {
+		r = kvmi_vcpu_ioctl_map(vcpu, arg);
+		break;
+	}
+#endif /* CONFIG_KVM_INTROSPECTION */
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
