@@ -2268,7 +2268,7 @@ static void test_virtualization_exceptions(struct kvm_vm *vm)
 	ve_info = (struct vcpu_ve_info *)test_ve_info_hva;
 
 	TEST_ASSERT(ve_info->exit_reason == 48 && /* EPT violation */
-			ve_info->exit_qualification == 0x18a &&
+			ve_info->exit_qualification & 0x18a &&
 			ve_info->gva == test_gva &&
 			ve_info->gpa == test_gpa &&
 			ve_info->eptp_index == 0,
