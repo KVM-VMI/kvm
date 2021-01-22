@@ -737,7 +737,7 @@ static void new_test_write_pattern(struct kvm_vm *vm)
 
 	do {
 		n = random();
-	} while (!n || n == test_write_pattern);
+	} while (n == 0 || n == 0xff || n == aux_test_write_pattern);
 
 	test_write_pattern = n;
 	sync_global_to_guest(vm, test_write_pattern);
@@ -749,7 +749,7 @@ static void new_aux_test_write_pattern(struct kvm_vm *vm)
 
 	do {
 		n = random();
-	} while (!n || n == aux_test_write_pattern);
+	} while (n == 0 || n == 0xff || n == aux_test_write_pattern);
 
 	aux_test_write_pattern = n;
 	sync_global_to_guest(vm, aux_test_write_pattern);
@@ -2268,7 +2268,7 @@ static void test_virtualization_exceptions(struct kvm_vm *vm)
 	ve_info = (struct vcpu_ve_info *)test_ve_info_hva;
 
 	TEST_ASSERT(ve_info->exit_reason == 48 && /* EPT violation */
-			ve_info->exit_qualification == 0x18a &&
+			ve_info->exit_qualification & 0x18a &&
 			ve_info->gva == test_gva &&
 			ve_info->gpa == test_gpa &&
 			ve_info->eptp_index == 0,
