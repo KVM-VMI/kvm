@@ -2462,7 +2462,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_control_msr(vm);
 	test_cmd_vm_set_page_access(vm);
 	test_event_pf(vm);
-//	test_cmd_vcpu_control_singlestep(vm);
+	test_cmd_vcpu_control_singlestep(vm);
 	test_cmd_translate_gva(vm);
 	test_cmd_vcpu_get_ept_view(vm);
 	test_cmd_vcpu_set_ept_view(vm);
