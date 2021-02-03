@@ -42,6 +42,9 @@ endif
 # non-deterministic coverage.
 KCOV_INSTRUMENT		:= n
 
+KVM := ../../../virt/kvm
+KVMI := $(KVM)/introspection
+
 CFLAGS_irq.o := -I $(srctree)/$(src)/../include/asm/trace
 
 obj-y			:= process_$(BITS).o signal.o
@@ -116,7 +119,7 @@ obj-$(CONFIG_PARAVIRT)		+= paravirt.o paravirt_patch.o
 obj-$(CONFIG_PARAVIRT_SPINLOCKS)+= paravirt-spinlocks.o
 obj-$(CONFIG_PARAVIRT_CLOCK)	+= pvclock.o
 obj-$(CONFIG_X86_PMEM_LEGACY_DEVICE) += pmem.o
-obj-$(CONFIG_KVM_INTROSPECTION_GUEST)	+= kvmi_mem_guest.o ../../../virt/kvm/introspection/kvmi_mem_guest.o
+obj-$(CONFIG_KVM_INTROSPECTION_GUEST)	+= kvmi_mem_guest.o $(KVMI)/kvmi_mem_guest.o
 
 obj-$(CONFIG_JAILHOUSE_GUEST)	+= jailhouse.o
 

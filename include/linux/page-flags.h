@@ -450,10 +450,8 @@ PAGEFLAG(Idle, idle, PF_ANY)
  */
 #define PAGE_MAPPING_ANON	0x1
 #define PAGE_MAPPING_MOVABLE	0x2
-#define PAGE_MAPPING_REMOTE	0x4
 #define PAGE_MAPPING_KSM	(PAGE_MAPPING_ANON | PAGE_MAPPING_MOVABLE)
-#define PAGE_MAPPING_FLAGS	(PAGE_MAPPING_ANON | PAGE_MAPPING_MOVABLE | \
-				 PAGE_MAPPING_REMOTE)
+#define PAGE_MAPPING_FLAGS	(PAGE_MAPPING_ANON | PAGE_MAPPING_MOVABLE)
 
 static __always_inline int PageMappingFlags(struct page *page)
 {
@@ -464,11 +462,6 @@ static __always_inline int PageAnon(struct page *page)
 {
 	page = compound_head(page);
 	return ((unsigned long)page->mapping & PAGE_MAPPING_ANON) != 0;
-}
-
-static __always_inline int PageRemote(struct page *page)
-{
-	return ((unsigned long)page->mapping & PAGE_MAPPING_REMOTE) != 0;
 }
 
 static __always_inline int __PageMovable(struct page *page)

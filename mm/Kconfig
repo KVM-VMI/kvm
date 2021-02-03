@@ -284,6 +284,7 @@ config VIRT_TO_BUS
 config MMU_NOTIFIER
 	bool
 	select SRCU
+	select INTERVAL_TREE
 
 config KSM
 	bool "Enable KSM for page merging"
@@ -678,11 +679,12 @@ config HMM_MIRROR
 
 config REMOTE_MAPPING
 	bool "Remote memory mapping"
-	depends on MMU && !KSM
+	depends on X86_64 && MMU && !TRANSPARENT_HUGEPAGE
+	select MMU_NOTIFIER
 	default n
 
 	help
-	  Allows a given application to map pages of another application in its own
+	  Allows a given process to map pages of another process in its own
 	  address space.
 
 config DEVICE_PRIVATE

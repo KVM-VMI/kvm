@@ -50,13 +50,16 @@ static const char *const msg_IDs[] = {
 	[KVMI_VCPU_GET_INFO]           = "KVMI_VCPU_GET_INFO",
 	[KVMI_VCPU_GET_MTRR_TYPE]      = "KVMI_VCPU_GET_MTRR_TYPE",
 	[KVMI_VCPU_GET_REGISTERS]      = "KVMI_VCPU_GET_REGISTERS",
+	[KVMI_VCPU_GET_XCR]            = "KVMI_VCPU_GET_XCR",
 	[KVMI_VCPU_GET_XSAVE]          = "KVMI_VCPU_GET_XSAVE",
 	[KVMI_VCPU_INJECT_EXCEPTION]   = "KVMI_VCPU_INJECT_EXCEPTION",
 	[KVMI_VCPU_PAUSE]              = "KVMI_VCPU_PAUSE",
 	[KVMI_VCPU_SET_EPT_VIEW]       = "KVMI_VCPU_SET_EPT_VIEW",
 	[KVMI_VCPU_SET_REGISTERS]      = "KVMI_VCPU_SET_REGISTERS",
 	[KVMI_VCPU_SET_VE_INFO]        = "KVMI_VCPU_SET_VE_INFO",
+	[KVMI_VCPU_SET_XSAVE]          = "KVMI_VCPU_SET_XSAVE",
 	[KVMI_VCPU_TRANSLATE_GVA]      = "KVMI_VCPU_TRANSLATE_GVA",
+	[KVMI_VCPU_CHANGE_GFN]         = "KVMI_VCPU_CHANGE_GFN",
 };
 
 static bool is_known_message(u16 id)
@@ -579,7 +582,7 @@ static int handle_event_reply(const struct kvmi_vcpu_cmd_job *job,
 
 	trace_kvmi_event_reply(reply->event, msg->seq);
 
-	if (unlikely(msg->seq != expected->seq))
+	if (unlikely(msg->seq != expected->seq || !vcpui->waiting_for_reply))
 		goto out_wakeup;
 
 	common = sizeof(struct kvmi_vcpu_hdr) + sizeof(*reply);
@@ -734,6 +737,18 @@ static int handle_vcpu_get_xsave(const struct kvmi_vcpu_cmd_job *job,
 	return err;
 }
 
+static int handle_vcpu_set_xsave(const struct kvmi_vcpu_cmd_job *job,
+				 const struct kvmi_msg_hdr *msg,
+				 const void *req)
+{
+	size_t xsave_size = msg->size - sizeof(struct kvmi_vcpu_hdr);
+	int ec;
+
+	ec = kvmi_arch_cmd_set_xsave(job->vcpu, req, xsave_size);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static int handle_vcpu_get_mtrr_type(const struct kvmi_vcpu_cmd_job *job,
 				     const struct kvmi_msg_hdr *msg,
 				     const void *_req)
@@ -885,6 +900,35 @@ static int handle_disable_ve(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_change_gfn(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vcpu_change_gfn *req = _req;
+	int ec;
+
+	ec = kvmi_arch_cmd_change_gfn(job->vcpu, req->old_gfn, req->new_gfn);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
+static int handle_vcpu_get_xcr(const struct kvmi_vcpu_cmd_job *job,
+			       const struct kvmi_msg_hdr *msg,
+			       const void *_req)
+{
+	const struct kvmi_vcpu_get_xcr *req = _req;
+	struct kvmi_vcpu_get_xcr_reply rpl;
+
+	memset(&rpl, 0, sizeof(rpl));
+
+	if (req->xcr != 0)
+		return kvmi_msg_vcpu_reply(job, msg, -KVM_EINVAL, NULL, 0);
+
+	rpl.value = kvmi_arch_cmd_get_xcr(job->vcpu, req->xcr);
+
+	return kvmi_msg_vcpu_reply(job, msg, 0, &rpl, sizeof(rpl));
+}
+
 /*
  * These commands are executed on the vCPU thread. The receiving thread
  * passes the messages using a newly allocated 'struct kvmi_vcpu_cmd_job'
@@ -905,12 +949,15 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_GET_INFO]           = handle_get_vcpu_info,
 	[KVMI_VCPU_GET_MTRR_TYPE]      = handle_vcpu_get_mtrr_type,
 	[KVMI_VCPU_GET_REGISTERS]      = handle_get_registers,
+	[KVMI_VCPU_GET_XCR]            = handle_vcpu_get_xcr,
 	[KVMI_VCPU_GET_XSAVE]          = handle_vcpu_get_xsave,
 	[KVMI_VCPU_INJECT_EXCEPTION]   = handle_vcpu_inject_exception,
 	[KVMI_VCPU_SET_EPT_VIEW]       = handle_vcpu_set_ept_view,
 	[KVMI_VCPU_SET_REGISTERS]      = handle_set_registers,
 	[KVMI_VCPU_SET_VE_INFO]        = handle_set_ve_info,
+	[KVMI_VCPU_SET_XSAVE]          = handle_vcpu_set_xsave,
 	[KVMI_VCPU_TRANSLATE_GVA]      = handle_vcpu_translate_gva,
+	[KVMI_VCPU_CHANGE_GFN]         = handle_vcpu_change_gfn,
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)
@@ -1284,6 +1331,8 @@ int __kvmi_send_event(struct kvm_vcpu *vcpu, u32 ev_id,
 	*action = vcpui->reply.action;
 
 out:
+	vcpui->waiting_for_reply = false;
+
 	if (err)
 		kvmi_sock_shutdown(kvmi);
 	return err;

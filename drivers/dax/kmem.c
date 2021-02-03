@@ -65,7 +65,10 @@ int dev_dax_kmem_probe(struct device *dev)
 	new_res->flags = IORESOURCE_SYSTEM_RAM;
 	new_res->name = dev_name(dev);
 
-	rc = add_memory(numa_node, new_res->start, resource_size(new_res));
+	/* add_memory_resource() requires the device_hotplug lock */
+	lock_device_hotplug();
+	rc = add_memory_resource(numa_node, new_res);
+	unlock_device_hotplug();
 	if (rc) {
 		release_resource(new_res);
 		kfree(new_res);

@@ -563,15 +563,17 @@ the following events::
 	KVMI_EVENT_MSR
 	KVMI_EVENT_PF
 	KVMI_EVENT_SINGLESTEP
-	KVMI_EVENT_TRAP
 	KVMI_EVENT_XSETBV
 	KVMI_EVENT_CPUID
 
 When an event is enabled, the introspection tool is notified and it
 must reply with: continue, retry, crash, etc. (see **Events** below).
 
-The *KVMI_EVENT_PAUSE_VCPU* event is always allowed,
+The *KVMI_EVENT_PAUSE_VCPU* event is always enabled,
 because it is triggered by the *KVMI_VCPU_PAUSE* command.
+
+The *KVMI_EVENT_TRAP* event is always enabled,
+because it is triggered by the *KVMI_VCPU_INJECT_EXCEPTION* command.
 
 The *KVMI_EVENT_CREATE_VCPU* and *KVMI_EVENT_UNHOOK* events are controlled
 by the *KVMI_VM_CONTROL_EVENTS* command.
@@ -758,8 +760,7 @@ ID set.
 Injects a vCPU exception with or without an error code. In case of page fault
 exception, the guest virtual address has to be specified.
 
-The introspection tool should enable the *KVMI_EVENT_TRAP* event in
-order to be notified about the effective injected expection.
+An *KVMI_EVENT_TRAP* event will be send as soon as possible.
 
 :Errors:
 
@@ -927,7 +928,7 @@ where::
 	struct kvmi_error_code
 
 Sets the spte access bits (rwx) for an array of ``count`` guest physical
-addresses, for the selecte EPT view.
+addresses, for the selected EPT view.
 
 The valid access bits are::
 
@@ -947,10 +948,9 @@ In order to 'forget' an address, all the access bits ('rwx') must be set.
 :Errors:
 
 * -KVM_EINVAL - the specified access bits combination is invalid
-* -KVM_EINVAL - the selected SPT view is invalid
-* -KVM_EINVAL - padding is not zero
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EINVAL - the selected EPT view is invalid (see *KVM_MAX_EPT_VIEWS*)
 * -KVM_EINVAL - the message size is invalid
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
@@ -1083,9 +1083,8 @@ EPTP switching mechanism (see **KVMI_GET_VERSION**).
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_EINVAL - padding is not zero
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
 * -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
-* -KVM_EINVAL - the selected EPT view is invalid
+* -KVM_EINVAL - the selected EPT view is invalid (see *KVM_MAX_EPT_VIEWS*)
 
 24. KVMI_VCPU_CONTROL_EPT_VIEW
 ------------------------------
@@ -1125,6 +1124,7 @@ is terminated.
 * -KVM_EINVAL - the selected EPT view is not valid
 * -KVM_EOPNOTSUPP - SPP is enabled for this VM
 * -KVM_EOPNOTSUPP - a non-zero EPT view was made visible but SPP is enabled for this VM
+* -KVM_EINVAL - the selected EPT view is not valid (see *KVM_MAX_EPT_VIEWS*)
 
 25. KVMI_VCPU_SET_VE_INFO
 -------------------------
@@ -1228,7 +1228,7 @@ mechanism (see **KVMI_GET_VERSION**).
 
 * -KVM_EINVAL - padding is not zero
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
-* -KVM_EOPNOTSUPP - an EPT view was selected but the hardware doesn't support it
+* -KVM_EOPNOTSUPP - a non-zero EPT view was selected but SPP is enabled for this VM
 * -KVM_EINVAL - the selected EPT view is not valid
 
 25. KVMI_VM_GET_MAP_TOKEN
@@ -1439,6 +1439,121 @@ corresponding bit set to 1.
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOMEM - not enough memory to add the page tracking structures
 
+29. KVMI_VCPU_GET_XCR
+---------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_get_xcr {
+		__u8 xcr;
+		__u8 padding[7];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_vcpu_get_xcr_reply {
+		__u64 value;
+	};
+
+Returns the value of the extended special register ``xcr`` for the
+specified vCPU. Currently, only XCR0 is supported.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the selected register is not supported.
+* -KVM_EINVAL - padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
+30. KVMI_VCPU_SET_XSAVE
+-----------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_set_xsave {
+		__u32 region[0];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Modifies the XSAVE area.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+
+31. KVMI_VCPU_CHANGE_GFN
+------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_change_gfn {
+		__u64 old_gfn;
+		__u64 new_gfn;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Changes the content of ``old_gfn`` with the one provided through ``new_gfn``,
+inside the current EPT view. Usage:
+
+* change{gfn_1, gfn_2} - alters page table entries for gfn_1 so they point to
+        the pfn that gfn_2 is mapped to; page table entries mapping gfn_2 must
+        already be present
+
+* change{gfn_1, gfn_1} - restores page table entries so they point to the pfn
+        that gfn_1 was initially mapped to; page table entries mapping gfn_1
+        must already be present
+
+* change{gfn_1, ~0ULL} - reserved for future use
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EPERM - reserved operation, ``new_gfn`` must not be (~0ULL)
+* -KVM_EINVAL - provided gfn is not visible by KVM, meaning one of the following:
+                a. the memory slot holding the gfn is marked as invalid
+                b. the memory slot holding the gfn is not exposed to userspace
+                c. the gfn does not belong to any memory slot
+* -KVM_EINVAL - ``new_gfn`` (first case) or ``old_gfn`` (second case) has no
+                mapping inside the current EPT view, no r/w access has been made
+* -KVM_EINVAL - internal KVM error: provided gfn can't be translated
+                to a valid pfn
+* -KVM_ENOMEM - not enough memory to allocate new page tables for
+                the current EPT view
+* -KVM_EAGAIN - internal KVM error inside the MMU notifier subsystem
+* -KVM_EFAULT - internal KVM error: one of the created page table
+                entries points to a MMIO region
+* -KVM_EAGAIN - internal KVM error: current root page table is invalid
+
 Events
 ======
 
@@ -1578,6 +1693,9 @@ The hypercall number must be ``KVM_HC_XEN_HVM_OP`` with the
 ``KVM_HC_XEN_HVM_OP_GUEST_REQUEST_VM_EVENT`` sub-function
 (see hypercalls.txt).
 
+The most useful registers describing the vCPU state can be read from
+``struct kvmi_event``.
+
 It is used by the code residing inside the introspected guest to call the
 introspection tool and to report certain details about its operation. For
 example, a classic antimalware remediation tool can report what it has
@@ -1610,14 +1728,21 @@ found during a scan.
 This event is sent when a breakpoint was reached and the introspection has
 been enabled for this event (see *KVMI_VCPU_CONTROL_EVENTS*).
 
+``kvmi_event`` (with the vCPU state), the guest physical address (``gpa``)
+where the breakpoint instruction is placed and the breakpoint instruction
+length (``insn_len``) are sent to the introspection tool.
+
 Some of these breakpoints could have been injected by the introspection tool,
 placed in the slack space of various functions and used as notification
 for when the OS or an application has reached a certain state or is
 trying to perform a certain operation (like creating a process).
 
-``kvmi_event`` and the guest physical address are sent to the introspection tool.
+The *RETRY* action is used by the introspection tool for its own
+breakpoints. In most cases, the tool will change the instruction pointer
+before returning this action.
 
-The *RETRY* action is used by the introspection tool for its own breakpoints.
+The *CONTINUE* action will cause the breakpoint exception to be reinjected
+(the OS will handle it).
 
 5. KVMI_EVENT_CR
 ----------------
@@ -1679,8 +1804,7 @@ are sent to the introspection tool. The *CONTINUE* action will set the ``new_val
 	struct kvmi_event_reply;
 
 This event is sent if a previous *KVMI_VCPU_INJECT_EXCEPTION* command
-took place and the introspection has been enabled for this event
-(see *KVMI_VCPU_CONTROL_EVENTS*).
+took place.
 
 ``kvmi_event``, exception/interrupt number (vector), exception code
 (``error_code``) and CR2 are sent to the introspection tool,
@@ -1820,30 +1944,46 @@ sent to the introspection tool. The *CONTINUE* action will set the ``new_val``.
 	};
 
 This event is sent when a hypervisor page fault occurs due to a failed
-permission check in the shadow page tables, the introspection has been
-enabled for this event (see *KVMI_VCPU_CONTROL_EVENTS*) and the event was
-generated for a page in which the introspection tool has shown interest
-(ie. has previously touched it by adjusting the spte permissions).
+permission checks, the introspection has been enabled for this event
+(see *KVMI_VCPU_CONTROL_EVENTS*) and the event was generated for a
+page in which the introspection tool has shown interest (ie. has
+previously touched it by adjusting the spte permissions; see
+*KVMI_VM_SET_PAGE_ACCESS*).
 
-The shadow page tables can be used by the introspection tool to guarantee
+These permissions can be used by the introspection tool to guarantee
 the purpose of code areas inside the guest (code, rodata, stack, heap
 etc.) Each attempt at an operation unfitting for a certain memory
 range (eg. execute code in heap) triggers a page fault and gives the
 introspection tool the chance to audit the code attempting the operation.
 
-``kvmi_event``, guest virtual address (or 0xffffffff/UNMAPPED_GVA),
-guest physical address and the access flags (eg. KVMI_PAGE_ACCESS_R)
-are sent to the introspection tool.
+``kvmi_event`` (with the vCPU state), guest virtual address (``gva``)
+if available or -1/UNMAPPED_GVA, guest physical address (``gpa``)
+and the ``access`` flags (e.g. KVMI_PAGE_ACCESS_R) are sent to the
+introspection tool.
+
+In case of a restricted read access, the guest address is the location
+of the memory being read. On write access, the guest address is the
+location of the memory being written. On execute access, the guest
+address is the location of the instruction being executed
+(``gva == kvmi_event.arch.regs.rip``).
+
+In the current implementation, most of these events are sent during
+emulation. If the page fault has set more than one access bit
+(e.g. r-x/-rw), the introspection tool may receive more than one
+KVMI_PF_EVENT and the order depends on the KVM emulator. Another cause
+of multiple events is when the page fault is triggered on access crossing
+the page boundary.
 
 The *CONTINUE* action will continue the page fault handling via emulation.
 If ``rep_complete`` is 1, the REP prefixed instruction should be emulated
 just once (or at least no other *KVMI_EVENT_PF* event should be sent
 for the current instruction).
-If ``ctx_size`` > 0, the emulation should continue with the custom input
-from ``ctx_data`` starting from the guest virtual address specified with
-``ctx_addr``. The use of custom input is to trick the guest software
-into believing it has read certain data, in order to hide the content
-of certain memory areas (eg. hide injected code from integrity checkers).
+If ``ctx_size > 0`` and ``kvmi_event_pf.gva`` is in the range of
+``[ctx_addr, ctx_addr+ctx_size)``, the emulation will continue
+with custom input from ``ctx_data[0 .. ctx_size-1]``. The use of custom
+input is to trick the guest software into believing it has read certain
+data, in order to hide the content of certain memory areas (eg. hide
+injected code from integrity checkers).
 
 The *RETRY* action is used by the introspection tool to retry the
 execution of the current instruction, usually because it changed the

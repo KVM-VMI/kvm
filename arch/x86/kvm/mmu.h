@@ -225,5 +225,6 @@ int kvm_mmu_post_init_vm(struct kvm *kvm);
 void kvm_mmu_pre_destroy_vm(struct kvm *kvm);
 bool kvm_mmu_set_ept_page_sve(struct kvm *kvm, struct kvm_memory_slot *slot,
 			      gfn_t gfn, u16 index, bool suppress);
+int kvm_mmu_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn);
 
 #endif

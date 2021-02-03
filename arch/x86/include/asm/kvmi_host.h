@@ -48,12 +48,6 @@ struct kvm_arch_introspection {
 	} spp;
 };
 
-#define SLOTS_SIZE BITS_TO_LONGS(KVM_MEM_SLOTS_NUM)
-
-struct kvmi_arch_mem_access {
-	unsigned long active[KVM_PAGE_TRACK_MAX][SLOTS_SIZE];
-};
-
 #ifdef CONFIG_KVM_INTROSPECTION
 
 bool kvmi_monitor_bp_intercept(struct kvm_vcpu *vcpu, u32 dbg);

@@ -42,6 +42,7 @@
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #include <linux/idr.h>
+#include <linux/remote_mapping.h>
 
 struct pid init_struct_pid = {
 	.count		= REFCOUNT_INIT(1),
@@ -519,6 +520,58 @@ SYSCALL_DEFINE2(pidfd_open, pid_t, pid, unsigned int, flags)
 	fd = ret ?: pidfd_create(p);
 	put_pid(p);
 	return fd;
+}
+
+/*
+ * pidfd_mem() - ....
+ *
+ * @pidfd: ...
+ * @fds:   ...
+ * @flags: flags to pass
+ *
+ * Comment...
+ *
+ * Return: On success, 0 is returned.
+ *         On error, a negative errno number will be returned.
+ */
+SYSCALL_DEFINE3(pidfd_mem, int, pidfd, struct rmemfds __user *, fds,
+		unsigned int, flags)
+{
+	struct pid *pid;
+	struct task_struct *task;
+	struct rmemfds ret_fds;
+	int ret;
+
+	if (pidfd < 0)
+		return -EINVAL;
+	if (fds == NULL)
+		return -EINVAL;
+	if (flags)
+		return -EINVAL;
+
+	pid = pidfd_get_pid(pidfd);
+	if (IS_ERR(pid))
+		return PTR_ERR(pid);
+
+	task = get_pid_task(pid, PIDTYPE_PID);
+	put_pid(pid);
+	if (IS_ERR(task))
+		return PTR_ERR(task);
+
+	ret = -EPERM;
+	if (unlikely(task == current) || capable(CAP_SYS_PTRACE))
+		ret = task_remote_map(task, &ret_fds);
+	put_task_struct(task);
+	if (IS_ERR_VALUE((long)ret))
+		return ret;
+
+	if (copy_to_user(fds, &ret_fds, sizeof(ret_fds))) {
+		put_unused_fd(ret_fds.ctl_fd);
+		put_unused_fd(ret_fds.mem_fd);
+		return -EFAULT;
+	}
+
+	return 0;
 }
 
 void __init pid_idr_init(void)

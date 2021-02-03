@@ -100,6 +100,25 @@ void mem_hotplug_done(void)
 
 u64 max_mem_size = U64_MAX;
 
+static BLOCKING_NOTIFIER_HEAD(hotplug_chain);
+
+int register_hotplug_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&hotplug_chain, nb);
+}
+EXPORT_SYMBOL(register_hotplug_notifier);
+
+void unregister_hotplug_notifier(struct notifier_block *nb)
+{
+	blocking_notifier_chain_unregister(&hotplug_chain, nb);
+}
+EXPORT_SYMBOL(unregister_hotplug_notifier);
+
+int hotplug_notify(unsigned long val, void *v)
+{
+	return blocking_notifier_call_chain(&hotplug_chain, val, v);
+}
+
 /* add this memory to iomem resource */
 static struct resource *register_memory_resource(u64 start, u64 size)
 {
@@ -251,24 +270,33 @@ void __init register_page_bootmem_info_node(struct pglist_data *pgdat)
 }
 #endif /* CONFIG_HAVE_BOOTMEM_INFO_NODE */
 
+unsigned long get_hotplug_granularity(void)
+{
+        /*
+         * Disallow all operations smaller than a sub-section and only
+         * allow operations smaller than a section for
+         * SPARSEMEM_VMEMMAP. Note that check_hotplug_memory_range()
+         * enforces a larger memory_block_size_bytes() granularity for
+         * memory that will be marked online, so this check should only
+         * fire for direct arch_{add,remove}_memory() users outside of
+         * add_memory_resource().
+         */
+        unsigned long min_align;
+
+        if (IS_ENABLED(CONFIG_SPARSEMEM_VMEMMAP))
+                min_align = PAGES_PER_SUBSECTION;
+        else
+                min_align = PAGES_PER_SECTION;
+
+	return min_align;
+}
+EXPORT_SYMBOL_GPL(get_hotplug_granularity);
+
 static int check_pfn_span(unsigned long pfn, unsigned long nr_pages,
 		const char *reason)
 {
-	/*
-	 * Disallow all operations smaller than a sub-section and only
-	 * allow operations smaller than a section for
-	 * SPARSEMEM_VMEMMAP. Note that check_hotplug_memory_range()
-	 * enforces a larger memory_block_size_bytes() granularity for
-	 * memory that will be marked online, so this check should only
-	 * fire for direct arch_{add,remove}_memory() users outside of
-	 * add_memory_resource().
-	 */
-	unsigned long min_align;
+	unsigned long min_align = get_hotplug_granularity();
 
-	if (IS_ENABLED(CONFIG_SPARSEMEM_VMEMMAP))
-		min_align = PAGES_PER_SUBSECTION;
-	else
-		min_align = PAGES_PER_SECTION;
 	if (!IS_ALIGNED(pfn, min_align)
 			|| !IS_ALIGNED(nr_pages, min_align)) {
 		WARN(1, "Misaligned __%s_pages start: %#lx end: #%lx\n",
@@ -1104,6 +1132,20 @@ int __ref __add_memory(int nid, u64 start, u64 size)
 {
 	struct resource *res;
 	int ret;
+	struct hotplug_notify arg;
+	int notifier_ret;
+
+	arg.nid = nid;
+	arg.start = start;
+	arg.size = size;
+
+	notifier_ret = hotplug_notify(MEM_ADD, &arg);
+	notifier_ret = notifier_to_errno(notifier_ret);
+	if (notifier_ret)
+		return notifier_ret;
+
+	if (arg.handled)
+		return 0;
 
 	res = register_memory_resource(start, size);
 	if (IS_ERR(res))
@@ -1782,6 +1824,20 @@ done:
  */
 void __remove_memory(int nid, u64 start, u64 size)
 {
+	struct hotplug_notify arg;
+	int notifier_ret;
+
+	arg.nid = nid;
+	arg.start = start;
+	arg.size = size;
+
+	notifier_ret = hotplug_notify(MEM_REMOVE, &arg);
+	notifier_ret = notifier_to_errno(notifier_ret);
+	if (notifier_ret)
+		return;
+
+	if (arg.handled)
+		return;
 
 	/*
 	 * trigger BUG() if some memory is not offlined prior to calling this

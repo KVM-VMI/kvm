@@ -58,6 +58,7 @@
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
+			| BIT(KVMI_VCPU_CHANGE_GFN) \
 			| BIT(KVMI_VCPU_CONTROL_CR) \
 			| BIT(KVMI_VCPU_CONTROL_EPT_VIEW) \
 			| BIT(KVMI_VCPU_CONTROL_EVENTS) \
@@ -68,10 +69,12 @@
 			| BIT(KVMI_VCPU_GET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_GET_MTRR_TYPE) \
 			| BIT(KVMI_VCPU_GET_REGISTERS) \
+			| BIT(KVMI_VCPU_GET_XCR) \
 			| BIT(KVMI_VCPU_GET_XSAVE) \
 			| BIT(KVMI_VCPU_INJECT_EXCEPTION) \
 			| BIT(KVMI_VCPU_SET_EPT_VIEW) \
 			| BIT(KVMI_VCPU_SET_REGISTERS) \
+			| BIT(KVMI_VCPU_SET_XSAVE) \
 			| BIT(KVMI_VCPU_SET_VE_INFO) \
 			| BIT(KVMI_VCPU_TRANSLATE_GVA) \
 		)
@@ -83,7 +86,26 @@ struct kvmi_mem_access {
 	gfn_t gfn;
 	u8 access;
 	u32 write_bitmap;
-	struct kvmi_arch_mem_access arch;
+};
+
+/*
+ * The SVA requests a mapping of a GPA from the host (doesn't know the length).
+ * The host looks up the memslot containing that GPA in the source machine.
+ * The host then returns the memory range info to the guest in this struct.
+ */
+struct kvmi_mem_map {
+	uuid_t dom_id;		/* in - domain ID */
+	gpa_t req_gpa;		/* in - address to look for */
+	size_t min_map;		/* in - min length of memory to hotplug */
+
+	gpa_t req_start;	/* out - starting GPA of guest memslot */
+	size_t req_length;	/* out - length of guest memslot */
+	gpa_t map_start;	/* out - local GPA where QEMU hotplugged mirror DIMM */
+};
+
+struct kvmi_mem_unmap {
+	uuid_t dom_id;		/* in - domain ID */
+	gpa_t map_gpa;		/* in - local GPA */
 };
 
 static inline bool is_vm_event_enabled(struct kvm_introspection *kvmi,
@@ -156,7 +178,6 @@ int kvmi_cmd_set_page_access(struct kvm_introspection *kvmi, u64 gpa,
 			     u8 access, u16 view);
 int kvmi_cmd_set_page_sve(struct kvm *kvm, gpa_t gpa, u16 view, bool suppress);
 int kvmi_cmd_alloc_token(struct kvm *kvm, struct kvmi_map_mem_token *token);
-unsigned long gfn_to_hva_safe(struct kvm *kvm, gfn_t gfn);
 int kvmi_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi, u64 gpa,
 					u32 bitmap);
 
@@ -191,12 +212,15 @@ void kvmi_arch_inject_pending_exception(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_vcpu_get_xsave(struct kvm_vcpu *vcpu,
 				 struct kvmi_vcpu_get_xsave_reply **dest,
 				 size_t *dest_size);
+int kvmi_arch_cmd_set_xsave(struct kvm_vcpu *vcpu,
+			    const struct kvmi_vcpu_set_xsave *req,
+			    size_t req_size);
 int kvmi_arch_cmd_vcpu_get_mtrr_type(struct kvm_vcpu *vcpu, u64 gpa, u8 *type);
 int kvmi_arch_cmd_vcpu_control_msr(struct kvm_vcpu *vcpu,
 				   const struct kvmi_vcpu_control_msr *req);
 void kvmi_arch_update_page_tracking(struct kvm *kvm,
 				    struct kvm_memory_slot *slot,
-				    struct kvmi_mem_access *m, u16 view);
+				    gfn_t gfn, u8 access, u8 mask, u16 view);
 int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 				  const struct kvmi_msg_hdr *msg,
 				  const struct kvmi_vm_set_page_access *req);
@@ -215,12 +239,18 @@ int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 				   bool visible);
 int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
 			      bool trigger_vmexit);
+int kvmi_arch_cmd_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn);
 int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_control_spp(struct kvm *kvm);
 int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,
 			const struct kvmi_msg_hdr *msg,
 			const struct kvmi_vm_set_page_write_bitmap *req);
-int kvmi_arch_set_subpage_access(struct kvm *kvm, struct kvmi_mem_access *m);
+void kvmi_arch_set_subpage_access(struct kvm *kvm,
+				  struct kvm_memory_slot *slot,
+				  gfn_t gfn, u32 write_bitmap);
+u32 kvmi_arch_get_subpage_access(struct kvm_memory_slot *slot, u8 access,
+				 gfn_t gfn);
+u64 kvmi_arch_cmd_get_xcr(struct kvm_vcpu *vcpu, u8 xcr);
 
 /* kvmi_mem.c */
 void kvmi_mem_init(void);

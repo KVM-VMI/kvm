@@ -66,7 +66,6 @@
 #include <linux/page_idle.h>
 #include <linux/memremap.h>
 #include <linux/userfaultfd_k.h>
-#include <linux/remote_mapping.h>
 
 #include <asm/tlbflush.h>
 
@@ -858,7 +857,7 @@ int page_referenced(struct page *page,
 	if (!page_rmapping(page))
 		return 0;
 
-	if (!is_locked && (!PageAnon(page) || PageKsm(page) || PageRemote(page))) {
+	if (!is_locked && (!PageAnon(page) || PageKsm(page))) {
 		we_locked = trylock_page(page);
 		if (!we_locked)
 			return 1;
@@ -1125,7 +1124,7 @@ void do_page_add_anon_rmap(struct page *page,
 			__inc_node_page_state(page, NR_ANON_THPS);
 		__mod_node_page_state(page_pgdat(page), NR_ANON_MAPPED, nr);
 	}
-	if (unlikely(PageKsm(page) || PageRemote(page)))
+	if (unlikely(PageKsm(page)))
 		return;
 
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
@@ -1908,8 +1907,6 @@ void rmap_walk(struct page *page, struct rmap_walk_control *rwc)
 {
 	if (unlikely(PageKsm(page)))
 		rmap_walk_ksm(page, rwc);
-	else if (unlikely(PageRemote(page)))
-		rmap_walk_remote(page, rwc);
 	else if (PageAnon(page))
 		rmap_walk_anon(page, rwc, false);
 	else
@@ -1919,9 +1916,8 @@ void rmap_walk(struct page *page, struct rmap_walk_control *rwc)
 /* Like rmap_walk, but caller holds relevant rmap lock */
 void rmap_walk_locked(struct page *page, struct rmap_walk_control *rwc)
 {
-	/* no ksm/remote support for now */
+	/* no ksm support for now */
 	VM_BUG_ON_PAGE(PageKsm(page), page);
-	VM_BUG_ON_PAGE(PageRemote(page), page);
 	if (PageAnon(page))
 		rmap_walk_anon(page, rwc, true);
 	else

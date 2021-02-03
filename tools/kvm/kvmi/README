@@ -65,8 +65,7 @@ Run the introspection tool in another VM
 In order to use the KVMI memory mapping for this particular VM (running
 the introspection tool) you will have to enable KVM_INTROSPECTION_GUEST
 in its kernel. But, in this case, for the host kernel, you have to
-enable CONFIG_REMOTE_MAPPING and disable CONFIG_KSM CONFIG_CMA,
-CONFIG_TRANSPARENT_HUGEPAGE, CONFIG_COMPACTION and CONFIG_MIGRATION.
+enable CONFIG_REMOTE_MAPPING.
 
 When you start this VM use an additional QEMU argument:
 
