@@ -1436,6 +1436,11 @@ static void test_cmd_vcpu_inject_exception(struct kvm_vm *vm)
 	__u8 ud_vector = 6;
 	__u8 bp_vector = 3;
 
+	if (!is_intel_cpu()) {
+		DEBUG("TODO: %s() - make it work with AMD\n", __func__);
+		return;
+	}
+
 	enable_vcpu_event(vm, KVMI_EVENT_BREAKPOINT);
 	enable_vcpu_event(vm, KVMI_EVENT_TRAP);
 
