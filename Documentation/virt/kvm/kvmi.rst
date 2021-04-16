@@ -564,6 +564,7 @@ the following events::
 	KVMI_EVENT_PF
 	KVMI_EVENT_SINGLESTEP
 	KVMI_EVENT_XSETBV
+	KVMI_EVENT_CPUID
 
 When an event is enabled, the introspection tool is notified and it
 must reply with: continue, retry, crash, etc. (see **Events** below).
@@ -2060,3 +2061,30 @@ been enabled for this event (see *KVMI_VM_CONTROL_EVENTS*).
 This event is sent when the an introspection command fails while the
 replies are disabled, but the introspection tool requested to be
 notified on failures (see `flag` from *KVMI_VM_CONTROL_CMD_RESPONSE*).
+
+14. KVMI_EVENT_CPUID
+--------------------
+
+:Architecture: x86
+:Version: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event;
+	struct kvmi_event_cpuid {
+		__u32 function;
+		__u32 index;
+		__u8  insn_length;
+		__u8  padding1[3];
+		__u32 padding2;
+	};
+
+:Returns:
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_event_reply;
+
+This event is sent when a cpuid instructions is executed and the 
+introspection has been enabled for this event (see *KVMI_VM_CONTROL_EVENTS*).

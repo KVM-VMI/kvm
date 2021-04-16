@@ -143,6 +143,14 @@ struct kvmi_event_msr {
 	__u64 new_value;
 };
 
+struct kvmi_event_cpuid {
+	__u32 function;
+	__u32 index;
+	__u8  insn_length;
+	__u8  padding1[3];
+	__u32 padding2;
+};
+
 struct kvmi_event_msr_reply {
 	__u64 new_val;
 };

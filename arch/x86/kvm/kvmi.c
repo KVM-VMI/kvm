@@ -842,6 +842,60 @@ bool kvmi_cr3_intercepted(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL(kvmi_cr3_intercepted);
 
+static u32 kvmi_send_cpuid(struct kvm_vcpu *vcpu, u8 insn_len,
+			   unsigned int function, unsigned int index)
+{
+	struct kvmi_event_cpuid e = {
+		.function = function,
+		.index = index,
+		.insn_length = insn_len
+	};
+	int err, action;
+
+	err = kvmi_send_event(vcpu, KVMI_EVENT_CPUID, &e, sizeof(e),
+			      NULL, 0, &action);
+	if (err)
+		return KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+}
+
+static bool __kvmi_cpuid_event(struct kvm_vcpu *vcpu, u8 insn_len,
+			       unsigned int function, unsigned int index)
+{
+	u32 action;
+	bool ret = false;
+
+	action = kvmi_send_cpuid(vcpu, insn_len, function, index);
+	switch(action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu->kvm, action, "CPUID");
+	}
+
+	return ret;
+}
+
+bool kvmi_cpuid_event(struct kvm_vcpu *vcpu, u8 insn_len,
+		      unsigned int function, unsigned int index)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = true;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return true;
+
+	if (is_event_enabled(vcpu, KVMI_EVENT_CPUID))
+		ret = __kvmi_cpuid_event(vcpu, insn_len, function, index);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+
 int kvmi_arch_cmd_vcpu_inject_exception(struct kvm_vcpu *vcpu, u8 vector,
 					u32 error_code, u64 address)
 {
