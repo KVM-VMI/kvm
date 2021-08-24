@@ -86,7 +86,7 @@ static inline bool kvmi_monitor_msrw_intercept(struct kvm_vcpu *vcpu, u32 msr,
 					       bool enable) { return false; }
 static inline bool kvmi_msrw_intercept_originator(struct kvm_vcpu *vcpu)
 				{ return false; }
-bool kvmi_update_ad_flags(struct kvm_vcpu *vcpu) { return false; }
+static inline bool kvmi_update_ad_flags(struct kvm_vcpu *vcpu) { return false; }
 static inline bool kvmi_cpuid_event(struct kvm_vcpu *vcpu, u8 insn_len,
 				    unsigned int function, unsigned int index);
 
