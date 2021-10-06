@@ -54,8 +54,9 @@ enum {
 };
 
 enum {
-	KVMI_VCPU_EVENT_PAUSE     = KVMI_VCPU_EVENT_ID(0),
-	KVMI_VCPU_EVENT_HYPERCALL = KVMI_VCPU_EVENT_ID(1),
+	KVMI_VCPU_EVENT_PAUSE      = KVMI_VCPU_EVENT_ID(0),
+	KVMI_VCPU_EVENT_HYPERCALL  = KVMI_VCPU_EVENT_ID(1),
+	KVMI_VCPU_EVENT_BREAKPOINT = KVMI_VCPU_EVENT_ID(2),
 
 	KVMI_NEXT_VCPU_EVENT
 };
@@ -158,6 +159,12 @@ struct kvmi_vcpu_control_events {
 	__u8 enable;
 	__u8 padding1;
 	__u32 padding2;
+};
+
+struct kvmi_vcpu_event_breakpoint {
+	__u64 gpa;
+	__u8 insn_len;
+	__u8 padding[7];
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */

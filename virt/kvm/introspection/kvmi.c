@@ -639,6 +639,11 @@ int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
 				 u16 event_id, bool enable)
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	int err;
+
+	err = kvmi_arch_cmd_control_intercept(vcpu, event_id, enable);
+	if (err)
+		return err;
 
 	if (enable)
 		set_bit(event_id, vcpui->ev_enable_mask);
@@ -875,3 +880,23 @@ bool kvmi_hypercall_event(struct kvm_vcpu *vcpu)
 
 	return ret;
 }
+
+bool kvmi_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = true;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return ret;
+
+	if (is_vcpu_event_enabled(vcpu, KVMI_VCPU_EVENT_BREAKPOINT)) {
+		kvmi_arch_breakpoint_event(vcpu, gva, insn_len);
+		ret = false;
+	}
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}
+EXPORT_SYMBOL(kvmi_breakpoint_event);

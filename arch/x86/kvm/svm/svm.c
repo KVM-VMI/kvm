@@ -25,6 +25,7 @@
 #include <linux/pagemap.h>
 #include <linux/swap.h>
 #include <linux/rwsem.h>
+#include <linux/kvmi_host.h>
 
 #include <asm/apic.h>
 #include <asm/perf_event.h>
@@ -2119,10 +2120,43 @@ static int db_interception(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static unsigned int svm_get_instruction_len(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	unsigned long rip = kvm_rip_read(vcpu);
+	unsigned long next_rip = 0;
+	unsigned int insn_len;
+
+	if (static_cpu_has(X86_FEATURE_NRIPS))
+		next_rip = svm->vmcb->control.next_rip;
+
+	if (!next_rip) {
+		if (!kvm_emulate_instruction(vcpu, EMULTYPE_SKIP))
+			return 0;
+
+		next_rip = kvm_rip_read(vcpu);
+		kvm_rip_write(vcpu, rip);
+	}
+
+	insn_len = next_rip - rip;
+	if (insn_len > MAX_INST_SIZE) {
+		pr_err("%s: ip 0x%lx next 0x%lx\n",
+		       __func__, rip, next_rip);
+		return 0;
+	}
+
+	return insn_len;
+}
+
 static int bp_interception(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct kvm_run *kvm_run = vcpu->run;
+
+	if (!kvmi_breakpoint_event(vcpu, svm->vmcb->save.cs.base +
+					 svm->vmcb->save.rip,
+				   svm_get_instruction_len(vcpu)))
+		return 1;
 
 	kvm_run->exit_reason = KVM_EXIT_DEBUG;
 	kvm_run->debug.arch.pc = svm->vmcb->save.cs.base + svm->vmcb->save.rip;
