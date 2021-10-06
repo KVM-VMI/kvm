@@ -18,6 +18,8 @@ struct kvm_introspection {
 	unsigned long *cmd_allow_mask;
 	unsigned long *event_allow_mask;
 
+	unsigned long *vm_event_enable_mask;
+
 	atomic_t ev_seq;
 };
 

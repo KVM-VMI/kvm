@@ -26,6 +26,9 @@ void kvmi_msg_free(void *addr);
 bool kvmi_is_command_allowed(struct kvm_introspection *kvmi, u16 id);
 bool kvmi_is_event_allowed(struct kvm_introspection *kvmi, u16 id);
 bool kvmi_is_known_event(u16 id);
+bool kvmi_is_known_vm_event(u16 id);
+int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
+			       u16 event_id, bool enable);
 
 /* arch */
 void kvmi_arch_init_vcpu_events_mask(unsigned long *supported);
