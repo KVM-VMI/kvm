@@ -1120,6 +1120,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_BINARY_STATS_FD 203
 #define KVM_CAP_EXIT_ON_EMULATION_FAILURE 204
 #define KVM_CAP_ARM_MTE 205
+#define KVM_CAP_INTROSPECTION 206
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -1815,6 +1816,15 @@ struct kvm_sev_receive_update_data {
 	__u64 trans_uaddr;
 	__u32 trans_len;
 };
+
+struct kvm_introspection_hook {
+	__s32 fd;
+	__u32 padding;
+	__u8 uuid[16];
+};
+
+#define KVM_INTROSPECTION_HOOK    _IOW(KVMIO, 0xc8, struct kvm_introspection_hook)
+#define KVM_INTROSPECTION_UNHOOK  _IO(KVMIO, 0xc9)
 
 #define KVM_DEV_ASSIGN_ENABLE_IOMMU	(1 << 0)
 #define KVM_DEV_ASSIGN_PCI_2_3		(1 << 1)

@@ -5473,6 +5473,59 @@ the trailing ``'\0'``, is indicated by ``name_size`` in the header.
 The Stats Data block contains an array of 64-bit values in the same order
 as the descriptors in Descriptors block.
 
+4.134 KVM_INTROSPECTION_HOOK
+----------------------------
+
+:Capability: KVM_CAP_INTROSPECTION
+:Architectures: x86
+:Type: vm ioctl
+:Parameters: struct kvm_introspection (in)
+:Returns: 0 on success, a negative value on error
+
+Errors:
+
+  ======     ==========================================================
+  ENOMEM     the memory allocation failed
+  EEXIST     the VM is already introspected
+  EINVAL     the file descriptor doesn't correspond to an active socket
+  EINVAL     the padding is not zero
+  EPERM      the introspection is disabled (kvm.introspection=0)
+  ======     ==========================================================
+
+This ioctl is used to enable the introspection of the current VM.
+
+::
+
+  struct kvm_introspection {
+	__s32 fd;
+	__u32 padding;
+	__u8 uuid[16];
+  };
+
+fd is the file descriptor of a socket connected to the introspection tool,
+
+padding must be zero (it might be used in the future),
+
+uuid is used for debug and error messages.
+
+4.135 KVM_INTROSPECTION_UNHOOK
+------------------------------
+
+:Capability: KVM_CAP_INTROSPECTION
+:Architectures: x86
+:Type: vm ioctl
+:Parameters: none
+:Returns: 0 on success, a negative value on error
+
+Errors:
+
+  ======     ==========================================================
+  EPERM      the introspection is disabled (kvm.introspection=0)
+  ======     ==========================================================
+
+This ioctl is used to free all introspection structures
+related to this VM.
+
 5. The kvm_run structure
 ========================
 
@@ -7440,3 +7493,14 @@ The argument to KVM_ENABLE_CAP is also a bitmask, and must be a subset
 of the result of KVM_CHECK_EXTENSION.  KVM will forward to userspace
 the hypercalls whose corresponding bit is in the argument, and return
 ENOSYS for the others.
+
+8.35 KVM_CAP_INTROSPECTION
+--------------------------
+
+:Architectures: x86
+
+This capability indicates that KVM supports VM introspection
+and it is enabled.
+
+The KVM_CHECK_EXTENSION ioctl returns the introspection API version
+(a number larger than 0).

@@ -622,6 +622,11 @@ struct kvm {
 	struct notifier_block pm_notifier;
 #endif
 	char stats_id[KVM_STATS_NAME_SIZE];
+
+	struct mutex kvmi_lock;
+	refcount_t kvmi_ref;
+	struct completion kvmi_complete;
+	struct kvm_introspection *kvmi;
 };
 
 #define kvm_err(fmt, ...) \

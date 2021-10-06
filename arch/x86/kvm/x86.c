@@ -59,6 +59,7 @@
 #include <linux/mem_encrypt.h>
 #include <linux/entry-kvm.h>
 #include <linux/suspend.h>
+#include <linux/kvmi_host.h>
 
 #include <trace/events/kvm.h>
 
@@ -4118,6 +4119,10 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 			    KVM_BUS_LOCK_DETECTION_EXIT;
 		else
 			r = 0;
+		break;
+	case KVM_CAP_INTROSPECTION:
+		if (enable_introspection)
+			r = kvmi_version();
 		break;
 	default:
 		break;
