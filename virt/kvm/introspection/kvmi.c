@@ -368,6 +368,7 @@ static void kvmi_job_release_vcpu(struct kvm_vcpu *vcpu, void *ctx)
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
 
 	atomic_set(&vcpui->pause_requests, 0);
+	vcpui->waiting_for_reply = false;
 }
 
 static void kvmi_release_vcpus(struct kvm *kvm)

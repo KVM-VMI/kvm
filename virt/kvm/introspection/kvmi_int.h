@@ -32,6 +32,9 @@ void kvmi_sock_shutdown(struct kvm_introspection *kvmi);
 void kvmi_sock_put(struct kvm_introspection *kvmi);
 bool kvmi_msg_process(struct kvm_introspection *kvmi);
 int kvmi_msg_send_unhook(struct kvm_introspection *kvmi);
+int kvmi_send_vcpu_event(struct kvm_vcpu *vcpu, u32 ev_id,
+			 void *ev, size_t ev_size,
+			 void *rpl, size_t rpl_size, u32 *action);
 int kvmi_msg_vcpu_reply(const struct kvmi_vcpu_msg_job *job,
 			const struct kvmi_msg_hdr *msg, int err,
 			const void *rpl, size_t rpl_size);
@@ -46,6 +49,7 @@ bool kvmi_is_known_vm_event(u16 id);
 int kvmi_add_job(struct kvm_vcpu *vcpu,
 		 void (*fct)(struct kvm_vcpu *vcpu, void *ctx),
 		 void *ctx, void (*free_fct)(void *ctx));
+void kvmi_run_jobs(struct kvm_vcpu *vcpu);
 int kvmi_cmd_vm_control_events(struct kvm_introspection *kvmi,
 			       u16 event_id, bool enable);
 int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, size_t size,
@@ -60,5 +64,7 @@ int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait);
 /* arch */
 void kvmi_arch_init_vcpu_events_mask(unsigned long *supported);
 kvmi_vcpu_msg_job_fct kvmi_arch_vcpu_msg_handler(u16 id);
+void kvmi_arch_setup_vcpu_event(struct kvm_vcpu *vcpu,
+				struct kvmi_vcpu_event *ev);
 
 #endif
