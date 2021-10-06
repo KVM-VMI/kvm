@@ -29,6 +29,7 @@ enum {
 	KVMI_VM_WRITE_PHYSICAL  = KVMI_VM_MESSAGE_ID(7),
 	KVMI_VM_PAUSE_VCPU      = KVMI_VM_MESSAGE_ID(8),
 	KVMI_VM_CONTROL_CLEANUP = KVMI_VM_MESSAGE_ID(9),
+	KVMI_VM_SET_PAGE_ACCESS = KVMI_VM_MESSAGE_ID(10),
 
 	KVMI_NEXT_VM_MESSAGE
 };
@@ -78,6 +79,12 @@ enum {
 	KVMI_EVENT_ACTION_CONTINUE = 0,
 	KVMI_EVENT_ACTION_RETRY    = 1,
 	KVMI_EVENT_ACTION_CRASH    = 2,
+};
+
+enum {
+	KVMI_PAGE_ACCESS_R = 1 << 0,
+	KVMI_PAGE_ACCESS_W = 1 << 1,
+	KVMI_PAGE_ACCESS_X = 1 << 2,
 };
 
 struct kvmi_msg_hdr {
@@ -183,6 +190,19 @@ struct kvmi_vcpu_event_breakpoint {
 struct kvmi_vm_control_cleanup {
 	__u8 enable;
 	__u8 padding[7];
+};
+
+struct kvmi_page_access_entry {
+	__u64 gpa;
+	__u8 access;
+	__u8 padding[7];
+};
+
+struct kvmi_vm_set_page_access {
+	__u16 count;
+	__u16 padding1;
+	__u32 padding2;
+	struct kvmi_page_access_entry entries[0];
 };
 
 #endif /* _UAPI__LINUX_KVMI_H */
