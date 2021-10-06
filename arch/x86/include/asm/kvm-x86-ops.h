@@ -123,6 +123,7 @@ KVM_X86_OP(msr_filter_changed)
 KVM_X86_OP_NULL(complete_emulated_msr)
 KVM_X86_OP(bp_intercepted)
 KVM_X86_OP(control_cr3_intercept)
+KVM_X86_OP(cr3_write_intercepted)
 
 #undef KVM_X86_OP
 #undef KVM_X86_OP_NULL
