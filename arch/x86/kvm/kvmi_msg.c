@@ -166,8 +166,8 @@ kvmi_vcpu_msg_job_fct kvmi_arch_vcpu_msg_handler(u16 id)
 	return id < ARRAY_SIZE(msg_vcpu) ? msg_vcpu[id] : NULL;
 }
 
-u32 kvmi_msg_send_cr(struct kvm_vcpu *vcpu, u32 cr, u64 old_value,
-		     u64 new_value, u64 *ret_value)
+u32 kvmi_msg_send_vcpu_cr(struct kvm_vcpu *vcpu, u32 cr, u64 old_value,
+			  u64 new_value, u64 *ret_value)
 {
 	struct kvmi_vcpu_event_cr e;
 	struct kvmi_vcpu_event_cr_reply r;
