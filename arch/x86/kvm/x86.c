@@ -9613,13 +9613,19 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			goto out;
 		}
 
-		r = inject_pending_event(vcpu, &req_immediate_exit);
-		if (r < 0) {
-			r = 0;
-			goto out;
+		if (!kvmi_vcpu_running_singlestep(vcpu)) {
+			/*
+			 * We cannot inject events during single-stepping.
+			 * Try again later.
+			 */
+			r = inject_pending_event(vcpu, &req_immediate_exit);
+			if (r < 0) {
+				r = 0;
+				goto out;
+			}
+			if (req_int_win)
+				static_call(kvm_x86_enable_irq_window)(vcpu);
 		}
-		if (req_int_win)
-			static_call(kvm_x86_enable_irq_window)(vcpu);
 
 		if (kvm_lapic_enabled(vcpu)) {
 			update_cr8_intercept(vcpu);

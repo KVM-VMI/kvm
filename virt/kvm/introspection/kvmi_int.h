@@ -122,5 +122,7 @@ void kvmi_arch_update_page_tracking(struct kvm *kvm,
 void kvmi_arch_hook(struct kvm *kvm);
 void kvmi_arch_unhook(struct kvm *kvm);
 void kvmi_arch_features(struct kvmi_features *feat);
+void kvmi_arch_start_singlestep(struct kvm_vcpu *vcpu);
+void kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu);
 
 #endif
