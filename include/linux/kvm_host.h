@@ -360,6 +360,8 @@ struct kvm_vcpu {
 	 * it is a valid slot.
 	 */
 	int last_used_slot;
+
+	struct kvm_vcpu_introspection *kvmi;
 };
 
 /* must be called with irqs disabled */
