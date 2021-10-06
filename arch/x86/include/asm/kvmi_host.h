@@ -4,7 +4,10 @@
 
 #include <asm/kvmi.h>
 
+struct msr_data;
+
 #define KVMI_NUM_CR 5
+#define KVMI_NUM_MSR 0x2000
 
 struct kvmi_monitor_interception {
 	bool kvmi_intercepted;
@@ -18,6 +21,12 @@ struct kvmi_interception {
 	struct kvmi_monitor_interception breakpoint;
 	struct kvmi_monitor_interception cr3w;
 	struct kvmi_monitor_interception descriptor;
+	struct {
+		struct {
+			DECLARE_BITMAP(low, KVMI_NUM_MSR);
+			DECLARE_BITMAP(high, KVMI_NUM_MSR);
+		} kvmi_mask;
+	} msrw;
 };
 
 struct kvm_vcpu_arch_introspection {
@@ -51,6 +60,7 @@ void kvmi_xsetbv_event(struct kvm_vcpu *vcpu, u8 xcr,
 		       u64 old_value, u64 new_value);
 bool kvmi_monitor_desc_intercept(struct kvm_vcpu *vcpu, bool enable);
 bool kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor, bool write);
+bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr);
 
 #else /* CONFIG_KVM_INTROSPECTION */
 
@@ -70,6 +80,8 @@ static inline bool kvmi_monitor_desc_intercept(struct kvm_vcpu *vcpu,
 					       bool enable) { return false; }
 static inline bool kvmi_descriptor_event(struct kvm_vcpu *vcpu, u8 descriptor,
 					 bool write) { return true; }
+static inline bool kvmi_msr_event(struct kvm_vcpu *vcpu, struct msr_data *msr)
+				{ return true; }
 
 #endif /* CONFIG_KVM_INTROSPECTION */
 
