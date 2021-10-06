@@ -210,3 +210,52 @@ void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 		kvmi_handle_common_event_actions(vcpu, action);
 	}
 }
+
+static void kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
+{
+}
+
+bool kvmi_arch_clean_up_interception(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_interception *arch_vcpui = vcpu->arch.kvmi;
+
+	if (!arch_vcpui)
+		return false;
+
+	if (!arch_vcpui->restore_interception)
+		return false;
+
+	kvmi_arch_restore_interception(vcpu);
+
+	return true;
+}
+
+bool kvmi_arch_vcpu_alloc_interception(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_interception *arch_vcpui;
+
+	arch_vcpui = kzalloc(sizeof(*arch_vcpui), GFP_KERNEL);
+	if (!arch_vcpui)
+		return false;
+
+	return true;
+}
+
+void kvmi_arch_vcpu_free_interception(struct kvm_vcpu *vcpu)
+{
+	kfree(vcpu->arch.kvmi);
+	WRITE_ONCE(vcpu->arch.kvmi, NULL);
+}
+
+bool kvmi_arch_vcpu_introspected(struct kvm_vcpu *vcpu)
+{
+	return !!READ_ONCE(vcpu->arch.kvmi);
+}
+
+void kvmi_arch_request_interception_cleanup(struct kvm_vcpu *vcpu)
+{
+	struct kvmi_interception *arch_vcpui = READ_ONCE(vcpu->arch.kvmi);
+
+	if (arch_vcpui)
+		arch_vcpui->restore_interception = true;
+}
