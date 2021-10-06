@@ -260,3 +260,8 @@ bool kvmi_msg_process(struct kvm_introspection *kvmi)
 out:
 	return err == 0;
 }
+
+int kvmi_msg_send_unhook(struct kvm_introspection *kvmi)
+{
+	return -1;
+}

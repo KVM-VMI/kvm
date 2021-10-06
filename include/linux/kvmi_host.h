@@ -32,6 +32,7 @@ int kvmi_ioctl_command(struct kvm *kvm,
 		       const struct kvm_introspection_feature *feat);
 int kvmi_ioctl_event(struct kvm *kvm,
 		     const struct kvm_introspection_feature *feat);
+int kvmi_ioctl_preunhook(struct kvm *kvm);
 
 #else
 
