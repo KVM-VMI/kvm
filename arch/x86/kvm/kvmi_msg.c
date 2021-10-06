@@ -330,3 +330,22 @@ u32 kvmi_msg_send_vcpu_xsetbv(struct kvm_vcpu *vcpu, u8 xcr,
 
 	return action;
 }
+
+u32 kvmi_msg_send_vcpu_descriptor(struct kvm_vcpu *vcpu, u8 desc, bool write)
+{
+	struct kvmi_vcpu_event_descriptor e;
+	u32 action;
+	int err;
+
+	memset(&e, 0, sizeof(e));
+	e.descriptor = desc;
+	e.write = write ? 1 : 0;
+
+	err = kvmi_send_vcpu_event(vcpu, KVMI_VCPU_EVENT_DESCRIPTOR,
+				   &e, sizeof(e), NULL, 0, &action);
+	if (err)
+		action = KVMI_EVENT_ACTION_CONTINUE;
+
+	return action;
+
+}
