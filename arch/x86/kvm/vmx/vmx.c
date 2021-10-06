@@ -5587,6 +5587,7 @@ static int handle_pause(struct kvm_vcpu *vcpu)
 
 static int handle_monitor_trap(struct kvm_vcpu *vcpu)
 {
+	kvmi_singlestep_done(vcpu);
 	return 1;
 }
 
@@ -6136,6 +6137,11 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 			vmx->loaded_vmcs->soft_vnmi_blocked = 0;
 		}
 	}
+
+	if (kvmi_vcpu_running_singlestep(vcpu) &&
+	    exit_reason.basic != EXIT_REASON_EPT_VIOLATION &&
+	    exit_reason.basic != EXIT_REASON_MONITOR_TRAP_FLAG)
+		kvmi_singlestep_failed(vcpu);
 
 	if (exit_fastpath != EXIT_FASTPATH_NONE)
 		return 1;
