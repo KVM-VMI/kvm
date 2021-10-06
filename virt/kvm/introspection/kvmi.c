@@ -103,6 +103,7 @@ static void kvmi_init_known_events(void)
 
 	bitmap_zero(Kvmi_known_vcpu_events, KVMI_NUM_EVENTS);
 	kvmi_arch_init_vcpu_events_mask(Kvmi_known_vcpu_events);
+	set_bit(KVMI_VCPU_EVENT_PAUSE, Kvmi_known_vcpu_events);
 
 	bitmap_or(Kvmi_known_events, Kvmi_known_vm_events,
 		  Kvmi_known_vcpu_events, KVMI_NUM_EVENTS);
@@ -741,12 +742,35 @@ void kvmi_run_jobs(struct kvm_vcpu *vcpu)
 	}
 }
 
+static void kvmi_handle_unsupported_event_action(struct kvm *kvm)
+{
+	kvmi_sock_shutdown(KVMI(kvm));
+}
+
+void kvmi_handle_common_event_actions(struct kvm_vcpu *vcpu, u32 action)
+{
+	struct kvm *kvm = vcpu->kvm;
+
+	switch (action) {
+	default:
+		kvmi_handle_unsupported_event_action(kvm);
+	}
+}
+
 static void kvmi_vcpu_pause_event(struct kvm_vcpu *vcpu)
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	u32 action;
 
 	atomic_dec(&vcpui->pause_requests);
-	/* to be implemented */
+
+	action = kvmi_msg_send_vcpu_pause(vcpu);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action);
+	}
 }
 
 void kvmi_handle_requests(struct kvm_vcpu *vcpu)

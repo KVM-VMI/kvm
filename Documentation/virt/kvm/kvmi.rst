@@ -596,3 +596,29 @@ the guest (see **Unhooking**) and the introspection has been enabled for
 this event (see **KVMI_VM_CONTROL_EVENTS**). The introspection tool has
 a chance to unhook and close the introspection socket (signaling that
 the operation can proceed).
+
+2. KVMI_VCPU_EVENT_PAUSE
+------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event_hdr;
+	struct kvmi_vcpu_event;
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply;
+
+This event is sent in response to a *KVMI_VCPU_PAUSE* command and
+cannot be controlled with *KVMI_VCPU_CONTROL_EVENTS*.
+Because it has a low priority, it will be sent after any other vCPU
+introspection event and when no other vCPU introspection command is
+queued.

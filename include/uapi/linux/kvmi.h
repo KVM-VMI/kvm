@@ -50,6 +50,8 @@ enum {
 };
 
 enum {
+	KVMI_VCPU_EVENT_PAUSE = KVMI_VCPU_EVENT_ID(0),
+
 	KVMI_NEXT_VCPU_EVENT
 };
 
