@@ -2,6 +2,8 @@
 #ifndef _ASM_X86_KVMI_HOST_H
 #define _ASM_X86_KVMI_HOST_H
 
+#include <asm/kvmi.h>
+
 struct kvm_vcpu_arch_introspection {
 };
 

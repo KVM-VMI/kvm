@@ -32,6 +32,9 @@ void kvmi_sock_shutdown(struct kvm_introspection *kvmi);
 void kvmi_sock_put(struct kvm_introspection *kvmi);
 bool kvmi_msg_process(struct kvm_introspection *kvmi);
 int kvmi_msg_send_unhook(struct kvm_introspection *kvmi);
+int kvmi_msg_vcpu_reply(const struct kvmi_vcpu_msg_job *job,
+			const struct kvmi_msg_hdr *msg, int err,
+			const void *rpl, size_t rpl_size);
 
 /* kvmi.c */
 void *kvmi_msg_alloc(void);
