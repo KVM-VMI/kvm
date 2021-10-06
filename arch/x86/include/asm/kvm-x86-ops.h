@@ -129,6 +129,7 @@ KVM_X86_OP(control_desc_intercept)
 KVM_X86_OP(desc_intercepted)
 KVM_X86_OP(msr_write_intercepted)
 KVM_X86_OP(control_msr_intercept)
+KVM_X86_OP(fault_gla)
 
 #undef KVM_X86_OP
 #undef KVM_X86_OP_NULL
