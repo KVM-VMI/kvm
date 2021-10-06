@@ -470,6 +470,45 @@ Returns the TSC frequency (in HZ) for the specified vCPU if available
 * -KVM_EINVAL - the selected vCPU is invalid
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 
+9. KVMI_VM_PAUSE_VCPU
+---------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_pause_vcpu {
+		__u16 vcpu;
+		__u8 wait;
+		__u8 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+
+Kicks the vCPU out of guest.
+
+If `wait` is 1, the command will wait for vCPU to acknowledge the IPI.
+
+The vCPU will handle the pending commands/events and send the
+*KVMI_VCPU_EVENT_PAUSE* event (one for every successful *KVMI_VM_PAUSE_VCPU*
+command) before returning to guest.
+
+:Errors:
+
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
+* -KVM_EBUSY  - the selected vCPU has too many queued
+                *KVMI_VCPU_EVENT_PAUSE* events
+* -KVM_EPERM  - the *KVMI_VCPU_EVENT_PAUSE* event is disallowed
+
 Events
 ======
 
