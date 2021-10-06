@@ -89,6 +89,26 @@ static bool kvm_is_mmio_pfn(kvm_pfn_t pfn)
 				     E820_TYPE_RAM);
 }
 
+static unsigned int
+kvm_mmu_apply_introspection_access(struct kvm_vcpu *vcpu,
+				   struct kvm_memory_slot *slot,
+				   gfn_t gfn, unsigned int acc)
+{
+	if (kvm_slot_page_track_is_active(vcpu, slot, gfn,
+					  KVM_PAGE_TRACK_PREREAD))
+		acc &= ~ACC_USER_MASK;
+	if (kvm_slot_page_track_is_active(vcpu, slot, gfn,
+					  KVM_PAGE_TRACK_PREWRITE) ||
+	    kvm_slot_page_track_is_active(vcpu, slot, gfn,
+					  KVM_PAGE_TRACK_WRITE))
+		acc &= ~ACC_WRITE_MASK;
+	if (kvm_slot_page_track_is_active(vcpu, slot, gfn,
+					  KVM_PAGE_TRACK_PREEXEC))
+		acc &= ~ACC_EXEC_MASK;
+
+	return acc;
+}
+
 bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	       struct kvm_memory_slot *slot,
 	       unsigned int pte_access, gfn_t gfn, kvm_pfn_t pfn,
@@ -98,6 +118,9 @@ bool make_spte(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	int level = sp->role.level;
 	u64 spte = SPTE_MMU_PRESENT_MASK;
 	bool wrprot = false;
+
+	pte_access = kvm_mmu_apply_introspection_access(vcpu, slot, gfn,
+							pte_access);
 
 	if (sp->role.ad_disabled)
 		spte |= SPTE_TDP_AD_DISABLED_MASK;

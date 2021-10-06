@@ -837,9 +837,13 @@ static void account_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 	slot = __gfn_to_memslot(slots, gfn);
 
 	/* the non-leaf shadow pages are keeping readonly. */
-	if (sp->role.level > PG_LEVEL_4K)
-		return kvm_slot_page_track_add_page(kvm, slot, gfn,
-						    KVM_PAGE_TRACK_WRITE);
+	if (sp->role.level > PG_LEVEL_4K) {
+		kvm_slot_page_track_add_page(kvm, slot, gfn,
+					     KVM_PAGE_TRACK_PREWRITE);
+		kvm_slot_page_track_add_page(kvm, slot, gfn,
+					     KVM_PAGE_TRACK_WRITE);
+		return;
+	}
 
 	kvm_mmu_gfn_disallow_lpage(slot, gfn);
 }
@@ -865,9 +869,13 @@ static void unaccount_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
 	gfn = sp->gfn;
 	slots = kvm_memslots_for_spte_role(kvm, sp->role);
 	slot = __gfn_to_memslot(slots, gfn);
-	if (sp->role.level > PG_LEVEL_4K)
-		return kvm_slot_page_track_remove_page(kvm, slot, gfn,
-						       KVM_PAGE_TRACK_WRITE);
+	if (sp->role.level > PG_LEVEL_4K) {
+		kvm_slot_page_track_remove_page(kvm, slot, gfn,
+						KVM_PAGE_TRACK_PREWRITE);
+		kvm_slot_page_track_remove_page(kvm, slot, gfn,
+						KVM_PAGE_TRACK_WRITE);
+		return;
+	}
 
 	kvm_mmu_gfn_allow_lpage(slot, gfn);
 }
@@ -2678,7 +2686,10 @@ int mmu_try_to_unsync_pages(struct kvm_vcpu *vcpu, struct kvm_memory_slot *slot,
 	 * track machinery is used to write-protect upper-level shadow pages,
 	 * i.e. this guards the role.level == 4K assertion below!
 	 */
-	if (kvm_slot_page_track_is_active(vcpu, slot, gfn, KVM_PAGE_TRACK_WRITE))
+	if (kvm_slot_page_track_is_active(vcpu, slot, gfn,
+						KVM_PAGE_TRACK_WRITE) ||
+	    kvm_slot_page_track_is_active(vcpu, slot, gfn,
+						KVM_PAGE_TRACK_PREWRITE))
 		return -EPERM;
 
 	/*
@@ -3882,14 +3893,21 @@ static bool page_fault_handle_page_track(struct kvm_vcpu *vcpu,
 	if (unlikely(fault->rsvd))
 		return false;
 
-	if (!fault->present || !fault->write)
-		return false;
-
 	/*
-	 * guest is writing the page which is write tracked which can
+	 * guest is reading/writing/fetching the page which is
+	 * read/write/execute tracked which can
 	 * not be fixed by page fault handler.
 	 */
-	if (kvm_slot_page_track_is_active(vcpu, fault->slot, fault->gfn, KVM_PAGE_TRACK_WRITE))
+	if ((fault->user && kvm_slot_page_track_is_active(vcpu, fault->slot,
+					fault->gfn, KVM_PAGE_TRACK_PREREAD))
+	    || (fault->write && (kvm_slot_page_track_is_active(vcpu,
+					fault->slot, fault->gfn,
+					KVM_PAGE_TRACK_PREWRITE)
+				|| kvm_slot_page_track_is_active(vcpu,
+					fault->slot, fault->gfn,
+					KVM_PAGE_TRACK_WRITE)))
+	    || (fault->exec && kvm_slot_page_track_is_active(vcpu, fault->slot,
+					fault->gfn, KVM_PAGE_TRACK_PREEXEC)))
 		return true;
 
 	return false;
