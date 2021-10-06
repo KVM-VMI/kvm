@@ -186,7 +186,7 @@ static bool is_vm_message(u16 id)
 
 static bool is_vm_command(u16 id)
 {
-	return is_vm_message(id);
+	return is_vm_message(id) && id != KVMI_VM_EVENT;
 }
 
 static struct kvmi_msg_hdr *kvmi_msg_recv(struct kvm_introspection *kvmi)
@@ -261,7 +261,45 @@ out:
 	return err == 0;
 }
 
+static void kvmi_fill_ev_msg_hdr(struct kvm_introspection *kvmi,
+				 struct kvmi_msg_hdr *msg_hdr,
+				 struct kvmi_event_hdr *ev_hdr,
+				 u16 msg_id, u32 msg_seq,
+				 size_t msg_size, u16 ev_id)
+{
+	memset(msg_hdr, 0, sizeof(*msg_hdr));
+	msg_hdr->id = msg_id;
+	msg_hdr->seq = msg_seq;
+	msg_hdr->size = msg_size - sizeof(*msg_hdr);
+
+	memset(ev_hdr, 0, sizeof(*ev_hdr));
+	ev_hdr->event = ev_id;
+}
+
+static void kvmi_fill_vm_event(struct kvm_introspection *kvmi,
+			       struct kvmi_msg_hdr *msg_hdr,
+			       struct kvmi_event_hdr *ev_hdr,
+			       u16 ev_id, size_t msg_size)
+{
+	u32 msg_seq = atomic_inc_return(&kvmi->ev_seq);
+
+	kvmi_fill_ev_msg_hdr(kvmi, msg_hdr, ev_hdr, KVMI_VM_EVENT,
+			     msg_seq, msg_size, ev_id);
+}
+
 int kvmi_msg_send_unhook(struct kvm_introspection *kvmi)
 {
-	return -1;
+	struct kvmi_msg_hdr msg_hdr;
+	struct kvmi_event_hdr ev_hdr;
+	struct kvec vec[] = {
+		{.iov_base = &msg_hdr, .iov_len = sizeof(msg_hdr)},
+		{.iov_base = &ev_hdr,  .iov_len = sizeof(ev_hdr) },
+	};
+	size_t msg_size = sizeof(msg_hdr) + sizeof(ev_hdr);
+	size_t n = ARRAY_SIZE(vec);
+
+	kvmi_fill_vm_event(kvmi, &msg_hdr, &ev_hdr,
+			   KVMI_VM_EVENT_UNHOOK, msg_size);
+
+	return kvmi_sock_write(kvmi, vec, n, msg_size);
 }

@@ -27,4 +27,7 @@ bool kvmi_is_command_allowed(struct kvm_introspection *kvmi, u16 id);
 bool kvmi_is_event_allowed(struct kvm_introspection *kvmi, u16 id);
 bool kvmi_is_known_event(u16 id);
 
+/* arch */
+void kvmi_arch_init_vcpu_events_mask(unsigned long *supported);
+
 #endif
