@@ -1484,6 +1484,112 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 }
 
 /*
+ * Removes read/write access on the last level SPTE mapping this GFN.
+ * Returns true if an SPTE was set and a TLB flush is needed.
+ */
+static bool read_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
+			     gfn_t gfn, int min_level)
+{
+	bool exec_only_supported = (shadow_present_mask == 0ull);
+	struct tdp_iter iter;
+	u64 new_spte;
+	bool spte_set = false;
+
+	WARN_ON_ONCE(!exec_only_supported);
+
+	rcu_read_lock();
+
+	for_each_tdp_pte_min_level(iter, root->spt, root->role.level,
+				   min_level, gfn, gfn + 1) {
+		if (!is_shadow_present_pte(iter.old_spte) ||
+		    !is_last_spte(iter.old_spte, iter.level))
+			continue;
+
+		if ((iter.old_spte & (PT_WRITABLE_MASK | PT_PRESENT_MASK)) == 0)
+			break;
+
+		new_spte = iter.old_spte &
+			~(PT_WRITABLE_MASK | PT_PRESENT_MASK | shadow_mmu_writable_mask);
+
+		tdp_mmu_set_spte(kvm, &iter, new_spte);
+		spte_set = true;
+	}
+
+	rcu_read_unlock();
+
+	return spte_set;
+}
+
+/*
+ * Removes read/write access on the last level SPTE mapping this GFN.
+ * Returns true if an SPTE was set and a TLB flush is needed.
+ */
+bool kvm_tdp_mmu_read_protect_gfn(struct kvm *kvm,
+				  struct kvm_memory_slot *slot, gfn_t gfn,
+				  int min_level)
+{
+	struct kvm_mmu_page *root;
+	bool spte_set = false;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	for_each_tdp_mmu_root(kvm, root, slot->as_id)
+		spte_set |= read_protect_gfn(kvm, root, gfn, min_level);
+
+	return spte_set;
+}
+
+/*
+ * Removes excute access on the last level SPTE mapping this GFN.
+ * Returns true if an SPTE was set and a TLB flush is needed.
+ */
+static bool exec_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
+			     gfn_t gfn, int min_level)
+{
+	struct tdp_iter iter;
+	u64 new_spte;
+	bool spte_set = false;
+
+	rcu_read_lock();
+
+	for_each_tdp_pte_min_level(iter, root->spt, root->role.level,
+				   min_level, gfn, gfn + 1) {
+		if (!is_shadow_present_pte(iter.old_spte) ||
+		    !is_last_spte(iter.old_spte, iter.level))
+			continue;
+
+		if ((iter.old_spte & PT_USER_MASK) == 0)
+			break;
+
+		new_spte = iter.old_spte & ~PT_USER_MASK;
+
+		tdp_mmu_set_spte(kvm, &iter, new_spte);
+		spte_set = true;
+	}
+
+	rcu_read_unlock();
+
+	return spte_set;
+}
+
+/*
+ * Removes excute access on the last level SPTE mapping this GFN.
+ * Returns true if an SPTE was set and a TLB flush is needed.
+ */
+bool kvm_tdp_mmu_exec_protect_gfn(struct kvm *kvm,
+				  struct kvm_memory_slot *slot, gfn_t gfn,
+				  int min_level)
+{
+	struct kvm_mmu_page *root;
+	bool spte_set = false;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	for_each_tdp_mmu_root(kvm, root, slot->as_id)
+		spte_set |= exec_protect_gfn(kvm, root, gfn, min_level);
+
+	return spte_set;
+}
+
+/*
  * Return the level of the lowest level SPTE added to sptes.
  * That SPTE may be non-present.
  *

@@ -71,6 +71,12 @@ bool kvm_tdp_mmu_zap_collapsible_sptes(struct kvm *kvm,
 bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 				   struct kvm_memory_slot *slot, gfn_t gfn,
 				   int min_level);
+bool kvm_tdp_mmu_read_protect_gfn(struct kvm *kvm,
+				  struct kvm_memory_slot *slot, gfn_t gfn,
+				  int min_level);
+bool kvm_tdp_mmu_exec_protect_gfn(struct kvm *kvm,
+				  struct kvm_memory_slot *slot, gfn_t gfn,
+				  int min_level);
 
 static inline void kvm_tdp_mmu_walk_lockless_begin(void)
 {
