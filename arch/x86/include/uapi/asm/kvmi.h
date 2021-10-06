@@ -115,4 +115,8 @@ struct kvmi_vcpu_get_xsave_reply {
 	struct kvm_xsave xsave;
 };
 
+struct kvmi_vcpu_set_xsave {
+	struct kvm_xsave xsave;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */
