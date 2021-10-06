@@ -53,6 +53,7 @@ struct kvm_vcpu_arch_introspection {
 };
 
 struct kvm_arch_introspection {
+	struct kvm_page_track_notifier_node kptn_node;
 };
 
 #define KVMI_MEM_SLOTS_NUM SHRT_MAX
