@@ -846,6 +846,8 @@ void kvmi_handle_requests(struct kvm_vcpu *vcpu)
 	if (!kvmi)
 		goto out;
 
+	kvmi_arch_send_pending_event(vcpu);
+
 	for (;;) {
 		kvmi_run_jobs(vcpu);
 

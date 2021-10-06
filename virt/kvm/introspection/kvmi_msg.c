@@ -718,9 +718,9 @@ static int kvmi_fill_and_sent_vcpu_event(struct kvm_vcpu *vcpu,
 	return kvmi_sock_write(kvmi, vec, n, msg_size);
 }
 
-int kvmi_send_vcpu_event(struct kvm_vcpu *vcpu, u32 ev_id,
-			 void *ev, size_t ev_size,
-			 void *rpl, size_t rpl_size, u32 *action)
+int __kvmi_send_vcpu_event(struct kvm_vcpu *vcpu, u32 ev_id,
+			   void *ev, size_t ev_size,
+			   void *rpl, size_t rpl_size, u32 *action)
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
 	struct kvm_introspection *kvmi = KVMI(vcpu->kvm);
@@ -748,6 +748,16 @@ out:
 	}
 
 	return err;
+}
+
+int kvmi_send_vcpu_event(struct kvm_vcpu *vcpu,
+			 u32 ev_id, void *ev, size_t ev_size,
+			 void *rpl, size_t rpl_size, u32 *action)
+{
+	kvmi_arch_send_pending_event(vcpu);
+
+	return __kvmi_send_vcpu_event(vcpu, ev_id, ev, ev_size,
+				      rpl, rpl_size, action);
 }
 
 u32 kvmi_msg_send_vcpu_pause(struct kvm_vcpu *vcpu)
