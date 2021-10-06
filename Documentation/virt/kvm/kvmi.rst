@@ -539,6 +539,7 @@ Enables/disables vCPU introspection events. This command can be used with
 the following events::
 
 	KVMI_VCPU_EVENT_BREAKPOINT
+	KVMI_VCPU_EVENT_CR
 	KVMI_VCPU_EVENT_HYPERCALL
 
 When an event is enabled, the introspection tool is notified and
@@ -700,6 +701,40 @@ interceptions). By default it is enabled.
 
 * -KVM_EINVAL - the padding is not zero
 * -KVM_EINVAL - ``enable`` is not 1 or 0
+
+15. KVMI_VCPU_CONTROL_CR
+------------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_control_cr {
+		__u8 cr;
+		__u8 enable;
+		__u16 padding1;
+		__u32 padding2;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables/disables introspection for a specific control register and must
+be used in addition to *KVMI_VCPU_CONTROL_EVENTS* with the *KVMI_VCPU_EVENT_CR*
+ID set.
+
+:Errors:
+
+* -KVM_EINVAL - the selected vCPU is invalid
+* -KVM_EINVAL - the specified control register is not CR0, CR3 or CR4
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EAGAIN - the selected vCPU can't be introspected yet
 
 Events
 ======
@@ -893,3 +928,41 @@ before returning this action.
 
 The *CONTINUE* action will cause the breakpoint exception to be reinjected
 (the OS will handle it).
+
+5. KVMI_VCPU_EVENT_CR
+---------------------
+
+:Architectures: x86
+:Versions: >= 1
+:Actions: CONTINUE, CRASH
+:Parameters:
+
+::
+
+	struct kvmi_event_hdr;
+	struct kvmi_vcpu_event;
+	struct kvmi_vcpu_event_cr {
+		__u8 cr;
+		__u8 padding[7];
+		__u64 old_value;
+		__u64 new_value;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_vcpu_hdr;
+	struct kvmi_vcpu_event_reply;
+	struct kvmi_vcpu_event_cr_reply {
+		__u64 new_val;
+	};
+
+This event is sent when a control register is going to be changed and the
+introspection has been enabled for this event and for this specific
+register (see **KVMI_VCPU_CONTROL_EVENTS**).
+
+``kvmi_vcpu_event`` (with the vCPU state), the control register number
+(``cr``), the old value (``old_value``) and the new value (``new_value``)
+are sent to the introspection tool. The *CONTINUE* action will set the
+``new_val``.

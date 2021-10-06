@@ -61,4 +61,22 @@ struct kvmi_vcpu_get_cpuid_reply {
 	__u32 edx;
 };
 
+struct kvmi_vcpu_control_cr {
+	__u8 cr;
+	__u8 enable;
+	__u16 padding1;
+	__u32 padding2;
+};
+
+struct kvmi_vcpu_event_cr {
+	__u8 cr;
+	__u8 padding[7];
+	__u64 old_value;
+	__u64 new_value;
+};
+
+struct kvmi_vcpu_event_cr_reply {
+	__u64 new_val;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

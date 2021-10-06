@@ -4,6 +4,8 @@
 
 #include <asm/kvmi.h>
 
+#define KVMI_NUM_CR 5
+
 struct kvmi_monitor_interception {
 	bool kvmi_intercepted;
 	bool kvm_intercepted;
@@ -19,6 +21,8 @@ struct kvmi_interception {
 struct kvm_vcpu_arch_introspection {
 	struct kvm_regs delayed_regs;
 	bool have_delayed_regs;
+
+	DECLARE_BITMAP(cr_mask, KVMI_NUM_CR);
 };
 
 struct kvm_arch_introspection {
@@ -27,11 +31,19 @@ struct kvm_arch_introspection {
 #ifdef CONFIG_KVM_INTROSPECTION
 
 bool kvmi_monitor_bp_intercept(struct kvm_vcpu *vcpu, u32 dbg);
+bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
+		   unsigned long old_value, unsigned long *new_value);
+bool kvmi_cr3_intercepted(struct kvm_vcpu *vcpu);
 
 #else /* CONFIG_KVM_INTROSPECTION */
 
 static inline bool kvmi_monitor_bp_intercept(struct kvm_vcpu *vcpu, u32 dbg)
 	{ return false; }
+static inline bool kvmi_cr_event(struct kvm_vcpu *vcpu, unsigned int cr,
+				 unsigned long old_value,
+				 unsigned long *new_value)
+			{ return true; }
+static inline bool kvmi_cr3_intercepted(struct kvm_vcpu *vcpu) { return false; }
 
 #endif /* CONFIG_KVM_INTROSPECTION */
 
