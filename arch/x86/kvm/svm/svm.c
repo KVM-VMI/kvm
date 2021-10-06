@@ -2525,6 +2525,11 @@ static int emulate_on_interception(struct kvm_vcpu *vcpu)
 	return kvm_emulate_instruction(vcpu, 0);
 }
 
+static int descriptor_access_interception(struct kvm_vcpu *vcpu)
+{
+	return kvm_emulate_instruction(vcpu, 0);
+}
+
 static int rsm_interception(struct kvm_vcpu *vcpu)
 {
 	return kvm_emulate_instruction_from_buffer(vcpu, rsm_ins_bytes, 2);
@@ -3231,6 +3236,14 @@ static int (*const svm_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[SVM_EXIT_AVIC_INCOMPLETE_IPI]		= avic_incomplete_ipi_interception,
 	[SVM_EXIT_AVIC_UNACCELERATED_ACCESS]	= avic_unaccelerated_access_interception,
 	[SVM_EXIT_VMGEXIT]			= sev_handle_vmgexit,
+	[SVM_EXIT_IDTR_READ]			= descriptor_access_interception,
+	[SVM_EXIT_GDTR_READ]			= descriptor_access_interception,
+	[SVM_EXIT_LDTR_READ]			= descriptor_access_interception,
+	[SVM_EXIT_TR_READ]			= descriptor_access_interception,
+	[SVM_EXIT_IDTR_WRITE]			= descriptor_access_interception,
+	[SVM_EXIT_GDTR_WRITE]			= descriptor_access_interception,
+	[SVM_EXIT_LDTR_WRITE]			= descriptor_access_interception,
+	[SVM_EXIT_TR_WRITE]			= descriptor_access_interception,
 };
 
 static void dump_vmcb(struct kvm_vcpu *vcpu)
