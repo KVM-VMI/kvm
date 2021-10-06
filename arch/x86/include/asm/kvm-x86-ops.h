@@ -125,6 +125,7 @@ KVM_X86_OP(bp_intercepted)
 KVM_X86_OP(control_cr3_intercept)
 KVM_X86_OP(cr3_write_intercepted)
 KVM_X86_OP(desc_ctrl_supported)
+KVM_X86_OP(control_desc_intercept)
 
 #undef KVM_X86_OP
 #undef KVM_X86_OP_NULL
