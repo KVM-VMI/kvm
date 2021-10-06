@@ -273,13 +273,11 @@ bool kvmi_arch_clean_up_interception(struct kvm_vcpu *vcpu)
 {
 	struct kvmi_interception *arch_vcpui = vcpu->arch.kvmi;
 
-	if (!arch_vcpui)
+	if (!arch_vcpui || !arch_vcpui->cleanup)
 		return false;
 
-	if (!arch_vcpui->restore_interception)
-		return false;
-
-	kvmi_arch_restore_interception(vcpu);
+	if (arch_vcpui->restore_interception)
+		kvmi_arch_restore_interception(vcpu);
 
 	return true;
 }
@@ -312,10 +310,13 @@ bool kvmi_arch_vcpu_introspected(struct kvm_vcpu *vcpu)
 	return !!READ_ONCE(vcpu->arch.kvmi);
 }
 
-void kvmi_arch_request_interception_cleanup(struct kvm_vcpu *vcpu)
+void kvmi_arch_request_interception_cleanup(struct kvm_vcpu *vcpu,
+					    bool restore_interception)
 {
 	struct kvmi_interception *arch_vcpui = READ_ONCE(vcpu->arch.kvmi);
 
-	if (arch_vcpui)
-		arch_vcpui->restore_interception = true;
+	if (arch_vcpui) {
+		arch_vcpui->restore_interception = restore_interception;
+		arch_vcpui->cleanup = true;
+	}
 }

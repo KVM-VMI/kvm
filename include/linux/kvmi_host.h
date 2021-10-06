@@ -50,6 +50,8 @@ struct kvm_introspection {
 	unsigned long *vm_event_enable_mask;
 
 	atomic_t ev_seq;
+
+	bool restore_on_unhook;
 };
 
 int kvmi_version(void);

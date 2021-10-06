@@ -11,6 +11,7 @@ struct kvmi_monitor_interception {
 };
 
 struct kvmi_interception {
+	bool cleanup;
 	bool restore_interception;
 	struct kvmi_monitor_interception breakpoint;
 };

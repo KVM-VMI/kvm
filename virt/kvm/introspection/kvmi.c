@@ -227,7 +227,7 @@ static void kvmi_free_vcpu_jobs(struct kvm_vcpu_introspection *vcpui)
 	}
 }
 
-static void kvmi_free_vcpui(struct kvm_vcpu *vcpu)
+static void kvmi_free_vcpui(struct kvm_vcpu *vcpu, bool restore_interception)
 {
 	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
 
@@ -241,17 +241,18 @@ static void kvmi_free_vcpui(struct kvm_vcpu *vcpu)
 	kfree(vcpui);
 	vcpu->kvmi = NULL;
 
-	kvmi_arch_request_interception_cleanup(vcpu);
+	kvmi_arch_request_interception_cleanup(vcpu, restore_interception);
 	kvmi_make_request(vcpu, false);
 }
 
 static void kvmi_free(struct kvm *kvm)
 {
+	bool restore_interception = KVMI(kvm)->restore_on_unhook;
 	struct kvm_vcpu *vcpu;
 	int i;
 
 	kvm_for_each_vcpu(i, vcpu, kvm)
-		kvmi_free_vcpui(vcpu);
+		kvmi_free_vcpui(vcpu, restore_interception);
 
 	bitmap_free(kvm->kvmi->cmd_allow_mask);
 	bitmap_free(kvm->kvmi->event_allow_mask);
@@ -263,8 +264,10 @@ static void kvmi_free(struct kvm *kvm)
 
 void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu)
 {
+	bool restore_interception = false;
+
 	mutex_lock(&vcpu->kvm->kvmi_lock);
-	kvmi_free_vcpui(vcpu);
+	kvmi_free_vcpui(vcpu, restore_interception);
 	kvmi_arch_vcpu_free_interception(vcpu);
 	mutex_unlock(&vcpu->kvm->kvmi_lock);
 }
@@ -294,6 +297,8 @@ kvmi_alloc(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 
 	BUILD_BUG_ON(sizeof(hook->uuid) != sizeof(kvmi->uuid));
 	memcpy(&kvmi->uuid, &hook->uuid, sizeof(kvmi->uuid));
+
+	kvmi->restore_on_unhook = true;
 
 	bitmap_copy(kvmi->cmd_allow_mask, Kvmi_always_allowed_commands,
 		    KVMI_NUM_COMMANDS);
@@ -670,6 +675,11 @@ int kvmi_cmd_vcpu_control_events(struct kvm_vcpu *vcpu,
 		clear_bit(event_id, vcpui->ev_enable_mask);
 
 	return 0;
+}
+
+void kvmi_cmd_vm_control_cleanup(struct kvm_introspection *kvmi, bool enable)
+{
+	kvmi->restore_on_unhook = enable;
 }
 
 static long

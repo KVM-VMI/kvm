@@ -673,6 +673,34 @@ Returns a CPUID leaf (as seen by the guest OS).
 * -KVM_EAGAIN - the selected vCPU can't be introspected yet
 * -KVM_ENOENT - the selected leaf is not present or is invalid
 
+14. KVMI_VM_CONTROL_CLEANUP
+---------------------------
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_control_cleanup {
+		__u8 enable;
+		__u8 padding[7];
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code
+
+Enables/disables the automatic cleanup of the changes made by
+the introspection tool at the hypervisor level (e.g. CR/MSR/BP
+interceptions). By default it is enabled.
+
+:Errors:
+
+* -KVM_EINVAL - the padding is not zero
+* -KVM_EINVAL - ``enable`` is not 1 or 0
+
 Events
 ======
 
