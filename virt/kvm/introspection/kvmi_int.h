@@ -121,5 +121,6 @@ void kvmi_arch_update_page_tracking(struct kvm *kvm,
 				    struct kvmi_mem_access *m);
 void kvmi_arch_hook(struct kvm *kvm);
 void kvmi_arch_unhook(struct kvm *kvm);
+void kvmi_arch_features(struct kvmi_features *feat);
 
 #endif

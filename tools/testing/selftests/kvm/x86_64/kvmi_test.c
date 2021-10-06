@@ -59,6 +59,8 @@ struct vcpu_worker_data {
 	bool restart_on_shutdown;
 };
 
+static struct kvmi_features features;
+
 typedef void (*fct_pf_event)(struct kvm_vm *vm, struct kvmi_msg_hdr *hdr,
 				struct pf_ev *ev,
 				struct vcpu_reply *rpl);
@@ -443,6 +445,10 @@ static void test_cmd_get_version(void)
 
 	pr_debug("KVMI version: %u\n", rpl.version);
 	pr_debug("Max message size: %u\n", rpl.max_msg_size);
+
+	features = rpl.features;
+
+	pr_debug("singlestep support: %u\n", features.singlestep);
 }
 
 static void cmd_vm_check_command(__u16 id, int expected_err)

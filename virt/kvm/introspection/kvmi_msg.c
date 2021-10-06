@@ -134,6 +134,8 @@ static int handle_get_version(struct kvm_introspection *kvmi,
 	rpl.version = kvmi_version();
 	rpl.max_msg_size = KVMI_MAX_MSG_SIZE;
 
+	kvmi_arch_features(&rpl.features);
+
 	return kvmi_msg_vm_reply(kvmi, msg, 0, &rpl, sizeof(rpl));
 }
 
