@@ -14,6 +14,9 @@ struct kvm_introspection {
 
 	struct socket *sock;
 	struct task_struct *recv;
+
+	unsigned long *cmd_allow_mask;
+	unsigned long *event_allow_mask;
 };
 
 int kvmi_version(void);
@@ -25,6 +28,10 @@ void kvmi_destroy_vm(struct kvm *kvm);
 int kvmi_ioctl_hook(struct kvm *kvm,
 		    const struct kvm_introspection_hook *hook);
 int kvmi_ioctl_unhook(struct kvm *kvm);
+int kvmi_ioctl_command(struct kvm *kvm,
+		       const struct kvm_introspection_feature *feat);
+int kvmi_ioctl_event(struct kvm *kvm,
+		     const struct kvm_introspection_feature *feat);
 
 #else
 
