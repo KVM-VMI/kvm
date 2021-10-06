@@ -95,4 +95,11 @@ struct kvmi_vcpu_inject_exception {
 	__u64 address;
 };
 
+struct kvmi_vcpu_event_xsetbv {
+	__u8 xcr;
+	__u8 padding[7];
+	__u64 old_value;
+	__u64 new_value;
+};
+
 #endif /* _UAPI_ASM_X86_KVMI_H */

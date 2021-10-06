@@ -14,5 +14,7 @@ int kvmi_arch_cmd_vcpu_inject_exception(struct kvm_vcpu *vcpu,
 u32 kvmi_msg_send_vcpu_cr(struct kvm_vcpu *vcpu, u32 cr, u64 old_value,
 			  u64 new_value, u64 *ret_value);
 u32 kvmi_msg_send_vcpu_trap(struct kvm_vcpu *vcpu);
+u32 kvmi_msg_send_vcpu_xsetbv(struct kvm_vcpu *vcpu, u8 xcr,
+			      u64 old_value, u64 new_value);
 
 #endif
