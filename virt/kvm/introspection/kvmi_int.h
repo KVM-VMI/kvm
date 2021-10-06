@@ -7,6 +7,7 @@
 #include <uapi/linux/kvmi.h>
 
 #define KVMI(kvm) ((kvm)->kvmi)
+#define VCPUI(vcpu) ((vcpu)->kvmi)
 /*
  * This limit is used to accommodate the largest known fixed-length
  * message.
