@@ -837,3 +837,41 @@ int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait)
 
 	return 0;
 }
+
+static bool __kvmi_hypercall_event(struct kvm_vcpu *vcpu)
+{
+	u32 action;
+	bool ret;
+
+	action = kvmi_msg_send_vcpu_hypercall(vcpu);
+	switch (action) {
+	case KVMI_EVENT_ACTION_CONTINUE:
+		ret = true;
+		break;
+	default:
+		kvmi_handle_common_event_actions(vcpu, action);
+		ret = false;
+	}
+
+	return ret;
+}
+
+bool kvmi_hypercall_event(struct kvm_vcpu *vcpu)
+{
+	struct kvm_introspection *kvmi;
+	bool ret = false;
+
+	if (!kvmi_arch_is_agent_hypercall(vcpu))
+		return ret;
+
+	kvmi = kvmi_get(vcpu->kvm);
+	if (!kvmi)
+		return ret;
+
+	if (is_vcpu_event_enabled(vcpu, KVMI_VCPU_EVENT_HYPERCALL))
+		ret = __kvmi_hypercall_event(vcpu);
+
+	kvmi_put(vcpu->kvm);
+
+	return ret;
+}

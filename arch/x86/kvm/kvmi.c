@@ -11,6 +11,7 @@
 
 void kvmi_arch_init_vcpu_events_mask(unsigned long *supported)
 {
+	set_bit(KVMI_VCPU_EVENT_HYPERCALL, supported);
 }
 
 static unsigned int kvmi_vcpu_mode(const struct kvm_vcpu *vcpu,
@@ -139,4 +140,23 @@ void kvmi_arch_post_reply(struct kvm_vcpu *vcpu)
 
 	kvm_arch_vcpu_set_regs(vcpu, &vcpui->arch.delayed_regs, false);
 	vcpui->arch.have_delayed_regs = false;
+}
+
+bool kvmi_arch_is_agent_hypercall(struct kvm_vcpu *vcpu)
+{
+	unsigned long subfunc1, subfunc2;
+	bool longmode = is_64_bit_mode(vcpu);
+
+	if (longmode) {
+		subfunc1 = kvm_rdi_read(vcpu);
+		subfunc2 = kvm_rsi_read(vcpu);
+	} else {
+		subfunc1 = kvm_rbx_read(vcpu);
+		subfunc1 &= 0xFFFFFFFF;
+		subfunc2 = kvm_rcx_read(vcpu);
+		subfunc2 &= 0xFFFFFFFF;
+	}
+
+	return (subfunc1 == KVM_HC_XEN_HVM_OP_GUEST_REQUEST_VM_EVENT
+		&& subfunc2 == 0);
 }
