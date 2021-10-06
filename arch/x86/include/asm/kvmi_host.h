@@ -5,6 +5,8 @@
 #include <asm/kvmi.h>
 
 struct kvm_vcpu_arch_introspection {
+	struct kvm_regs delayed_regs;
+	bool have_delayed_regs;
 };
 
 struct kvm_arch_introspection {

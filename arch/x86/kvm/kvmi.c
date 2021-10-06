@@ -118,3 +118,25 @@ int kvmi_arch_cmd_vcpu_get_registers(struct kvm_vcpu *vcpu,
 
 	return err ? -KVM_EINVAL : 0;
 }
+
+void kvmi_arch_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
+				      const struct kvm_regs *regs)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	struct kvm_regs *dest = &vcpui->arch.delayed_regs;
+
+	memcpy(dest, regs, sizeof(*dest));
+
+	vcpui->arch.have_delayed_regs = true;
+}
+
+void kvmi_arch_post_reply(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+
+	if (!vcpui->arch.have_delayed_regs)
+		return;
+
+	kvm_arch_vcpu_set_regs(vcpu, &vcpui->arch.delayed_regs, false);
+	vcpui->arch.have_delayed_regs = false;
+}
