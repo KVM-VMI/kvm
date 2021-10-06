@@ -132,4 +132,14 @@ config KVM_MMU_AUDIT
 config KVM_EXTERNAL_WRITE_TRACKING
 	bool
 
+config KVM_INTROSPECTION
+	bool "KVM Introspection"
+	depends on (KVM_INTEL || KVM_AMD)
+	select KVM_EXTERNAL_WRITE_TRACKING
+	default n
+	help
+	  Provides the introspection interface, which allows the control
+	  of any running VM. It must be explicitly enabled by setting
+	  the kvm.introspection module parameter.
+
 endif # VIRTUALIZATION
