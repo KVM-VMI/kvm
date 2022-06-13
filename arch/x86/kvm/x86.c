@@ -8475,9 +8475,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			goto out;
 		}
 
-		if (inject_pending_event(vcpu, req_int_win) != 0)
-			req_immediate_exit = true;
-		else {
+		if (!inject_pending_event(vcpu, req_int_win)) {
 			/* Enable SMI/NMI/IRQ window open exits if needed.
 			 *
 			 * SMIs have three cases:
