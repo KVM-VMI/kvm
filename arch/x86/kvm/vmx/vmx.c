@@ -6609,6 +6609,10 @@ static int vmx_sync_pir_to_irr(struct kvm_vcpu *vcpu)
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	int max_irr;
 	bool max_irr_updated;
+	
+	if (kvmi_vcpu_running_singlestep(vcpu)) {
+		return -1;
+	}
 
 	WARN_ON(!vcpu->arch.apicv_active);
 	if (pi_test_on(&vmx->pi_desc)) {
