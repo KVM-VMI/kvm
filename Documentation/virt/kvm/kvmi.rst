@@ -1554,6 +1554,36 @@ inside the current EPT view. Usage:
                 entries points to a MMIO region
 * -KVM_EAGAIN - internal KVM error: current root page table is invalid
 
+32. KVMI_VM_QUERY_PHYSICAL
+-------------------------
+
+:Architectures: all
+:Versions: >= 1
+:Parameters:
+
+::
+
+	struct kvmi_vm_query_physical {
+		__u64 gpa;
+	};
+
+:Returns:
+
+::
+
+	struct kvmi_error_code;
+	struct kvmi_vm_query_physical_reply {
+		__u64 gpa;
+		__u64 size;
+	};
+
+Retrieves starting gpa and size of memory slot belonging to query gpa.
+
+:Errors:
+
+* -KVM_EINVAL - the specified gpa is invalid
+* -KVM_ENOENT - the guest page doesn't exist
+
 Events
 ======
 

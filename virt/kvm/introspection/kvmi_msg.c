@@ -39,6 +39,7 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_SET_PAGE_SVE]         = "KVMI_VM_SET_PAGE_SVE",
 	[KVMI_VM_SET_PAGE_WRITE_BITMAP] = "KVMI_VM_SET_PAGE_WRITE_BITMAP",
 	[KVMI_VM_WRITE_PHYSICAL]       = "KVMI_VM_WRITE_PHYSICAL",
+	[KVMI_VM_QUERY_PHYSICAL]       = "KVMI_VM_QUERY_PHYSICAL",
 	[KVMI_VCPU_CONTROL_CR]         = "KVMI_VCPU_CONTROL_CR",
 	[KVMI_VCPU_CONTROL_EPT_VIEW]   = "KVMI_VCPU_CONTROL_EPT_VIEW",
 	[KVMI_VCPU_CONTROL_EVENTS]     = "KVMI_VCPU_CONTROL_EVENTS",
@@ -366,6 +367,24 @@ static int handle_write_physical(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_query_physical(struct kvm_introspection *kvmi,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vm_query_physical *req = _req;
+	struct kvmi_vm_query_physical_reply rpl;
+	int ec;
+
+	memset(&rpl, 0, sizeof(rpl));
+
+	if (invalid_page_access(req->gfn << PAGE_SHIFT, PAGE_SIZE))
+		ec = -KVM_EINVAL;
+	else
+		ec = kvmi_cmd_query_physical(kvmi->kvm, req->gfn, &rpl.gfn, &rpl.size);
+
+	return kvmi_msg_vm_reply(kvmi, msg, ec, &rpl, sizeof(rpl));
+}
+
 /*
  * We handle this vCPU command on the receiving thread to make it easier
  * for userspace to implement a 'pause VM' command. Usually, this is done
@@ -556,6 +575,7 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_SET_PAGE_SVE]         = handle_set_page_sve,
 	[KVMI_VM_SET_PAGE_WRITE_BITMAP] = handle_set_page_write_bitmap,
 	[KVMI_VM_WRITE_PHYSICAL]       = handle_write_physical,
+	[KVMI_VM_QUERY_PHYSICAL]       = handle_query_physical,
 	[KVMI_VCPU_PAUSE]              = handle_pause_vcpu,
 };
 

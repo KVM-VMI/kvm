@@ -8,6 +8,7 @@
 #include <linux/mmu_context.h>
 #include "kvmi_int.h"
 #include <linux/kthread.h>
+#include <linux/pfn_t.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/kvmi.h>
 
@@ -274,6 +275,8 @@ static void free_kvmi(struct kvm *kvm)
 	struct kvm_vcpu *vcpu;
 	int i;
 
+	if (kvm->kvmi->map)
+		proc_remove(kvm->kvmi->map);
 	kvmi_clear_mem_access(kvm);
 	kvmi_clear_vm_tokens(kvm);
 
@@ -314,12 +317,95 @@ void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu)
 	mutex_unlock(&vcpu->kvm->kvmi_lock);
 }
 
+static long
+get_user_pages_remote_unlocked(struct mm_struct *mm, unsigned long start,
+				unsigned long nr_pages, unsigned int gup_flags,
+				struct page **pages);
+
+static vm_fault_t kvmi_map_vm_fault(struct vm_fault *vmf)
+{
+	struct kvm *kvm = vmf->vma->vm_private_data;
+
+	unsigned long hva;
+	struct page *page = NULL;
+	pfn_t pfn_flags;
+	int result = 0;
+	int srcu_idx;
+
+	srcu_idx = srcu_read_lock(&kvm->srcu);
+
+	// pgoff is a linear_page_index and already contains the vm_pgoff
+	hva = gfn_to_hva(kvm, vmf->pgoff);
+
+	if (kvm_is_error_hva(hva))
+		return VM_FAULT_SIGBUS;
+
+	if (get_user_pages_remote_unlocked(kvm->mm, hva, 1, 0, &page) != 1)
+		return VM_FAULT_SIGBUS;
+
+	pfn_flags = __pfn_to_pfn_t(page_to_pfn(page), PFN_DEV | PFN_MAP);
+
+	if (page)
+		put_page(page);
+
+	result = vmf_insert_mixed(vmf->vma, vmf->address, pfn_flags);
+	if (result == VM_FAULT_NOPAGE)
+	{
+		page->mapping = vmf->vma->vm_file->f_mapping;
+		page->index = vmf->pgoff;
+	}
+
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
+	return result;
+}
+
+/* don't allow splitting these VMAs (partial unmap) */
+static int kvmi_map_vm_split(struct vm_area_struct *vma, unsigned long addr)
+{
+	return -EINVAL;
+}
+
+static const struct vm_operations_struct kvmi_map_vmops = {
+	.fault = kvmi_map_vm_fault,
+	.split = kvmi_map_vm_split
+};
+
+static int kvmi_map_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	struct kvm_introspection *kvmi = filp->private_data;
+	struct kvm *kvm = kvmi->kvm;
+
+	/* set basic VMA properties */
+	vma->vm_flags |= VM_DONTCOPY | VM_DONTDUMP | VM_PFNMAP;
+	vma->vm_ops = &kvmi_map_vmops;
+	vma->vm_private_data = kvm;
+
+	return 0;
+}
+
+static int kvmi_map_open(struct inode *inode, struct file *filp)
+{
+	pr_debug("%s: file %lx opened\n", __func__, (long)filp);
+
+	filp->private_data = PDE_DATA(inode);
+	filp->f_mode &= ~(FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE);
+
+	return 0;
+}
+
+static const struct file_operations kvmi_map_fops = {
+	.mmap = kvmi_map_mmap,
+	.open = kvmi_map_open,
+	.llseek = no_llseek
+};
+
 static struct kvm_introspection *
 alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 {
 	struct kvm_introspection *kvmi;
 	struct kvm_vcpu *vcpu;
 	int i;
+	char proc_entry_name[46] = { 0 };
 
 	kvmi = kzalloc(sizeof(*kvmi), GFP_KERNEL);
 	if (!kvmi)
@@ -344,6 +430,14 @@ alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 	kvmi->arch.kptn_node.track_preexec = kvmi_track_preexec;
 	kvmi->arch.kptn_node.track_create_slot = kvmi_track_create_slot;
 	kvmi->arch.kptn_node.track_flush_slot = kvmi_track_flush_slot;
+
+	sprintf(proc_entry_name, "kvmi-mem-%pUB", &kvmi->uuid);
+	kvmi->map = proc_create_data(proc_entry_name, 0, NULL, &kvmi_map_fops, kvmi);
+	if (!kvmi->map)
+	{
+		free_kvmi(kvm);
+		return NULL;
+	}
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		int err = create_vcpui(vcpu);
@@ -828,6 +922,28 @@ int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size, const void *buf)
 
 	srcu_read_unlock(&kvm->srcu, srcu_idx);
 	return ec;
+}
+
+int kvmi_cmd_query_physical(struct kvm *kvm, u64 gfn, u64 *start, u64 *size)
+{
+	struct kvm_memory_slot *slot;
+	int srcu_idx;
+	int err = 0;
+
+	srcu_idx = srcu_read_lock(&kvm->srcu);
+
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot) {
+		err = -KVM_ENOENT;
+		goto out;
+	}
+
+	*start = slot->base_gfn;
+	*size = slot->npages;
+
+out:
+	srcu_read_unlock(&kvm->srcu, srcu_idx);
+	return err;
 }
 
 static struct kvmi_job *kvmi_pull_job(struct kvm_vcpu_introspection *vcpui)
