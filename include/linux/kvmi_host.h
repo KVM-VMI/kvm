@@ -8,6 +8,7 @@ struct kvm;
 struct kvm_vcpu;
 
 #include <asm/kvmi_host.h>
+#include <linux/proc_fs.h>
 
 #define KVMI_NUM_COMMANDS KVMI_NUM_MESSAGES
 
@@ -105,6 +106,8 @@ struct kvm_introspection {
 
 	bool cmd_reply_disabled;
 	bool cmd_reply_with_event;
+
+	struct proc_dir_entry *map;
 };
 
 #ifdef CONFIG_KVM_INTROSPECTION

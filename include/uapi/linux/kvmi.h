@@ -25,6 +25,7 @@ enum {
 	KVMI_VM_CONTROL_EVENTS   = 8,
 	KVMI_VM_READ_PHYSICAL    = 17,
 	KVMI_VM_WRITE_PHYSICAL   = 18,
+	KVMI_VM_QUERY_PHYSICAL   = 39,
 
 	KVMI_VCPU_GET_INFO         = 6,
 	KVMI_VCPU_PAUSE            = 7,
@@ -151,6 +152,15 @@ struct kvmi_vm_write_physical {
 	__u64 gpa;
 	__u64 size;
 	__u8  data[0];
+};
+
+struct kvmi_vm_query_physical {
+	__u64 gfn;
+};
+
+struct kvmi_vm_query_physical_reply {
+	__u64 gfn;
+	__u64 size;
 };
 
 struct kvmi_vcpu_hdr {

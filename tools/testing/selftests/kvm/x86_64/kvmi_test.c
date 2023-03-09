@@ -8,6 +8,7 @@
 #define _GNU_SOURCE /* for program_invocation_short_name */
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <pthread.h>
 
@@ -30,6 +31,7 @@
 static int socket_pair[2];
 #define Kvm_socket       socket_pair[0]
 #define Userspace_socket socket_pair[1]
+static int mem_fd;
 
 static int test_id;
 static vm_vaddr_t test_gva;
@@ -342,6 +344,18 @@ static void unhook_introspection(struct kvm_vm *vm)
 	TEST_ASSERT(r == 0,
 		"KVM_INTROSPECTION_UNHOOK failed, errno %d (%s)\n",
 		errno, strerror(errno));
+}
+
+static void open_mem_fd(struct kvm_vm *vm)
+{
+	mem_fd = open("/proc/kvmi-mem-00000000-0000-0000-0000-000000000000", O_RDWR);
+	TEST_ASSERT(mem_fd != -1, "Could not open mem fd");
+}
+
+static void close_mem_fd(struct kvm_vm *vm)
+{
+	close(mem_fd);
+	mem_fd = -1;
 }
 
 static void receive_data(void *dest, size_t size)
@@ -786,6 +800,37 @@ static void test_memory_access(struct kvm_vm *vm)
 	free(pr);
 
 	read_invalid_guest_page(vm);
+}
+
+static void test_memory_access_2(struct kvm_vm *vm)
+{
+	void *p, *m;
+
+	new_test_write_pattern(vm);
+
+	p = malloc(page_size);
+	TEST_ASSERT(p, "Insufficient Memory\n");
+
+	memset(p, test_write_pattern, page_size);
+
+	write_guest_page(test_gpa, p);
+	TEST_ASSERT(memcmp(p, test_hva, page_size) == 0,
+		"Write page test failed");
+
+	m = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		MAP_SHARED, mem_fd, test_gpa);
+	TEST_ASSERT(m != MAP_FAILED, "Failed to map guest page");
+	TEST_ASSERT(memcmp(m, p, page_size) == 0,
+		"Map page read test failed");
+
+	memset(m, test_write_pattern, page_size);
+
+	read_guest_page(test_gpa, p);
+	TEST_ASSERT(memcmp(p, m, page_size) == 0,
+		"Map page write test failed");
+
+	munmap(m, page_size);
+	free(p);
 }
 
 static void *vcpu_worker(void *data)
@@ -2435,11 +2480,30 @@ static void test_cmd_vcpu_get_xcr(struct kvm_vm *vm)
 		    -r, kvm_strerror(-r));
 }
 
+static void test_cmd_query_physical(struct kvm_vm *vm)
+{
+	struct {
+		struct kvmi_msg_hdr hdr;
+		struct kvmi_vm_query_physical cmd;
+	} req = { 0 };
+	struct kvmi_vm_query_physical_reply rpl = { 0 };
+
+	req.cmd.gfn = test_gpa >> __builtin_ctzl(page_size);
+
+	test_vm_command(KVMI_VM_QUERY_PHYSICAL, &req.hdr, sizeof(req),
+			&rpl, sizeof(rpl));
+	TEST_ASSERT(rpl.size > 0, "Expected to receive non-empty memslot");
+	TEST_ASSERT(rpl.size - rpl.gfn <= vm->max_gfn, "Expected memslot to not exceed maximum memory");
+
+	DEBUG("Memslot gfn: 0x%llx, size: 0x%llx\n", rpl.gfn, rpl.size);
+}
+
 static void test_introspection(struct kvm_vm *vm)
 {
 	srandom(time(0));
 	setup_socket();
 	hook_introspection(vm);
+	open_mem_fd(vm);
 
 	test_cmd_invalid();
 	test_cmd_get_version();
@@ -2449,6 +2513,7 @@ static void test_introspection(struct kvm_vm *vm)
 	test_event_unhook(vm);
 	test_cmd_vm_control_events();
 	test_memory_access(vm);
+	test_memory_access_2(vm);
 	test_cmd_get_vcpu_info(vm);
 	test_pause(vm);
 	test_cmd_vcpu_control_events(vm);
@@ -2478,7 +2543,9 @@ static void test_introspection(struct kvm_vm *vm)
 	test_cmd_vcpu_get_xcr(vm);
 	test_change_unmapped_gfn(vm);
 	test_change_gfn(vm);
+	test_cmd_query_physical(vm);
 
+	close_mem_fd(vm);
 	unhook_introspection(vm);
 }
 
