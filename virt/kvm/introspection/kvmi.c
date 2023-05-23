@@ -1311,7 +1311,7 @@ static bool kvmi_restricted_access(struct kvm_introspection *kvmi, gpa_t gpa,
 	if ((~allowed_access) & access) {
 		bool write_access = (access & KVMI_PAGE_ACCESS_W);
 
-		if (write_access && spp_access_allowed(gpa, allowed_bitmap))
+		if (write_access && kvmi_spp_enabled(kvmi) && spp_access_allowed(gpa, allowed_bitmap))
 			return false;
 
 		return true;
