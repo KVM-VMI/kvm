@@ -4304,13 +4304,6 @@ static int check_fxsr(struct x86_emulate_ctxt *ctxt)
 	if (ctxt->ops->get_cr(ctxt, 0) & (X86_CR0_TS | X86_CR0_EM))
 		return emulate_nm(ctxt);
 
-	/*
-	 * Don't emulate a case that should never be hit, instead of working
-	 * around a lack of fxsave64/fxrstor64 on old compilers.
-	 */
-	if (ctxt->mode >= X86EMUL_MODE_PROT64)
-		return X86EMUL_UNHANDLEABLE;
-
 	return X86EMUL_CONTINUE;
 }
 
