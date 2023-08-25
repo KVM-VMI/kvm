@@ -196,6 +196,14 @@ struct kvmi_vcpu_change_gfn {
 	__u64 new_gfn;
 };
 
+struct kvmi_vcpu_alloc_gfn {
+	__u64 gfn;
+};
+
+struct kvmi_vcpu_free_gfn {
+	__u64 gfn;
+};
+
 struct kvmi_vm_set_page_sve {
 	__u16 view;
 	__u8 suppress;

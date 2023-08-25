@@ -3122,12 +3122,27 @@ out_free1:
 		r = kvmi_vcpu_ioctl_map(vcpu, arg);
 		break;
 	}
+	case KVM_INTROSPECTION_GFN: {
+		struct kvm_introspection_gfn gfn;
+		if (copy_from_user(&gfn, argp, sizeof(gfn)))
+			goto out;
+		/*
+		 * This ioctl is blocking, hence we need to unlock the vcpu mutex here,
+		 * such that KVM_RUN can be performed from another thread.
+		 * We are safe to unlock here because the ioctl just copies back the return value.
+		 */
+		mutex_unlock(&vcpu->mutex);
+		r = kvmi_vcpu_ioctl_gfn(vcpu, &gfn);
+		(void) !copy_to_user(argp, &gfn, sizeof(gfn));
+		goto out_no_mutex_unlock;
+	}
 #endif /* CONFIG_KVM_INTROSPECTION */
 	default:
 		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
 out:
 	mutex_unlock(&vcpu->mutex);
+out_no_mutex_unlock:
 	kfree(fpu);
 	kfree(kvm_sregs);
 	return r;

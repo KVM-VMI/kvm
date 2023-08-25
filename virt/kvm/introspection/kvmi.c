@@ -6,6 +6,7 @@
  *
  */
 #include <linux/mmu_context.h>
+#include <linux/delay.h>
 #include "kvmi_int.h"
 #include <linux/kthread.h>
 #include <linux/pfn_t.h>
@@ -170,6 +171,8 @@ static bool alloc_vcpui(struct kvm_vcpu *vcpu)
 	if (!vcpui)
 		return false;
 
+	init_waitqueue_head(&vcpui->req_wq);
+
 	INIT_LIST_HEAD(&vcpui->job_list);
 	spin_lock_init(&vcpui->job_lock);
 
@@ -195,6 +198,17 @@ static int create_vcpui(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static void kill_wait_queue(struct kvm_vcpu_introspection *vcpui)
+{
+	atomic_set(&vcpui->req_alloc, KVM_INTROSPECTION_GFN_REPLY_ABORT);
+	if (wq_has_sleeper(&vcpui->req_wq))
+	{
+		wake_up_interruptible(&vcpui->req_wq);
+		wait_event_interruptible(vcpui->req_wq, atomic_read(&vcpui->req_alloc)
+			== KVM_INTROSPECTION_GFN_REPLY_WAIT);
+	}
+}
+
 static void free_vcpui(struct kvm_vcpu *vcpu)
 {
 	struct kvm_vcpu_introspection *vcpui = vcpu->kvmi;
@@ -202,6 +216,8 @@ static void free_vcpui(struct kvm_vcpu *vcpu)
 
 	if (!vcpui)
 		return;
+
+	kill_wait_queue(vcpui);
 
 	spin_lock(&vcpui->job_lock);
 	list_for_each_entry_safe(cur, next, &vcpui->job_list, link) {
@@ -1088,6 +1104,50 @@ out:
 		kvmi_arch_vcpu_free(vcpu);
 		mutex_unlock(&vcpu->kvm->kvmi_lock);
 	}
+}
+
+static int kvmi_cmd_gfn_generic(struct kvm_vcpu *vcpu, int req, u64 gfn)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	int r;
+
+	atomic_set(&vcpui->req_reply, -1);
+	atomic_set(&vcpui->req_gfn, gfn);
+	atomic_set(&vcpui->req_alloc, req);
+
+	// unlock rcu and mutex, processing will continue in ioctl.
+	srcu_read_unlock(&vcpu->kvm->srcu, vcpu->srcu_idx);
+	mutex_unlock(&vcpu->mutex);
+
+	// make sure someone is listening.
+	if (!wq_has_sleeper(&vcpui->req_wq))
+	{
+		msleep_interruptible(100);
+		if (!wq_has_sleeper(&vcpui->req_wq))
+			return -ETIME;
+	}
+
+	// return from current ioctl, wait for return code from next ioctl.
+	wake_up_interruptible(&vcpui->req_wq);
+	wait_event_interruptible(vcpui->req_wq, atomic_read(&vcpui->req_reply) != -1);
+
+	// relock mutex and rcu.
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
+	vcpu->srcu_idx = srcu_read_lock(&vcpu->kvm->srcu);
+
+	r = atomic_read(&vcpui->req_reply);
+	return r;
+}
+
+int kvmi_cmd_alloc_gfn(struct kvm_vcpu *vcpu, u64 gfn)
+{
+	return kvmi_cmd_gfn_generic(vcpu, KVM_INTROSPECTION_GFN_REPLY_ALLOC, gfn);
+}
+
+int kvmi_cmd_free_gfn(struct kvm_vcpu *vcpu, u64 gfn)
+{
+	return kvmi_cmd_gfn_generic(vcpu, KVM_INTROSPECTION_GFN_REPLY_FREE, gfn);
 }
 
 int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait)
@@ -2174,4 +2234,27 @@ int kvmi_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi, u64 gpa,
 		access &= ~KVMI_PAGE_ACCESS_W;
 
 	return kvmi_set_gfn_access(kvmi->kvm, gfn, access, write_bitmap, view);
+}
+
+int kvmi_vcpu_ioctl_gfn(struct kvm_vcpu *vcpu, struct kvm_introspection_gfn *gfn)
+{
+	struct kvm_vcpu_introspection *vcpui = VCPUI(vcpu);
+	int ret;
+
+	if (!vcpui)
+		return -EINVAL;
+
+	atomic_set(&vcpui->req_reply, gfn->ret);
+	wake_up_interruptible(&vcpui->req_wq);
+	wait_event_interruptible(vcpui->req_wq, atomic_read(&vcpui->req_alloc)
+				 != KVM_INTROSPECTION_GFN_REPLY_WAIT);
+
+	gfn->gfn = atomic_read(&vcpui->req_gfn);
+	ret = atomic_xchg(&vcpui->req_alloc, KVM_INTROSPECTION_GFN_REPLY_WAIT);
+
+	// bail out early, there won't be another ioctl.
+	if (ret == KVM_INTROSPECTION_GFN_REPLY_ABORT)
+		wake_up_interruptible(&vcpui->req_wq);
+
+	return ret;
 }

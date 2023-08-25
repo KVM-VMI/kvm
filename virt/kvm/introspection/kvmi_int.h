@@ -57,6 +57,8 @@
 			| BIT(KVMI_VM_SET_PAGE_SVE) \
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VM_QUERY_PHYSICAL) \
+			| BIT(KVMI_VCPU_ALLOC_GFN) \
+			| BIT(KVMI_VCPU_FREE_GFN) \
 			| BIT(KVMI_VCPU_GET_INFO) \
 			| BIT(KVMI_VCPU_PAUSE) \
 			| BIT(KVMI_VCPU_CHANGE_GFN) \
@@ -173,6 +175,8 @@ int kvmi_cmd_read_physical(struct kvm *kvm, u64 gpa, u64 size,
 int kvmi_cmd_write_physical(struct kvm *kvm, u64 gpa, u64 size,
 			    const void *buf);
 int kvmi_cmd_query_physical(struct kvm *kvm, u64 gfn, u64 *start, u64 *size);
+int kvmi_cmd_alloc_gfn(struct kvm_vcpu *vcpu, u64 gfn);
+int kvmi_cmd_free_gfn(struct kvm_vcpu *vcpu, u64 gfn);
 int kvmi_cmd_vcpu_pause(struct kvm_vcpu *vcpu, bool wait);
 int kvmi_cmd_vcpu_set_registers(struct kvm_vcpu *vcpu,
 				const struct kvm_regs *regs);
