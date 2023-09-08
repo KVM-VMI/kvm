@@ -2150,8 +2150,25 @@ int kvm_mmu_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn)
 	new_sptep = kvm_gfn_rmap_get_first(new_gfn, new_slot, view);
 	spin_unlock(&vcpu->kvm->mmu_lock);
 	if (!new_sptep) {
-		rc = -KVM_EINVAL;
-		goto exit;
+		kvm_pfn_t pfn = gfn_to_pfn(vcpu->kvm, new_gfn);
+
+		if (is_error_noslot_pfn(pfn) || !pfn_valid(pfn)) {
+			rc = -KVM_EINVAL;
+			goto exit;
+		}
+
+		rc = kvm_mmu_create_gfn_mapping(vcpu, new_gfn, pfn,
+					true);
+		if (rc != 0) {
+			rc = -KVM_EINVAL;
+			goto exit;
+		}
+
+		new_sptep = kvm_gfn_rmap_get_first(new_gfn, new_slot, view);
+		if (!new_sptep) {
+			rc = -KVM_EINVAL;
+			goto exit;
+		}
 	}
 
 	/* Check for restore operation */
