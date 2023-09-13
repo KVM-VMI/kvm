@@ -40,6 +40,8 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_SET_PAGE_WRITE_BITMAP] = "KVMI_VM_SET_PAGE_WRITE_BITMAP",
 	[KVMI_VM_WRITE_PHYSICAL]       = "KVMI_VM_WRITE_PHYSICAL",
 	[KVMI_VM_QUERY_PHYSICAL]       = "KVMI_VM_QUERY_PHYSICAL",
+	[KVMI_VCPU_ALLOC_GFN]          = "KVMI_VCPU_ALLOC_GFN",
+	[KVMI_VCPU_FREE_GFN]           = "KVMI_VCPU_FREE_GFN",
 	[KVMI_VCPU_CONTROL_CR]         = "KVMI_VCPU_CONTROL_CR",
 	[KVMI_VCPU_CONTROL_EPT_VIEW]   = "KVMI_VCPU_CONTROL_EPT_VIEW",
 	[KVMI_VCPU_CONTROL_EVENTS]     = "KVMI_VCPU_CONTROL_EVENTS",
@@ -932,6 +934,30 @@ static int handle_vcpu_change_gfn(const struct kvmi_vcpu_cmd_job *job,
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }
 
+static int handle_vcpu_alloc_gfn(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vcpu_alloc_gfn *req = _req;
+	int ec;
+
+	ec = kvmi_cmd_alloc_gfn(job->vcpu, req->gfn);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
+static int handle_vcpu_free_gfn(const struct kvmi_vcpu_cmd_job *job,
+				const struct kvmi_msg_hdr *msg,
+				const void *_req)
+{
+	const struct kvmi_vcpu_free_gfn *req = _req;
+	int ec;
+
+	ec = kvmi_cmd_free_gfn(job->vcpu, req->gfn);
+
+	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
+}
+
 static int handle_vcpu_get_xcr(const struct kvmi_vcpu_cmd_job *job,
 			       const struct kvmi_msg_hdr *msg,
 			       const void *_req)
@@ -978,6 +1004,8 @@ static int(*const msg_vcpu[])(const struct kvmi_vcpu_cmd_job *,
 	[KVMI_VCPU_SET_XSAVE]          = handle_vcpu_set_xsave,
 	[KVMI_VCPU_TRANSLATE_GVA]      = handle_vcpu_translate_gva,
 	[KVMI_VCPU_CHANGE_GFN]         = handle_vcpu_change_gfn,
+	[KVMI_VCPU_ALLOC_GFN]          = handle_vcpu_alloc_gfn,
+	[KVMI_VCPU_FREE_GFN]           = handle_vcpu_free_gfn
 };
 
 static void kvmi_job_vcpu_cmd(struct kvm_vcpu *vcpu, void *ctx)

@@ -45,6 +45,10 @@ struct kvm_vcpu_introspection {
 
 	struct kvmi_vcpu_reply reply;
 	bool waiting_for_reply;
+	wait_queue_head_t req_wq;
+	atomic_t req_alloc;
+	atomic_t req_reply;
+	atomic_t req_gfn;
 
 	DECLARE_BITMAP(ev_mask, KVMI_NUM_EVENTS);
 
@@ -119,6 +123,7 @@ void kvmi_destroy_vm(struct kvm *kvm);
 int kvmi_vcpu_init(struct kvm_vcpu *vcpu);
 void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu);
 int kvmi_vcpu_ioctl_map(struct kvm_vcpu *vcpu, u64 arg);
+int kvmi_vcpu_ioctl_gfn(struct kvm_vcpu *vcpu, struct kvm_introspection_gfn *gfn);
 
 int kvmi_ioctl_hook(struct kvm *kvm, void __user *argp);
 int kvmi_ioctl_unhook(struct kvm *kvm);
@@ -157,6 +162,8 @@ static inline void kvmi_destroy_vm(struct kvm *kvm) { }
 static inline int kvmi_vcpu_init(struct kvm_vcpu *vcpu) { return 0; }
 static inline void kvmi_vcpu_uninit(struct kvm_vcpu *vcpu) { }
 static inline int kvmi_vcpu_ioctl_map(struct kvm_vcpu *vcpu, u64 arg)
+				{ return 0; }
+static inline int kvmi_vcpu_ioctl_gfn_reply(struct kvm_vcpu *vcpu, u64 arg)
 				{ return 0; }
 
 static inline void kvmi_handle_requests(struct kvm_vcpu *vcpu) { }

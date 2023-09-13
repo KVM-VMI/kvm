@@ -1594,9 +1594,20 @@ struct kvm_introspection_hook {
 	__u8 uuid[16];
 };
 
+struct kvm_introspection_gfn {
+	__u64 ret;
+	__u64 gfn;
+};
+
+#define KVM_INTROSPECTION_GFN_REPLY_ABORT -1
+#define KVM_INTROSPECTION_GFN_REPLY_WAIT   0
+#define KVM_INTROSPECTION_GFN_REPLY_ALLOC  1
+#define KVM_INTROSPECTION_GFN_REPLY_FREE   2
+
 #define KVM_INTROSPECTION_HOOK    _IOW(KVMIO, 0xff, struct kvm_introspection_hook)
 #define KVM_INTROSPECTION_UNHOOK  _IO(KVMIO, 0xfb)
 #define KVM_INTROSPECTION_MAP     _IOW(KVMIO, 0xfa, __u64)
+#define KVM_INTROSPECTION_GFN     _IOW(KVMIO, 0xf9, struct kvm_introspection_gfn)
 
 struct kvm_introspection_feature {
 	__u32 allow;
