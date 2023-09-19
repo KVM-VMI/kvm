@@ -247,7 +247,7 @@ static void kvmi_clear_mem_access(struct kvm *kvm)
 	spin_lock(&kvm->mmu_lock);
 
 	/* Clear any leftover in radix tree */
-	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+	for (view = 0; view < kvm->arch.mmu_root_hpa_altviews_count; view++)
 		radix_tree_for_each_slot(slot, &kvmi->access_tree[view],
 					 &iter, 0) {
 			struct kvmi_mem_access *m = *slot;
@@ -267,7 +267,7 @@ static void kvmi_clear_mem_access(struct kvm *kvm)
 
 			for (gfn = start; gfn < end; gfn++) {
 				for (view = 0;
-					view < KVM_MAX_EPT_VIEWS;
+					view < kvm->arch.mmu_root_hpa_altviews_count;
 					view++) {
 					kvmi_arch_update_page_tracking(kvm,
 							memslot,
@@ -286,6 +286,24 @@ static void kvmi_clear_mem_access(struct kvm *kvm)
 	srcu_read_unlock(&kvm->srcu, idx);
 }
 
+static void kvmi_clear_altviews(struct kvm *kvm)
+{
+	u16 view, default_view = 0;
+
+	for (view = 1;
+	     view < kvm->arch.mmu_root_hpa_altviews_count;
+	     view++)
+		kvmi_arch_cmd_destroy_ept_view(kvm, view);
+
+	if (refcount_dec_and_test(&kvm->arch.kvmi_refcount)) {
+		unsigned long zap_mask = ~(1 << default_view);
+
+		kvm_mmu_zap_all(kvm, zap_mask);
+	}
+
+	kvfree(kvm->kvmi->access_tree);
+}
+
 static void free_kvmi(struct kvm *kvm)
 {
 	struct kvm_vcpu *vcpu;
@@ -295,6 +313,7 @@ static void free_kvmi(struct kvm *kvm)
 		proc_remove(kvm->kvmi->map);
 	kvmi_clear_mem_access(kvm);
 	kvmi_clear_vm_tokens(kvm);
+	kvmi_clear_altviews(kvm);
 
 	refcount_set(&kvm->arch.kvmi_refcount,
 			atomic_read(&kvm->online_vcpus));
@@ -436,11 +455,6 @@ alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 
 	atomic_set(&kvmi->ev_seq, 0);
 
-	for (i = 0; i < ARRAY_SIZE(kvmi->access_tree); i++)
-		INIT_RADIX_TREE(&kvmi->access_tree[i],
-				GFP_KERNEL & ~__GFP_DIRECT_RECLAIM);
-	rwlock_init(&kvmi->access_tree_lock);
-
 	kvmi->arch.kptn_node.track_preread = kvmi_track_preread;
 	kvmi->arch.kptn_node.track_prewrite = kvmi_track_prewrite;
 	kvmi->arch.kptn_node.track_preexec = kvmi_track_preexec;
@@ -463,6 +477,14 @@ alloc_kvmi(struct kvm *kvm, const struct kvm_introspection_hook *hook)
 			return NULL;
 		}
 	}
+
+	kvmi->access_tree = kvcalloc(kvm->arch.mmu_root_hpa_altviews_count,
+				     sizeof(struct radix_tree_root),
+				     GFP_KERNEL_ACCOUNT);
+	for (i = 0; i < kvm->arch.mmu_root_hpa_altviews_count; i++)
+		INIT_RADIX_TREE(&kvmi->access_tree[i],
+				GFP_KERNEL & ~__GFP_DIRECT_RECLAIM);
+	rwlock_init(&kvmi->access_tree_lock);
 
 	kvmi->kvm = kvm;
 
@@ -1588,7 +1610,7 @@ static void kvmi_track_create_slot(struct kvm *kvm,
 		struct kvmi_mem_access *m;
 		u16 view;
 
-		for (view = 0; view < KVM_MAX_EPT_VIEWS; view++) {
+		for (view = 0; view < kvm->arch.mmu_root_hpa_altviews_count; view++) {
 			m = __kvmi_get_saved_gfn_access(kvmi, start, view);
 			if (m) {
 				kvmi_arch_update_page_tracking(kvm,
@@ -1693,7 +1715,7 @@ static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
 	while (start < end) {
 		u16 view;
 
-		for (view = 0; view < KVM_MAX_EPT_VIEWS; view++) {
+		for (view = 0; view < kvm->arch.mmu_root_hpa_altviews_count; view++) {
 			access = kvmi_get_gfn_access_from_slot(slot,
 					start, view, &write_bitmap);
 			if (access != full_access) {

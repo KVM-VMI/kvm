@@ -3079,7 +3079,7 @@ static void vmx_construct_eptp_list(struct kvm_vcpu *vcpu)
 {
 	unsigned short view;
 
-	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+	for (view = 0; view < vcpu->kvm->arch.mmu_root_hpa_altviews_count; view++)
 		vmx_construct_eptp_with_index(vcpu, view);
 }
 
@@ -4318,7 +4318,10 @@ static int vmx_alloc_eptp_list_page(struct vcpu_vmx *vmx)
 
 static int vmx_set_ept_view(struct kvm_vcpu *vcpu, u16 view)
 {
-	if (view >= KVM_MAX_EPT_VIEWS)
+	if (view >= vcpu->kvm->arch.mmu_root_hpa_altviews_count)
+		return -EINVAL;
+
+	if (view > 0 && !vcpu->kvm->arch.mmu_root_hpa_altviews_occupied[view - 1])
 		return -EINVAL;
 
 	if (to_vmx(vcpu)->eptp_list_pg) {
@@ -6088,7 +6091,7 @@ static void dump_eptp_list(void)
 	pr_err("*** EPTP Switching ***\n");
 	pr_err("EPTP List Address: %p (phys %p)\n",
 		eptp_list, (void *)eptp_list_phys);
-	for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+	for (i = 0; i < PTRS_PER_PGD; i++)
 		pr_err("%d: %016llx\n", i, *(eptp_list + i));
 }
 
@@ -6289,7 +6292,7 @@ static unsigned int update_ept_view(struct vcpu_vmx *vmx)
 		u64 eptp = vmcs_read64(EPT_POINTER);
 		unsigned int view;
 
-		for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+		for (view = 0; view < vmx->vcpu.kvm->arch.mmu_root_hpa_altviews_count; view++)
 			if (eptp_list[view] == eptp) {
 				vmx->view = view;
 				break;

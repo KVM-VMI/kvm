@@ -58,6 +58,8 @@
 			| BIT(KVMI_VM_SET_PAGE_SVE) \
 			| BIT(KVMI_VM_WRITE_PHYSICAL) \
 			| BIT(KVMI_VM_QUERY_PHYSICAL) \
+			| BIT(KVMI_VM_CREATE_EPT_VIEW) \
+			| BIT(KVMI_VM_DESTROY_EPT_VIEW) \
 			| BIT(KVMI_VCPU_ALLOC_GFN) \
 			| BIT(KVMI_VCPU_FREE_GFN) \
 			| BIT(KVMI_VCPU_GET_INFO) \
@@ -123,9 +125,9 @@ static inline bool is_event_enabled(struct kvm_vcpu *vcpu, int event)
 	return test_bit(event, VCPUI(vcpu)->ev_mask);
 }
 
-static inline bool is_valid_view(unsigned short view)
+static inline bool is_valid_view(struct kvm *kvm, unsigned short view)
 {
-	return (view < KVM_MAX_EPT_VIEWS);
+	return (view < kvm->arch.mmu_root_hpa_altviews_count);
 }
 
 static inline bool kvmi_spp_enabled(struct kvm_introspection *kvmi)
@@ -240,6 +242,8 @@ bool kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu);
 gpa_t kvmi_arch_cmd_translate_gva(struct kvm_vcpu *vcpu, gva_t gva);
 bool kvmi_arch_invalid_insn(struct kvm_vcpu *vcpu, int *emulation_type);
 u8 kvmi_arch_relax_page_access(u8 old, u8 new);
+int kvmi_arch_cmd_create_ept_view(struct kvm *kvm);
+int kvmi_arch_cmd_destroy_ept_view(struct kvm *kvm, u16 view);
 u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_set_ept_view(struct kvm_vcpu *vcpu, u16 view);
 int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,

@@ -230,14 +230,6 @@ enum {
 				 PFERR_WRITE_MASK |		\
 				 PFERR_PRESENT_MASK)
 
-/*
- * We keep this value small to reduce the memory consumption
- * and the time spent on every VM-exit in update_ept_view().
- * Starting from 10 and up, the compiler will warn
- * about the stack frame size used in __kvm_set_memory_region().
- */
-#define KVM_MAX_EPT_VIEWS	3
-
 /* apic attention bits */
 #define KVM_APIC_CHECK_VAPIC	0
 /*
@@ -418,7 +410,8 @@ struct kvm_mmu {
 	void (*update_pte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			   u64 *spte, const void *pte);
 	hpa_t root_hpa;
-	hpa_t root_hpa_altviews[KVM_MAX_EPT_VIEWS];
+	hpa_t *root_hpa_altviews;
+	struct hlist_head **page_hash;
 
 	gpa_t root_cr3;
 	union kvm_mmu_role mmu_role;
@@ -828,8 +821,8 @@ struct kvm_arch_memory_slot {
 	struct kvm_rmap_head *rmap[KVM_NR_PAGE_SIZES];
 	u32 *subpage_wp_info;
 	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
-	unsigned short *gfn_track[KVM_MAX_EPT_VIEWS][KVM_PAGE_TRACK_MAX];
-	unsigned long *kvmi_track[KVM_MAX_EPT_VIEWS][KVM_PAGE_TRACK_MAX];
+	unsigned short ***gfn_track;
+	unsigned long ***kvmi_track;
 };
 
 /*
@@ -891,7 +884,8 @@ struct kvm_arch {
 	unsigned long n_max_mmu_pages;
 	unsigned int indirect_shadow_pages;
 	u8 mmu_valid_gen;
-	struct hlist_head mmu_page_hash[KVM_MAX_EPT_VIEWS][KVM_NUM_MMU_PAGES];
+	u16 mmu_root_hpa_altviews_count;
+	bool mmu_root_hpa_altviews_occupied[PTRS_PER_PGD - 1];
 	/*
 	 * Hash table of struct kvm_mmu_page.
 	 */
