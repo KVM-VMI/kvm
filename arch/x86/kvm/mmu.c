@@ -6993,7 +6993,8 @@ static void kvm_recover_nx_lpages(struct kvm *kvm)
 
 	ratio = READ_ONCE(nx_huge_pages_recovery_ratio);
 	to_zap = ratio ? DIV_ROUND_UP(kvm->stat.nx_lpage_splits, ratio) : 0;
-	while (to_zap && !list_empty(&kvm->arch.lpage_disallowed_mmu_pages)) {
+	while (to_zap && !list_empty(&kvm->arch.lpage_disallowed_mmu_pages)
+	       && !kvm->kvmi) {
 		/*
 		 * We use a separate list instead of just using active_mmu_pages
 		 * because the number of lpage_disallowed pages is expected to
