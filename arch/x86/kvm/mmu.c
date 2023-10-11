@@ -4503,7 +4503,8 @@ void kvm_mmu_sync_roots(struct kvm_vcpu *vcpu)
 EXPORT_SYMBOL_GPL(kvm_mmu_sync_roots);
 
 static gpa_t nonpaging_gva_to_gpa(struct kvm_vcpu *vcpu, gpa_t vaddr,
-				  u32 access, struct x86_exception *exception)
+				  u32 access, bool ignore_pfec,
+				  struct x86_exception *exception)
 {
 	if (exception)
 		exception->error_code = 0;
@@ -4511,7 +4512,7 @@ static gpa_t nonpaging_gva_to_gpa(struct kvm_vcpu *vcpu, gpa_t vaddr,
 }
 
 static gpa_t nonpaging_gva_to_gpa_nested(struct kvm_vcpu *vcpu, gpa_t vaddr,
-					 u32 access,
+					 u32 access,  bool ignore_pfec,
 					 struct x86_exception *exception)
 {
 	if (exception)

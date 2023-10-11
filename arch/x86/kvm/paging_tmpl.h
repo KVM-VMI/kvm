@@ -295,7 +295,7 @@ static inline unsigned FNAME(gpte_pkeys)(struct kvm_vcpu *vcpu, u64 gpte)
  */
 static int FNAME(walk_addr_generic)(struct guest_walker *walker,
 				    struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
-				    gpa_t addr, u32 access)
+				    gpa_t addr, u32 access, bool ignore_pfec)
 {
 	int ret;
 	pt_element_t pte;
@@ -414,9 +414,11 @@ retry_walk:
 	/* Convert to ACC_*_MASK flags for struct guest_walker.  */
 	walker->pt_access = FNAME(gpte_access)(pt_access ^ walk_nx_mask);
 	walker->pte_access = FNAME(gpte_access)(pte_access ^ walk_nx_mask);
-	errcode = permission_fault(vcpu, mmu, walker->pte_access, pte_pkey, access);
-	if (unlikely(errcode))
-		goto error;
+	if (unlikely(!ignore_pfec)) {
+		errcode = permission_fault(vcpu, mmu, walker->pte_access, pte_pkey, access);
+		if (unlikely(errcode))
+			goto error;
+	}
 
 	gfn = gpte_to_gfn_lvl(pte, walker->level);
 	gfn += (addr & PT_LVL_OFFSET_MASK(walker->level)) >> PAGE_SHIFT;
@@ -496,19 +498,19 @@ error:
 }
 
 static int FNAME(walk_addr)(struct guest_walker *walker,
-			    struct kvm_vcpu *vcpu, gpa_t addr, u32 access)
+			    struct kvm_vcpu *vcpu, gpa_t addr, u32 access, bool ignore_pfec)
 {
 	return FNAME(walk_addr_generic)(walker, vcpu, vcpu->arch.mmu, addr,
-					access);
+					access, ignore_pfec);
 }
 
 #if PTTYPE != PTTYPE_EPT
 static int FNAME(walk_addr_nested)(struct guest_walker *walker,
 				   struct kvm_vcpu *vcpu, gva_t addr,
-				   u32 access)
+				   u32 access, bool ignore_pfec)
 {
 	return FNAME(walk_addr_generic)(walker, vcpu, &vcpu->arch.nested_mmu,
-					addr, access);
+					addr, access, ignore_pfec);
 }
 #endif
 
@@ -797,7 +799,7 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gpa_t addr, u32 error_code,
 	/*
 	 * Look up the guest pte for the faulting address.
 	 */
-	r = FNAME(walk_addr)(&walker, vcpu, addr, error_code);
+	r = FNAME(walk_addr)(&walker, vcpu, addr, error_code, false);
 
 	/*
 	 * The page is not mapped by the guest.  Let the guest handle it.
@@ -949,13 +951,14 @@ static void FNAME(invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa)
 
 /* Note, @addr is a GPA when gva_to_gpa() translates an L2 GPA to an L1 GPA. */
 static gpa_t FNAME(gva_to_gpa)(struct kvm_vcpu *vcpu, gpa_t addr, u32 access,
+			       bool ignore_pfec,
 			       struct x86_exception *exception)
 {
 	struct guest_walker walker;
 	gpa_t gpa = UNMAPPED_GVA;
 	int r;
 
-	r = FNAME(walk_addr)(&walker, vcpu, addr, access);
+	r = FNAME(walk_addr)(&walker, vcpu, addr, access, ignore_pfec);
 
 	if (r) {
 		gpa = gfn_to_gpa(walker.gfn);
@@ -969,7 +972,7 @@ static gpa_t FNAME(gva_to_gpa)(struct kvm_vcpu *vcpu, gpa_t addr, u32 access,
 #if PTTYPE != PTTYPE_EPT
 /* Note, gva_to_gpa_nested() is only used to translate L2 GVAs. */
 static gpa_t FNAME(gva_to_gpa_nested)(struct kvm_vcpu *vcpu, gpa_t vaddr,
-				      u32 access,
+				      u32 access, bool ignore_pfec,
 				      struct x86_exception *exception)
 {
 	struct guest_walker walker;
@@ -981,7 +984,7 @@ static gpa_t FNAME(gva_to_gpa_nested)(struct kvm_vcpu *vcpu, gpa_t vaddr,
 	WARN_ON_ONCE(vaddr >> 32);
 #endif
 
-	r = FNAME(walk_addr_nested)(&walker, vcpu, vaddr, access);
+	r = FNAME(walk_addr_nested)(&walker, vcpu, vaddr, access, ignore_pfec);
 
 	if (r) {
 		gpa = gfn_to_gpa(walker.gfn);
