@@ -90,6 +90,8 @@ struct kvm_introspection {
 
 	DECLARE_BITMAP(vm_event_enable_mask, KVMI_NUM_EVENTS);
 
+	DECLARE_BITMAP(mmu_reload_mask, KVM_MAX_VCPUS);
+
 	atomic_t ev_seq;
 
 	struct radix_tree_root *access_tree;

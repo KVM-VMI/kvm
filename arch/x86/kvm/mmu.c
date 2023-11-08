@@ -311,7 +311,7 @@ static bool is_executable_pte(u64 spte);
 static union kvm_mmu_page_role
 kvm_mmu_calc_root_page_role(struct kvm_vcpu *vcpu);
 static int make_mmu_pages_available(struct kvm_vcpu *vcpu);
-static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, int write,
+static int __direct_map(struct kvm_vcpu *vcpu, u16 view, gpa_t gpa, int write,
 			int map_writable, int level, kvm_pfn_t pfn,
 			bool prefault, bool lpage_disallowed);
 
@@ -2020,74 +2020,8 @@ bool kvm_mmu_set_ept_page_sve(struct kvm *kvm, struct kvm_memory_slot *slot,
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_set_ept_page_sve);
 
-static u64 *kvm_gfn_rmap_get_first(u64 gfn, struct kvm_memory_slot *slot,
-					u16 view)
-{
-	struct kvm_rmap_head *rmap_head;
-	struct rmap_iterator iter;
-	struct kvm_mmu_page *sp;
-	u64 *sptep = NULL;
-
-	rmap_head = __gfn_to_rmap(gfn, PT_PAGE_TABLE_LEVEL, slot);
-	for_each_rmap_spte(rmap_head, &iter, sptep) {
-		sp = page_header(__pa(sptep));
-		if (sp->view == view)
-			return sptep;
-	}
-
-	return NULL;
-}
-
-static void kvm_mmu_set_spte_pfn(struct kvm_memory_slot *slot, u64 gfn, u64 pfn,
-				u16 view)
-{
-	u64 address_mask = PT64_LVL_ADDR_MASK(PT_PAGE_TABLE_LEVEL);
-	struct kvm_rmap_head *rmap_head = __gfn_to_rmap(gfn,
-				PT_PAGE_TABLE_LEVEL,
-				slot);
-	struct rmap_iterator iter;
-	struct kvm_mmu_page *sp;
-	u64 *sptep = NULL;
-
-	for_each_rmap_spte(rmap_head, &iter, sptep) {
-		sp = page_header(__pa(sptep));
-		if (sp->view == view) {
-			*sptep &= ~address_mask;
-			*sptep |= pfn << PAGE_SHIFT;
-		}
-	}
-}
-
-/* Restore sptes using previous gfn->pfn mapping (4K page only) */
-static int kvm_mmu_restore_gfn(struct kvm_vcpu *vcpu,
-		struct kvm_memory_slot *slot, u16 view, u64 gfn)
-{
-	int rc = 0;
-	kvm_pfn_t pfn;
-
-	spin_lock(&vcpu->kvm->mmu_lock);
-
-	/* Restore sptes using previous gpa->hva->hpa mapping
-	 * available in memslots
-	 */
-	pfn = gfn_to_pfn(vcpu->kvm, gfn);
-	if (is_error_noslot_pfn(pfn) || !pfn_valid(pfn)) {
-		rc = -KVM_EINVAL;
-		goto exit;
-	}
-
-	kvm_mmu_set_spte_pfn(slot, gfn, pfn, view);
-
-	kvm_flush_remote_tlbs_with_address(vcpu->kvm, gfn, 1);
-	kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
-
-exit:
-	spin_unlock(&vcpu->kvm->mmu_lock);
-	return rc;
-}
-
 /* Create a mapping as tdp_page_fault() does, through __direct_map() */
-static int kvm_mmu_create_gfn_mapping(struct kvm_vcpu *vcpu, u64 gfn,
+static int kvm_mmu_create_gfn_mapping(struct kvm_vcpu *vcpu, u16 view, u64 gfn,
 				kvm_pfn_t pfn, bool host_writable)
 {
 	int r = 0;
@@ -2113,7 +2047,7 @@ static int kvm_mmu_create_gfn_mapping(struct kvm_vcpu *vcpu, u64 gfn,
 		r = -KVM_ENOMEM;
 		goto unlock;
 	}
-	if (__direct_map(vcpu, gfn_to_gpa(gfn), 0, host_writable,
+	if (__direct_map(vcpu, view, gfn_to_gpa(gfn), 0, host_writable,
 			level, pfn, false, true))
 		r = -KVM_EFAULT;
 unlock:
@@ -2122,14 +2056,11 @@ unlock:
 }
 
 /* Changing gfn->mfn mapping is supported for 4K pages only */
-int kvm_mmu_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn)
+int kvm_mmu_change_gfn_for_view(struct kvm_vcpu *vcpu, u16 view, u64 old_gfn, u64 new_gfn)
 {
-	struct kvm_memory_slot *old_slot, *new_slot;
-	u64 *new_sptep = NULL;
-	u64 *old_sptep = NULL;
 	int idx;
 	int rc = 0;
-	u16 view = kvm_get_ept_view(vcpu);
+	kvm_pfn_t pfn;
 
 	if (new_gfn == ~0ULL)
 		return -KVM_EPERM;
@@ -2142,80 +2073,22 @@ int kvm_mmu_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn)
 		goto exit;
 	}
 
-	old_slot = gfn_to_memslot(vcpu->kvm, old_gfn);
-	new_slot = gfn_to_memslot(vcpu->kvm, new_gfn);
+	pfn = gfn_to_pfn(vcpu->kvm, new_gfn);
 
-	/* Check if new_gfn has a mapping */
-	spin_lock(&vcpu->kvm->mmu_lock);
-	new_sptep = kvm_gfn_rmap_get_first(new_gfn, new_slot, view);
-	spin_unlock(&vcpu->kvm->mmu_lock);
-	if (!new_sptep) {
-		kvm_pfn_t pfn = gfn_to_pfn(vcpu->kvm, new_gfn);
-
-		if (is_error_noslot_pfn(pfn) || !pfn_valid(pfn)) {
-			rc = -KVM_EINVAL;
-			goto exit;
-		}
-
-		rc = kvm_mmu_create_gfn_mapping(vcpu, new_gfn, pfn,
-					true);
-		if (rc != 0) {
-			rc = -KVM_EINVAL;
-			goto exit;
-		}
-
-		new_sptep = kvm_gfn_rmap_get_first(new_gfn, new_slot, view);
-		if (!new_sptep) {
-			rc = -KVM_EINVAL;
-			goto exit;
-		}
-	}
-
-	/* Check for restore operation */
-	if (old_gfn == new_gfn) {
-		rc = kvm_mmu_restore_gfn(vcpu, old_slot, view, old_gfn);
+	if (is_error_noslot_pfn(pfn) || !pfn_valid(pfn)) {
+		rc = -KVM_EINVAL;
 		goto exit;
 	}
 
-	/* First case: old_gfn has a mapping, so there is
-	 * at least one present 4K pte
-	 */
-	spin_lock(&vcpu->kvm->mmu_lock);
-	old_sptep = kvm_gfn_rmap_get_first(old_gfn, old_slot, view);
-	spin_unlock(&vcpu->kvm->mmu_lock);
-	if (old_sptep) {
-		/* Change all sptes (of old_gfn) that
-		 * belong to the specified view
-		 */
-		u64 address_mask = PT64_LVL_ADDR_MASK(PT_PAGE_TABLE_LEVEL);
-		kvm_pfn_t pfn = (*new_sptep & address_mask) >> PAGE_SHIFT;
-
-		spin_lock(&vcpu->kvm->mmu_lock);
-		kvm_mmu_set_spte_pfn(old_slot, old_gfn, pfn, view);
-		kvm_flush_remote_tlbs_with_address(vcpu->kvm, old_gfn, 1);
-		kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
-		spin_unlock(&vcpu->kvm->mmu_lock);
-	} else {
-		/* Second case : old_gfn has no
-		 * mapping yet, so create one
-		 */
-		bool host_writable = (*new_sptep) & SPTE_HOST_WRITEABLE;
-		kvm_pfn_t pfn = gfn_to_pfn(vcpu->kvm, new_gfn);
-
-		if (is_error_noslot_pfn(pfn) || !pfn_valid(pfn)) {
-			rc = -KVM_EINVAL;
-			goto exit;
-		}
-
-		rc = kvm_mmu_create_gfn_mapping(vcpu, old_gfn, pfn,
-					host_writable);
-	}
+	rc = kvm_mmu_create_gfn_mapping(vcpu, view, old_gfn, pfn, true);
+	kvm_flush_remote_tlbs_with_address(vcpu->kvm, old_gfn, 1);
+	kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
 
 exit:
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 	return rc;
 }
-EXPORT_SYMBOL_GPL(kvm_mmu_change_gfn);
+EXPORT_SYMBOL_GPL(kvm_mmu_change_gfn_for_view);
 
 static bool rmap_write_protect(struct kvm_vcpu *vcpu, u64 gfn)
 {
@@ -3748,7 +3621,7 @@ static unsigned int kvm_mmu_apply_introspection_access(struct kvm_vcpu *vcpu,
 	return acc;
 }
 
-static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, int write,
+static int __direct_map(struct kvm_vcpu *vcpu, u16 view, gpa_t gpa, int write,
 			int map_writable, int level, kvm_pfn_t pfn,
 			bool prefault, bool lpage_disallowed)
 {
@@ -3763,7 +3636,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, int write,
 		return RET_PF_RETRY;
 
 	trace_kvm_mmu_spte_requested(gpa, level, pfn);
-	for_each_shadow_entry(vcpu, gpa, it) {
+	for_each_shadow_entry_using_root(vcpu, vcpu->arch.mmu->root_hpa_altviews[view], gpa, it) {
 		/*
 		 * We cannot overwrite existing page tables with an NX
 		 * large page, as the leaf could be executable.
@@ -3778,8 +3651,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, int write,
 		if (!is_shadow_present_pte(*it.sptep)) {
 			sp = kvm_mmu_get_page(vcpu, base_gfn, it.addr,
 					      it.level - 1, true, ACC_ALL,
-					      kvm_get_ept_view(vcpu));
-
+					      view);
 			link_shadow_page(vcpu, it.sptep, sp);
 			if (lpage_disallowed)
 				account_huge_nx_page(vcpu->kvm, sp);
@@ -4192,8 +4064,8 @@ static int nonpaging_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 		goto out_unlock;
 	if (likely(!force_pt_level))
 		transparent_hugepage_adjust(vcpu, gfn, &pfn, &level);
-	r = __direct_map(vcpu, gpa, write, map_writable, level, pfn,
-			 prefault, false);
+	r = __direct_map(vcpu, kvm_get_ept_view(vcpu), gpa, write, map_writable,
+			 level, pfn, prefault, false);
 out_unlock:
 	spin_unlock(&vcpu->kvm->mmu_lock);
 	kvm_release_pfn_clean(pfn);
@@ -4293,7 +4165,7 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.mmu->shadow_root_level >= PT64_ROOT_4LEVEL) {
 		spin_lock(&vcpu->kvm->mmu_lock);
-		if(make_mmu_pages_available(vcpu) < 0) {
+		if (make_mmu_pages_available(vcpu) < 0) {
 			spin_unlock(&vcpu->kvm->mmu_lock);
 			return -ENOSPC;
 		}
@@ -4852,8 +4724,8 @@ static int tdp_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 		goto out_unlock;
 	if (likely(!force_pt_level))
 		transparent_hugepage_adjust(vcpu, gfn, &pfn, &level);
-	r = __direct_map(vcpu, gpa, write, map_writable, level, pfn,
-			 prefault, lpage_disallowed);
+	r = __direct_map(vcpu, kvm_get_ept_view(vcpu), gpa, write, map_writable,
+			 level, pfn, prefault, lpage_disallowed);
 out_unlock:
 	spin_unlock(&vcpu->kvm->mmu_lock);
 	kvm_release_pfn_clean(pfn);
