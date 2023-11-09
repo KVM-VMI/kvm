@@ -602,7 +602,7 @@ void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 	u32 action;
 	u64 gpa;
 
-	gpa = kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
+	gpa = kvm_mmu_gva_to_gpa_ignore_permissions(vcpu, gva, NULL);
 	old_rip = kvm_rip_read(vcpu);
 
 	trace_kvmi_event_bp_send(vcpu->vcpu_id, gpa, old_rip);
@@ -1449,7 +1449,7 @@ bool kvmi_arch_stop_singlestep(struct kvm_vcpu *vcpu)
 
 gpa_t kvmi_arch_cmd_translate_gva(struct kvm_vcpu *vcpu, gva_t gva)
 {
-	return kvm_mmu_gva_to_gpa_system(vcpu, gva, 0, NULL);
+	return kvm_mmu_gva_to_gpa_ignore_permissions(vcpu, gva, NULL);
 }
 
 bool kvmi_update_ad_flags(struct kvm_vcpu *vcpu)
