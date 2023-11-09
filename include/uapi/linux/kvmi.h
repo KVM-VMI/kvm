@@ -39,7 +39,8 @@ enum {
 	KVMI_VCPU_CONTROL_CR       = 10,
 	KVMI_VCPU_INJECT_EXCEPTION = 19,
 
-	KVMI_VM_GET_MAX_GFN = 29,
+	KVMI_VM_GET_MAX_GFN            = 29,
+	KVMI_VM_GET_NEXT_AVAILABLE_GFN = 31,
 
 	KVMI_VCPU_GET_XSAVE     = 16,
 	KVMI_VCPU_GET_MTRR_TYPE = 23,
@@ -187,6 +188,10 @@ struct kvmi_vcpu_control_events {
 };
 
 struct kvmi_vm_get_max_gfn_reply {
+	__u64 gfn;
+};
+
+struct kvmi_vm_get_next_available_gfn_reply {
 	__u64 gfn;
 };
 

@@ -1205,6 +1205,33 @@ gfn_t kvm_get_max_gfn(struct kvm *kvm)
 	return max_gfn;
 }
 
+gfn_t kvm_get_next_available_gfn(struct kvm *kvm)
+{
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots;
+	gfn_t next_gfn = ~0ull;
+	int idx;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	spin_lock(&kvm->mmu_lock);
+
+	slots = kvm_memslots(kvm);
+	kvm_for_each_memslot(memslot, slots)
+	{
+		gfn_t candidate = memslot->base_gfn + memslot->npages + 1;
+		if (!__gfn_to_memslot(slots, candidate))
+		{
+			next_gfn = candidate;
+			break;
+		}
+	}
+
+	spin_unlock(&kvm->mmu_lock);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return next_gfn;
+}
+
 int kvm_get_dirty_log(struct kvm *kvm,
 			struct kvm_dirty_log *log, int *is_dirty)
 {
