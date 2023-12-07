@@ -41,6 +41,8 @@ static const char *const msg_IDs[] = {
 	[KVMI_VM_SET_PAGE_WRITE_BITMAP]  = "KVMI_VM_SET_PAGE_WRITE_BITMAP",
 	[KVMI_VM_WRITE_PHYSICAL]         = "KVMI_VM_WRITE_PHYSICAL",
 	[KVMI_VM_QUERY_PHYSICAL]         = "KVMI_VM_QUERY_PHYSICAL",
+	[KVMI_VM_CREATE_EPT_VIEW]        = "KVMI_VM_CREATE_EPT_VIEW",
+	[KVMI_VM_DESTROY_EPT_VIEW]       = "KVMI_VM_DESTROY_EPT_VIEW",
 	[KVMI_VCPU_ALLOC_GFN]            = "KVMI_VCPU_ALLOC_GFN",
 	[KVMI_VCPU_FREE_GFN]             = "KVMI_VCPU_FREE_GFN",
 	[KVMI_VCPU_CONTROL_CR]           = "KVMI_VCPU_CONTROL_CR",
@@ -467,7 +469,7 @@ static int handle_set_page_sve(struct kvm_introspection *kvmi,
 	const struct kvmi_vm_set_page_sve *req = _req;
 	int ec;
 
-	if (!is_valid_view(req->view))
+	if (!is_valid_view(kvmi->kvm, req->view))
 		ec = -KVM_EINVAL;
 	else if (req->suppress > 1)
 		ec = -KVM_EINVAL;
@@ -571,6 +573,35 @@ static int handle_set_page_write_bitmap(struct kvm_introspection *kvmi,
 	return kvmi_msg_vm_reply(kvmi, msg, ec, NULL, 0);
 }
 
+static int handle_create_ept_view(struct kvm_introspection *kvmi,
+				       const struct kvmi_msg_hdr *msg,
+				       const void *req)
+{
+	struct kvmi_create_ept_view_reply rpl;
+	int err;
+
+	memset(&rpl, 0, sizeof(rpl));
+
+	err = kvmi_arch_cmd_create_ept_view(kvmi->kvm);
+
+	if (err >= 0) {
+		rpl.view = err;
+		err = 0;
+	}
+
+	return kvmi_msg_vm_reply(kvmi, msg, err, &rpl, sizeof(rpl));
+}
+
+static int handle_destroy_ept_view(struct kvm_introspection *kvmi,
+					const struct kvmi_msg_hdr *msg,
+					const void *_req)
+{
+	const struct kvmi_destroy_ept_view *req = _req;
+	int err = kvmi_arch_cmd_destroy_ept_view(kvmi->kvm, req->view);
+
+	return kvmi_msg_vm_reply(kvmi, msg, err, NULL, 0);
+}
+
 /*
  * These commands are executed by the receiving thread/worker.
  */
@@ -592,6 +623,8 @@ static int(*const msg_vm[])(struct kvm_introspection *,
 	[KVMI_VM_SET_PAGE_WRITE_BITMAP]  = handle_set_page_write_bitmap,
 	[KVMI_VM_WRITE_PHYSICAL]         = handle_write_physical,
 	[KVMI_VM_QUERY_PHYSICAL]         = handle_query_physical,
+	[KVMI_VM_CREATE_EPT_VIEW]        = handle_create_ept_view,
+	[KVMI_VM_DESTROY_EPT_VIEW]       = handle_destroy_ept_view,
 	[KVMI_VCPU_PAUSE]                = handle_pause_vcpu,
 };
 
@@ -875,7 +908,7 @@ static int handle_vcpu_set_ept_view(const struct kvmi_vcpu_cmd_job *job,
 
 	if (req->padding1 || req->padding2)
 		ec = -KVM_EINVAL;
-	else if (!is_valid_view(req->view))
+	else if (!is_valid_view(job->vcpu->kvm, req->view))
 		ec = -KVM_EINVAL;
 	else if (!kvm_eptp_switching_supported)
 		ec = -KVM_EOPNOTSUPP;
@@ -896,7 +929,7 @@ static int handle_vcpu_control_ept_view(const struct kvmi_vcpu_cmd_job *job,
 
 	if (req->padding1 || req->padding2)
 		ec = -KVM_EINVAL;
-	else if (!is_valid_view(req->view))
+	else if (!is_valid_view(job->vcpu->kvm, req->view))
 		ec = -KVM_EINVAL;
 	else if (req->view && req->visible &&
 	    kvmi_spp_enabled(KVMI(job->vcpu->kvm)))

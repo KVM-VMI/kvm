@@ -9927,6 +9927,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	INIT_LIST_HEAD(&kvm->arch.lpage_disallowed_mmu_pages);
 	INIT_LIST_HEAD(&kvm->arch.assigned_dev_head);
 	atomic_set(&kvm->arch.noncoherent_dma_count, 0);
+	kvm->arch.mmu_root_hpa_altviews_count = 1;
 
 	/* Reserve bit 0 of irq_sources_bitmap for userspace irq source */
 	set_bit(KVM_USERSPACE_IRQ_SOURCE_ID, &kvm->arch.irq_sources_bitmap);
@@ -10108,14 +10109,16 @@ void kvm_arch_free_memslot(struct kvm *kvm, struct kvm_memory_slot *free,
 		}
 	}
 
-	kvm_page_track_free_memslot(free, dont);
+	kvm_page_track_free_memslot(kvm->arch.mmu_root_hpa_altviews_count,
+					free, dont);
 	kvm_spp_free_memslot(free, dont);
 }
 
 int kvm_arch_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 			    unsigned long npages)
 {
-	int i;
+	int i, j;
+	u16 root_hpa_altviews_count = kvm->arch.mmu_root_hpa_altviews_count;
 
 	for (i = 0; i < KVM_NR_PAGE_SIZES; ++i) {
 		struct kvm_lpage_info *linfo;
@@ -10138,6 +10141,26 @@ int kvm_arch_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 		if (!linfo)
 			goto out_free;
 
+		slot->arch.gfn_track = kvcalloc(root_hpa_altviews_count,
+						sizeof(short**),
+						GFP_KERNEL_ACCOUNT);
+		slot->arch.kvmi_track = kvcalloc(root_hpa_altviews_count,
+						 sizeof(long**),
+						 GFP_KERNEL_ACCOUNT);
+
+		if (!slot->arch.gfn_track || !slot->arch.kvmi_track)
+			goto out_free;
+
+		for (j = 0; j < root_hpa_altviews_count; j++) {
+			slot->arch.gfn_track[j] = kvcalloc(KVM_PAGE_TRACK_MAX,
+					sizeof(short*), GFP_KERNEL_ACCOUNT);
+			slot->arch.kvmi_track[j] = kvcalloc(KVM_PAGE_TRACK_MAX,
+					sizeof(long*), GFP_KERNEL_ACCOUNT);
+
+			if (!slot->arch.gfn_track[j]
+			    || !slot->arch.kvmi_track[j])
+				goto out_free;
+		}
 		slot->arch.lpage_info[i - 1] = linfo;
 
 		if (slot->base_gfn & (KVM_PAGES_PER_HPAGE(level) - 1))
@@ -10168,6 +10191,23 @@ out_free:
 	for (i = 0; i < KVM_NR_PAGE_SIZES; ++i) {
 		kvfree(slot->arch.rmap[i]);
 		slot->arch.rmap[i] = NULL;
+
+		if (!slot->arch.gfn_track)
+			continue;
+		for (j = 0; j < root_hpa_altviews_count; j++) {
+			kvfree(slot->arch.gfn_track[j]);
+			slot->arch.gfn_track[j] = NULL;
+		}
+		slot->arch.gfn_track = NULL;
+
+		if (!slot->arch.kvmi_track)
+			continue;
+		for (j = 0; j < root_hpa_altviews_count; j++) {
+			kvfree(slot->arch.kvmi_track[j]);
+			slot->arch.kvmi_track[j] = NULL;
+		}
+		slot->arch.kvmi_track = NULL;
+
 		if (i == 0)
 			continue;
 

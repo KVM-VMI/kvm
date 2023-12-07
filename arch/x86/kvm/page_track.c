@@ -19,21 +19,37 @@
 
 #include "mmu.h"
 
-void kvm_page_track_free_memslot(struct kvm_memory_slot *free,
+void kvm_page_track_free_memslot(u16 count,
+				 struct kvm_memory_slot *free,
 				 struct kvm_memory_slot *dont)
 {
 	int i, view;
 
-	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+	if (!free->arch.gfn_track || !free->arch.kvmi_track)
+		return;
+
+	for (view = 0; view < count; view++) {
 		for (i = 0; i < KVM_PAGE_TRACK_MAX; i++)
-			if (!dont || free->arch.gfn_track[view][i] !=
-			      dont->arch.gfn_track[view][i]) {
+			if (!dont || !dont->arch.gfn_track
+			    || free->arch.gfn_track[view][i] !=
+			       dont->arch.gfn_track[view][i]) {
 				kvfree(free->arch.gfn_track[view][i]);
 				free->arch.gfn_track[view][i] = NULL;
 
 				kvfree(free->arch.kvmi_track[view][i]);
 				free->arch.kvmi_track[view][i] = NULL;
 			}
+
+		if (!dont || !dont->arch.gfn_track) {
+			kvfree(free->arch.gfn_track[view]);
+			kvfree(free->arch.kvmi_track[view]);
+		}
+	}
+
+	if (!dont || !dont->arch.gfn_track) {
+		kvfree(free->arch.gfn_track);
+		kvfree(free->arch.kvmi_track);
+	}
 }
 
 int kvm_page_track_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
@@ -43,7 +59,7 @@ int kvm_page_track_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 	struct kvm_page_track_notifier_node *n;
 	int view, idx, i;
 
-	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
+	for (view = 0; view < kvm->arch.mmu_root_hpa_altviews_count; view++)
 		for (i = 0; i < KVM_PAGE_TRACK_MAX; i++) {
 			slot->arch.gfn_track[view][i] =
 				kvcalloc(npages,
@@ -57,7 +73,6 @@ int kvm_page_track_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 					GFP_KERNEL_ACCOUNT);
 			if (!slot->arch.kvmi_track[view][i])
 				goto track_free;
-
 		}
 
 	head = &kvm->arch.track_notifier_head;
@@ -74,7 +89,7 @@ int kvm_page_track_create_memslot(struct kvm *kvm, struct kvm_memory_slot *slot,
 	return 0;
 
 track_free:
-	kvm_page_track_free_memslot(slot, NULL);
+	kvm_page_track_free_memslot(kvm->arch.mmu_root_hpa_altviews_count, slot, NULL);
 	return -ENOMEM;
 }
 

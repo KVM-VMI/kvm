@@ -622,6 +622,270 @@ void kvmi_arch_breakpoint_event(struct kvm_vcpu *vcpu, u64 gva, u8 insn_len)
 	trace_kvmi_event_bp_recv(vcpu->vcpu_id, action, get_next_rip(vcpu));
 }
 
+static void free_ept_tracks(unsigned short ***gfn_track,
+			    unsigned long ***kvmi_track,
+			    size_t old, size_t new)
+{
+	size_t i, j;
+
+	for (i = old; i < new; i++) {
+		if (gfn_track && gfn_track[i]) {
+			for (j = 0; j < KVM_PAGE_TRACK_MAX; j++)
+				if (gfn_track[i][j])
+					kvfree(gfn_track[i][j]);
+			kvfree(gfn_track[i]);
+		}
+
+		if (kvmi_track && kvmi_track[i]) {
+			for (j = 0; j < KVM_PAGE_TRACK_MAX; j++)
+				if (kvmi_track[i][j])
+					kvfree(kvmi_track[i][j]);
+			kvfree(kvmi_track[i]);
+		}
+	}
+}
+
+static bool grow_ept_tracks_for_memslot(struct kvm_memory_slot *slot,
+					 u16 old, u16 new)
+{
+	size_t i, j;
+	unsigned short ***gfn_track;
+	unsigned long ***kvmi_track;
+
+	gfn_track = krealloc(slot->arch.gfn_track,
+			     new * sizeof(short**), GFP_KERNEL_ACCOUNT);
+	if (!gfn_track)
+		return false;
+	slot->arch.gfn_track = gfn_track;
+
+	kvmi_track = krealloc(slot->arch.kvmi_track,
+			      new * sizeof(long**), GFP_KERNEL_ACCOUNT);
+	if (!kvmi_track)
+		return false;
+	slot->arch.kvmi_track = kvmi_track;
+
+	for (i = old; i < new; i++) {
+		gfn_track[i] = kvcalloc(KVM_PAGE_TRACK_MAX,
+					sizeof(*gfn_track[i]),
+					GFP_KERNEL_ACCOUNT);
+		if (!gfn_track[i])
+			goto no_mem;
+		kvmi_track[i] = kvcalloc(KVM_PAGE_TRACK_MAX,
+					 sizeof(*kvmi_track[i]),
+					 GFP_KERNEL_ACCOUNT);
+		if (!kvmi_track[i])
+			goto no_mem;
+
+		for (j = 0; j < KVM_PAGE_TRACK_MAX; j++) {
+			gfn_track[i][j] =
+				kvcalloc(slot->npages,
+					 sizeof(*gfn_track[i][j]),
+					 GFP_KERNEL_ACCOUNT);
+			if (!gfn_track[i][j])
+				goto no_mem;
+
+			kvmi_track[i][j] =
+				kvcalloc(BITS_TO_LONGS(slot->npages),
+					 sizeof(*kvmi_track[i][j]),
+					 GFP_KERNEL_ACCOUNT);
+			if (!kvmi_track[i][j])
+				goto no_mem;
+		}
+	}
+
+	return true;
+no_mem:
+	free_ept_tracks(gfn_track, kvmi_track, old, new);
+	return false;
+}
+
+static void shrink_ept_tracks_for_memslot(struct kvm_memory_slot *slot,
+					  u16 old, u16 new)
+{
+	size_t i, j;
+	unsigned short ***gfn_track;
+	unsigned long ***kvmi_track;
+
+	for (i = new; i < old; i++) {
+		for (j = 0; j < KVM_PAGE_TRACK_MAX; j++) {
+			kvfree(slot->arch.gfn_track[i][j]);
+			kvfree(slot->arch.kvmi_track[i][j]);
+		}
+
+		kvfree(slot->arch.gfn_track[i]);
+		kvfree(slot->arch.kvmi_track[i]);
+	}
+
+	gfn_track = krealloc(slot->arch.gfn_track,
+			     new * sizeof(short**), GFP_KERNEL_ACCOUNT);
+	if (!gfn_track)
+		return;
+	slot->arch.gfn_track = gfn_track;
+
+	kvmi_track = krealloc(slot->arch.kvmi_track,
+			      new * sizeof(long**), GFP_KERNEL_ACCOUNT);
+	if (!kvmi_track)
+		return;
+	slot->arch.kvmi_track = kvmi_track;
+}
+
+static bool grow_ept_tracks(struct kvm *kvm,
+			    u16 new)
+{
+	struct kvm_memory_slot *slot;
+	u16 old = kvm->arch.mmu_root_hpa_altviews_count;
+	size_t i;
+
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
+		kvm_for_each_memslot(slot, __kvm_memslots(kvm, i))
+			if (!grow_ept_tracks_for_memslot(slot, old, new)) {
+				kvm->arch.mmu_root_hpa_altviews_count = new;
+				for (; i >= 0; i--)
+					shrink_ept_tracks_for_memslot(slot, new, old);
+				kvm->arch.mmu_root_hpa_altviews_count = old;
+				return false;
+			}
+
+	return true;
+}
+
+static void shrink_ept_tracks(struct kvm *kvm, u16 new)
+{
+	struct kvm_memory_slot *slot;
+	size_t i;
+
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
+		kvm_for_each_memslot(slot, __kvm_memslots(kvm, i))
+			shrink_ept_tracks_for_memslot(slot, kvm->arch.mmu_root_hpa_altviews_count, new);
+}
+
+int kvmi_arch_cmd_create_ept_view(struct kvm *kvm)
+{
+	struct kvm_vcpu *vcpu;
+	struct hlist_head **page_hash;
+	struct kvm_mmu *mmu;
+	struct radix_tree_root *access_tree;
+	hpa_t *views;
+	u16 view = 0, views_count;
+	size_t i, j;
+
+	while (view < PTRS_PER_PGD - 1
+	       && kvm->arch.mmu_root_hpa_altviews_occupied[view])
+		++view;
+
+	if (++view >= PTRS_PER_PGD)
+		return -KVM_EINVAL;
+
+	views_count = view + 1;
+
+	if (!grow_ept_tracks(kvm, views_count))
+		return -KVM_ENOMEM;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		mmu = vcpu->arch.mmu;
+		if (!mmu)
+			return -KVM_EINVAL;
+
+		if (views_count > kvm->arch.mmu_root_hpa_altviews_count) {
+			page_hash = krealloc(mmu->page_hash,
+					     views_count * sizeof(struct hlist_head *),
+					     GFP_KERNEL_ACCOUNT);
+			if (!page_hash)
+				return -KVM_ENOMEM;
+			for (j = kvm->arch.mmu_root_hpa_altviews_count; j < views_count; j++)
+				page_hash[j] = kzalloc(KVM_NUM_MMU_PAGES *
+						       sizeof(struct hlist_head),
+						       GFP_KERNEL_ACCOUNT);
+			mmu->page_hash = page_hash;
+
+			views = krealloc(mmu->root_hpa_altviews,
+					 views_count * sizeof(hpa_t), GFP_NOIO);
+			if (!views)
+				return -KVM_ENOMEM;
+			mmu->root_hpa_altviews = views;
+			mmu->root_hpa_altviews[view] = INVALID_PAGE;
+		}
+	}
+
+	if (views_count > kvm->arch.mmu_root_hpa_altviews_count) {
+		access_tree = krealloc(kvm->kvmi->access_tree,
+					views_count * sizeof(struct radix_tree_root),
+					GFP_KERNEL_ACCOUNT);
+		if (!access_tree)
+			return -KVM_ENOMEM;
+		for (i = kvm->arch.mmu_root_hpa_altviews_count; i < view; i++)
+			INIT_RADIX_TREE(&kvm->kvmi->access_tree[i],
+				GFP_KERNEL & ~__GFP_DIRECT_RECLAIM);
+		kvm->kvmi->access_tree = access_tree;
+		kvm->arch.mmu_root_hpa_altviews_count = views_count;
+	}
+	
+	kvm->arch.mmu_root_hpa_altviews_occupied[view - 1] = true;	
+	return view;
+}
+
+int kvmi_arch_cmd_destroy_ept_view(struct kvm *kvm, u16 view)
+{
+	struct kvm_vcpu *vcpu;
+	struct hlist_head **page_hash;
+	struct kvm_mmu *mmu; 
+	struct radix_tree_root *access_tree;
+	hpa_t *views;
+	u16 views_count;
+	size_t i = 0, j, end = 0;
+
+	if (view < 1 || view >= PTRS_PER_PGD
+	    || !kvm->arch.mmu_root_hpa_altviews_occupied[view - 1])
+		return -KVM_EINVAL;
+
+	kvm->arch.mmu_root_hpa_altviews_occupied[view - 1] = false;
+
+	while (i < PTRS_PER_PGD - 1) {
+		if (i > 0 && kvm->arch.mmu_root_hpa_altviews_occupied[i - 1])
+			end = i;
+		++i;
+	}
+
+	views_count = end + 1;
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		mmu = vcpu->arch.mmu;
+		if (!mmu)
+			return -KVM_EINVAL;
+		mmu->root_hpa_altviews[view] = INVALID_PAGE;
+
+		if (views_count < kvm->arch.mmu_root_hpa_altviews_count) {
+			for (j = views_count; j < kvm->arch.mmu_root_hpa_altviews_count; j++)
+				kvfree(mmu->page_hash[j]);
+
+			page_hash = krealloc(mmu->page_hash,
+					     views_count * sizeof(struct hlist_head *),
+					     GFP_KERNEL_ACCOUNT);
+			if (!page_hash)
+				return -KVM_ENOMEM;
+			mmu->page_hash = page_hash;
+
+			views = krealloc(mmu->root_hpa_altviews,
+					 views_count * sizeof(hpa_t),
+					 GFP_NOIO);
+			if (!views)
+				return -KVM_ENOMEM;
+			mmu->root_hpa_altviews = views;
+		}
+	}
+
+	if (views_count < kvm->arch.mmu_root_hpa_altviews_count) {
+		shrink_ept_tracks(kvm, views_count);
+		access_tree = krealloc(kvm->kvmi->access_tree,
+					views_count * sizeof(struct radix_tree_root),
+					GFP_KERNEL_ACCOUNT);
+		if (!access_tree)
+			return -KVM_ENOMEM;
+		kvm->kvmi->access_tree = access_tree;
+		kvm->arch.mmu_root_hpa_altviews_count = views_count;
+	}
+	return 0;
+}
+
 u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu)
 {
 	return kvm_get_ept_view(vcpu);
@@ -629,7 +893,6 @@ u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu)
 
 int kvmi_arch_cmd_set_ept_view(struct kvm_vcpu *vcpu, u16 view)
 {
-
 	if (!kvm_x86_ops->set_ept_view)
 		return -EINVAL;
 
@@ -647,21 +910,10 @@ int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 
 void kvmi_arch_restore_ept_view(struct kvm_vcpu *vcpu)
 {
-	struct kvm *kvm = vcpu->kvm;
-	u16 view, default_view = 0;
-	bool visible = false;
+	u16 default_view = 0;
 
 	if (kvm_get_ept_view(vcpu) != default_view)
 		kvmi_arch_cmd_set_ept_view(vcpu, default_view);
-
-	for (view = 0; view < KVM_MAX_EPT_VIEWS; view++)
-		kvmi_arch_cmd_control_ept_view(vcpu, view, visible);
-
-	if (refcount_dec_and_test(&kvm->arch.kvmi_refcount)) {
-		unsigned long zap_mask = ~(1 << default_view);
-
-		kvm_mmu_zap_all(vcpu->kvm, zap_mask);
-	}
 }
 
 bool kvmi_arch_restore_interception(struct kvm_vcpu *vcpu)
@@ -1332,7 +1584,7 @@ int kvmi_arch_cmd_set_page_access(struct kvm_introspection *kvmi,
 	if (msg->size < struct_size(req, entries, req->count))
 		return -KVM_EINVAL;
 
-	if (!is_valid_view(req->view))
+	if (!is_valid_view(kvmi->kvm, req->view))
 		return -KVM_EINVAL;
 
 	if (req->view != 0 &&

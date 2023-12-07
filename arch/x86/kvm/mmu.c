@@ -1133,12 +1133,12 @@ static int mmu_topup_memory_caches(struct kvm_vcpu *vcpu)
 	if (r)
 		goto out;
 	r = mmu_topup_memory_cache_page(&vcpu->arch.mmu_page_cache,
-					8 * KVM_MAX_EPT_VIEWS);
+					8 * vcpu->kvm->arch.mmu_root_hpa_altviews_count);
 	if (r)
 		goto out;
 	r = mmu_topup_memory_cache(&vcpu->arch.mmu_page_header_cache,
 				   mmu_page_header_cache,
-				   4 * KVM_MAX_EPT_VIEWS);
+				   4 * vcpu->kvm->arch.mmu_root_hpa_altviews_count);
 out:
 	return r;
 }
@@ -2726,14 +2726,14 @@ static void kvm_mmu_commit_zap_page(struct kvm *kvm,
 				    struct list_head *invalid_list);
 
 
-#define for_each_valid_sp(_kvm, _sp, _gfn, view)			\
+#define for_each_valid_sp(_vcpu, _sp, _gfn, view)			\
 	hlist_for_each_entry(_sp,					\
-	  &(_kvm)->arch.mmu_page_hash[view][kvm_page_table_hashfn(_gfn)], hash_link) \
-		if (is_obsolete_sp((_kvm), (_sp))) {			\
+	  &(_vcpu)->arch.mmu->page_hash[view][kvm_page_table_hashfn(_gfn)], hash_link) \
+		if (is_obsolete_sp(((_vcpu)->kvm), (_sp))) {			\
 		} else
 
-#define for_each_gfn_indirect_valid_sp(_kvm, _sp, _gfn)			\
-	for_each_valid_sp(_kvm, _sp, _gfn, 0)				\
+#define for_each_gfn_indirect_valid_sp(_vcpu, _sp, _gfn)			\
+	for_each_valid_sp(_vcpu, _sp, _gfn, 0)				\
 		if ((_sp)->gfn != (_gfn) || (_sp)->role.direct) {} else
 
 static inline bool is_ept_sp(struct kvm_mmu_page *sp)
@@ -2806,7 +2806,7 @@ static bool kvm_sync_pages(struct kvm_vcpu *vcpu, gfn_t gfn,
 	struct kvm_mmu_page *s;
 	bool ret = false;
 
-	for_each_gfn_indirect_valid_sp(vcpu->kvm, s, gfn) {
+	for_each_gfn_indirect_valid_sp(vcpu, s, gfn) {
 		if (!s->unsync)
 			continue;
 
@@ -2965,7 +2965,7 @@ static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
 		quadrant &= (1 << ((PT32_PT_BITS - PT64_PT_BITS) * level)) - 1;
 		role.quadrant = quadrant;
 	}
-	for_each_valid_sp(vcpu->kvm, sp, gfn, view) {
+	for_each_valid_sp(vcpu, sp, gfn, view) {
 		if (sp->gfn != gfn) {
 			collisions++;
 			continue;
@@ -3005,7 +3005,7 @@ static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
 	sp->view = view;
 	pg_hash = kvm_page_table_hashfn(gfn);
 	hlist_add_head(&sp->hash_link,
-		&vcpu->kvm->arch.mmu_page_hash[view][pg_hash]);
+		&vcpu->arch.mmu->page_hash[view][pg_hash]);
 	if (!direct) {
 		/*
 		 * we should do write protection before syncing pages
@@ -3328,19 +3328,21 @@ void kvm_mmu_change_mmu_pages(struct kvm *kvm, unsigned long goal_nr_mmu_pages)
 
 int kvm_mmu_unprotect_page(struct kvm *kvm, gfn_t gfn)
 {
+	struct kvm_vcpu *vcpu;
 	struct kvm_mmu_page *sp;
 	LIST_HEAD(invalid_list);
-	int r;
+	int r, i;
 
 	pgprintk("%s: looking for gfn %llx\n", __func__, gfn);
 	r = 0;
 	spin_lock(&kvm->mmu_lock);
-	for_each_gfn_indirect_valid_sp(kvm, sp, gfn) {
-		pgprintk("%s: gfn %llx role %x\n", __func__, gfn,
-			 sp->role.word);
-		r = 1;
-		kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list);
-	}
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		for_each_gfn_indirect_valid_sp(vcpu, sp, gfn) {
+			pgprintk("%s: gfn %llx role %x\n", __func__, gfn,
+				 sp->role.word);
+			r = 1;
+			kvm_mmu_prepare_zap_page(kvm, sp, &invalid_list);
+		}
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
 	spin_unlock(&kvm->mmu_lock);
 
@@ -3366,7 +3368,7 @@ static bool mmu_need_write_protect(struct kvm_vcpu *vcpu, gfn_t gfn,
 	    kvm_page_track_is_active(vcpu, gfn, KVM_PAGE_TRACK_WRITE))
 		return true;
 
-	for_each_gfn_indirect_valid_sp(vcpu->kvm, sp, gfn) {
+	for_each_gfn_indirect_valid_sp(vcpu, sp, gfn) {
 		if (!can_unsync)
 			return true;
 
@@ -4245,9 +4247,9 @@ void kvm_mmu_free_roots(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 	if (free_active_root) {
 		if (mmu->shadow_root_level >= PT64_ROOT_4LEVEL &&
 		    (mmu->root_level >= PT64_ROOT_4LEVEL || mmu->direct_map)) {
-			for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+			for (i = 0; i < vcpu->kvm->arch.mmu_root_hpa_altviews_count; i++)
 				mmu_free_root_page(vcpu->kvm,
-						   mmu->root_hpa_altviews + i,
+						   &mmu->root_hpa_altviews[i],
 						   &invalid_list);
 			mmu->root_hpa = INVALID_PAGE;
 			if (vcpu->kvm->arch.spp_active) {
@@ -4295,7 +4297,7 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 			spin_unlock(&vcpu->kvm->mmu_lock);
 			return -ENOSPC;
 		}
-		for (i = 0; i < KVM_MAX_EPT_VIEWS; i++) {
+		for (i = 0; i < vcpu->kvm->arch.mmu_root_hpa_altviews_count; i++) {
 			sp = kvm_mmu_get_page(vcpu, 0, PAGE_SIZE * i,
 					vcpu->arch.mmu->shadow_root_level, 1,
 					ACC_ALL, i);
@@ -5766,9 +5768,14 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu, bool reset_roots)
 			vcpu->kvm->arch.sppt_root = INVALID_PAGE;
 
 		for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
-			vcpu->arch.mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
+			vcpu->arch.mmu->prev_roots[i]
+				= KVM_MMU_ROOT_INFO_INVALID;
 
-		for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+		vcpu->arch.mmu->root_hpa_altviews = krealloc(
+			vcpu->arch.mmu->root_hpa_altviews,
+			vcpu->kvm->arch.mmu_root_hpa_altviews_count * sizeof(hpa_t),
+			GFP_NOIO);
+		for (i = 0; i < vcpu->kvm->arch.mmu_root_hpa_altviews_count; i++)
 			vcpu->arch.mmu->root_hpa_altviews[i] = INVALID_PAGE;
 	}
 
@@ -5992,7 +5999,7 @@ static void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa, gva_t gva,
 	++vcpu->kvm->stat.mmu_pte_write;
 	kvm_mmu_audit(vcpu, AUDIT_PRE_PTE_WRITE);
 
-	for_each_gfn_indirect_valid_sp(vcpu->kvm, sp, gfn) {
+	for_each_gfn_indirect_valid_sp(vcpu, sp, gfn) {
 		if (detect_write_misaligned(sp, gpa, bytes) ||
 		      detect_write_flooding(sp)) {
 			kvm_mmu_prepare_zap_page(vcpu->kvm, sp, &invalid_list);
@@ -6348,7 +6355,11 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.root_mmu.translate_gpa = translate_gpa;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		vcpu->arch.root_mmu.prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
-	for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+	vcpu->arch.root_mmu.root_hpa_altviews = krealloc(
+		vcpu->arch.root_mmu.root_hpa_altviews,
+		vcpu->kvm->arch.mmu_root_hpa_altviews_count * sizeof(hpa_t),
+		GFP_NOIO);
+	for (i = 0; i < vcpu->kvm->arch.mmu_root_hpa_altviews_count; i++) 
 		vcpu->arch.root_mmu.root_hpa_altviews[i] = INVALID_PAGE;
 
 	vcpu->arch.guest_mmu.root_hpa = INVALID_PAGE;
@@ -6356,8 +6367,18 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.guest_mmu.translate_gpa = translate_gpa;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		vcpu->arch.guest_mmu.prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
-	for (i = 0; i < KVM_MAX_EPT_VIEWS; i++)
+	vcpu->arch.guest_mmu.root_hpa_altviews = krealloc(
+		vcpu->arch.guest_mmu.root_hpa_altviews,
+		vcpu->kvm->arch.mmu_root_hpa_altviews_count * sizeof(hpa_t),
+		GFP_NOIO);
+	for (i = 0; i < vcpu->kvm->arch.mmu_root_hpa_altviews_count; i++) 
 		vcpu->arch.guest_mmu.root_hpa_altviews[i] = INVALID_PAGE;
+
+	vcpu->arch.mmu->page_hash = kvcalloc(1, sizeof(void*),
+					     GFP_KERNEL_ACCOUNT);
+	*vcpu->arch.mmu->page_hash = kmalloc(KVM_NUM_MMU_PAGES *
+					     sizeof(struct hlist_head),
+					     GFP_KERNEL_ACCOUNT);
 
 	vcpu->arch.nested_mmu.translate_gpa = translate_nested_gpa;
 
@@ -6942,9 +6963,12 @@ unsigned long kvm_mmu_calculate_default_mmu_pages(struct kvm *kvm)
 
 void kvm_mmu_destroy(struct kvm_vcpu *vcpu)
 {
+	kfree(*vcpu->arch.mmu->page_hash);
+	kvfree(vcpu->arch.mmu->page_hash);
 	kvm_mmu_unload(vcpu);
 	free_mmu_pages(&vcpu->arch.root_mmu);
 	free_mmu_pages(&vcpu->arch.guest_mmu);
+	kfree(vcpu->arch.mmu->root_hpa_altviews);
 	mmu_free_memory_caches(vcpu);
 }
 

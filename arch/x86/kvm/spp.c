@@ -111,7 +111,7 @@ struct kvm_mmu_page *kvm_spp_get_page(struct kvm_vcpu *vcpu,
 	role.direct = true;
 	role.spp = true;
 
-	for_each_valid_sp(vcpu->kvm, sp, gfn, 0) {
+	for_each_valid_sp(vcpu, sp, gfn, 0) {
 		if (sp->gfn != gfn)
 			continue;
 		if (sp->role.word != role.word)
@@ -124,7 +124,7 @@ struct kvm_mmu_page *kvm_spp_get_page(struct kvm_vcpu *vcpu,
 	sp->gfn = gfn;
 	sp->role = role;
 	hlist_add_head(&sp->hash_link,
-		       &vcpu->kvm->arch.mmu_page_hash
+		       &vcpu->arch.mmu->page_hash
 		       [0][kvm_page_table_hashfn(gfn)]);
 	kvm_x86_ops->clear_page(sp->spt);
 out:
