@@ -976,7 +976,7 @@ static int handle_vcpu_change_gfn(const struct kvmi_vcpu_cmd_job *job,
 	const struct kvmi_vcpu_change_gfn *req = _req;
 	int ec;
 
-	ec = kvmi_arch_cmd_change_gfn(job->vcpu, req->old_gfn, req->new_gfn);
+	ec = kvmi_arch_cmd_change_gfn(job->vcpu, req->view, req->old_gfn, req->new_gfn);
 
 	return kvmi_msg_vcpu_reply(job, msg, ec, NULL, 0);
 }

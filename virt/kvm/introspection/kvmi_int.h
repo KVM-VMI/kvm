@@ -243,6 +243,7 @@ gpa_t kvmi_arch_cmd_translate_gva(struct kvm_vcpu *vcpu, gva_t gva);
 bool kvmi_arch_invalid_insn(struct kvm_vcpu *vcpu, int *emulation_type);
 u8 kvmi_arch_relax_page_access(u8 old, u8 new);
 int kvmi_arch_cmd_create_ept_view(struct kvm *kvm);
+int kvmi_arch_destroy_ept_view(struct kvm *kvm, u16 view, bool sync);
 int kvmi_arch_cmd_destroy_ept_view(struct kvm *kvm, u16 view);
 u16 kvmi_arch_cmd_get_ept_view(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_set_ept_view(struct kvm_vcpu *vcpu, u16 view);
@@ -250,7 +251,7 @@ int kvmi_arch_cmd_control_ept_view(struct kvm_vcpu *vcpu, u16 view,
 				   bool visible);
 int kvmi_arch_cmd_set_ve_info(struct kvm_vcpu *vcpu, u64 gpa,
 			      bool trigger_vmexit);
-int kvmi_arch_cmd_change_gfn(struct kvm_vcpu *vcpu, u64 old_gfn, u64 new_gfn);
+int kvmi_arch_cmd_change_gfn(struct kvm_vcpu *vcpu, u16 view, u64 old_gfn, u64 new_gfn);
 int kvmi_arch_cmd_disable_ve(struct kvm_vcpu *vcpu);
 int kvmi_arch_cmd_control_spp(struct kvm *kvm);
 int kvmi_arch_cmd_set_page_write_bitmap(struct kvm_introspection *kvmi,

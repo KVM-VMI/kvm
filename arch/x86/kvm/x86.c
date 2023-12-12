@@ -8380,6 +8380,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		kvm_cpu_accept_dm_intr(vcpu);
 
 	bool req_immediate_exit = false;
+	bool in_reload = false;
 
 	if (kvm_request_pending(vcpu)) {
 		if (kvm_check_request(KVM_REQ_GET_VMCS12_PAGES, vcpu)) {
@@ -8388,8 +8389,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 				goto out;
 			}
 		}
-		if (kvm_check_request(KVM_REQ_MMU_RELOAD, vcpu))
+		if (kvm_check_request(KVM_REQ_MMU_RELOAD, vcpu)) {
 			kvm_mmu_unload(vcpu);
+			in_reload = true;
+		}
 		if (kvm_check_request(KVM_REQ_MIGRATE_TIMER, vcpu))
 			__kvm_migrate_timers(vcpu);
 		if (kvm_check_request(KVM_REQ_MASTERCLOCK_UPDATE, vcpu))
@@ -8522,6 +8525,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	if (unlikely(r)) {
 		goto cancel_injection;
 	}
+
+	if (in_reload && vcpu->kvm->kvmi)
+		clear_bit(kvm_vcpu_get_idx(vcpu), vcpu->kvm->kvmi->mmu_reload_mask);
 
 	preempt_disable();
 

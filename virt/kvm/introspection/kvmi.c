@@ -293,7 +293,7 @@ static void kvmi_clear_altviews(struct kvm *kvm)
 	for (view = 1;
 	     view < kvm->arch.mmu_root_hpa_altviews_count;
 	     view++)
-		kvmi_arch_cmd_destroy_ept_view(kvm, view);
+		kvmi_arch_destroy_ept_view(kvm, view, false);
 
 	if (refcount_dec_and_test(&kvm->arch.kvmi_refcount)) {
 		unsigned long zap_mask = ~(1 << default_view);
