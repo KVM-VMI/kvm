@@ -1720,8 +1720,9 @@ static void kvmi_track_flush_slot(struct kvm *kvm, struct kvm_memory_slot *slot,
 					start, view, &write_bitmap);
 			if (access != full_access) {
 				kvmi_insert_mem_access(kvm, start,
+						access,
 						write_bitmap,
-						access, view);
+						view);
 				/* Remove all restrictions */
 				kvmi_arch_update_page_tracking(kvm,
 						slot,
